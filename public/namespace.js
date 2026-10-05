@@ -142,7 +142,7 @@ const sealedMode = async (secretName) => {
     if (!openedItems.has(item.metadata)) {
       openedItems.set(
         item.metadata,
-        space.openItem(item.metadata).catch(() => null),
+        space.openItem(item.metadata, item.size).catch(() => null),
       );
     }
     return openedItems.get(item.metadata);

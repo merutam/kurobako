@@ -120,7 +120,7 @@ export const NAMESPACE_PATTERN = new RegExp(
   `^[a-z0-9](?:[a-z0-9_-]{0,${NAMESPACE_MAX_LENGTH - 2}}[a-z0-9])?$`,
 );
 /** Sealed namespace IDs are derived in the browser from the secret name. */
-export const SEALED_ID_PATTERN = /^[0-9a-f]{32}$/;
+export const SEALED_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 /** Longest secret name accepted for an end-to-end encrypted namespace. */
 export const SEALED_NAME_MAX_LENGTH = 256;
 

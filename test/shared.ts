@@ -45,7 +45,11 @@ export const sharedTests = (harness: Harness) => {
     new URL((await (await call(path, init)).text()).trim()).pathname;
   /** Storage is shared between tests, so every test uses fresh namespaces. */
   const fresh = (prefix = "t") => `${prefix}${crypto.randomUUID().slice(0, 8)}`;
-  const freshSealedId = () => crypto.randomUUID().replaceAll("-", "");
+  const freshSealedId = () =>
+    btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/, "");
 
   describe("plain namespaces", () => {
     test("stores and returns text inside the namespace", async () => {
@@ -485,7 +489,9 @@ export const sharedTests = (harness: Harness) => {
       const content = await call(`/e/${id}/${item.id}`);
       expect(content.headers.get("content-type")).toBe("application/octet-stream");
       expect(new Uint8Array(await content.arrayBuffer())).toEqual(ciphertext);
-      expect(await json<Item[]>(`/${id}/ls`)).toEqual([]);
+      // A plain namespace with a similar name holds nothing of it.
+      const twin = id.toLowerCase().replace(/[^a-z0-9]/g, "0");
+      expect(await json<Item[]>(`/${twin}/ls`)).toEqual([]);
 
       expect((await call(`/e/${id}/${item.id}`, { method: "DELETE" })).status).toBe(200);
       expect(await json<Item[]>(`/e/${id}/ls`)).toEqual([]);
@@ -507,7 +513,7 @@ export const sharedTests = (harness: Harness) => {
 
       // With the name: list, unwrap the item key, read.
       const listed = defined((await json<Item[]>(`/e/${space.id}/ls`))[0], "the item in the list");
-      const opened = await space.openItem(listed.metadata);
+      const opened = await space.openItem(listed.metadata, listed.size);
       expect(opened.metadata).toEqual({
         kind: "text",
         title: "greeting",
@@ -522,7 +528,7 @@ export const sharedTests = (harness: Harness) => {
       // With only a share link's key: the same item, and nothing else.
       const url = await shareLink(`/e/${space.id}/${item.id}/s`);
       const shared = await json<SharedItem>(`${url}.json`);
-      const fromLink = await openSharedItem(keyText, shared.metadata);
+      const fromLink = await openSharedItem(keyText, shared.metadata, shared.size);
       const linked = await (await call(`${url}/c`)).arrayBuffer();
       expect(new TextDecoder().decode(await fromLink.open(linked))).toBe(
         "olá, só para quem tem o nome",
@@ -531,6 +537,7 @@ export const sharedTests = (harness: Harness) => {
         openSharedItem(
           keyText.replace(/^./, (c) => (c === "A" ? "B" : "A")),
           shared.metadata,
+          shared.size,
         ),
       ).rejects.toThrow();
     });
