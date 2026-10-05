@@ -264,10 +264,14 @@ describe("bun server", () => {
     await run(["-H", "burn:1", "-d", "@-", `${link}/new`], "second text");
 
     // /ls is the plain API's JSON, decrypted; the bare link is a table.
-    expect(JSON.parse(await k(`${link}/ls`))).toMatchObject([
+    const listed = JSON.parse(await k(`${link}/ls`));
+    expect(listed).toMatchObject([
       { kind: "text", burn: true },
-      { kind: "text", text: "first text" },
+      { kind: "text", name: "first text", text: "first text" },
     ]);
+    // Burn-after-reading texts have no name; every item says where its (sealed) contents are.
+    expect(listed[0].name).toBeUndefined();
+    for (const item of listed) expect(item.contentUrl).toMatch(/^\/e\/[0-9a-f]{32}\/[a-z]{6}$/);
     expect(await k(link)).toContain("deletes when opened");
 
     // Items by position: 1 is the newest. Reading a burn-after-reading item consumes it.
