@@ -59,6 +59,8 @@ export const createContext = (
     inlineTextBytes: config.inlineTextBytes,
     itemTtlSeconds: config.itemTtlMs / 1000,
     maxItems: config.maxItems,
+    /** Sends per client address per minute; more get 429 until the minute is over. */
+    sendsPerMinute: config.sendsPerMinute,
     namespace: {
       pattern: NAMESPACE_PATTERN.source,
       maxLength: NAMESPACE_MAX_LENGTH,

@@ -832,6 +832,7 @@ export const sharedTests = (harness: Harness) => {
         base: "",
         version: expect.any(String),
         maxItems: config.maxItems,
+        sendsPerMinute: config.sendsPerMinute,
         inlineTextBytes: config.inlineTextBytes,
         live: { ping: "ping" },
       });
