@@ -46,15 +46,15 @@ node k.mjs -d 'hello' "$BOX/e#secret name/new"
 node k.mjs -O "$BOX/e#secret name"             # save every item here
 ```
 
-`node k.mjs` lists everything it does. When a request fails and the server
-runs another version, it says so. The encryption is described at `/k/protocol`
-on every instance. Every instance describes itself (base path,
-version, limits) at `/.well-known/kurobako`.
+`node k.mjs` lists everything it does. The encryption is described at
+`/k/protocol` on every instance. Every instance describes itself
+(base path, version, limits) at `/.well-known/kurobako`.
 
 ## Behavior
 
-- **Nothing stored until something is sent**, so scanners leave nothing
-  behind. A namespace left empty for an hour is deleted.
+- **A namespace exists once something is sent to it**, so opening random
+  names creates nothing. Once its items are gone, it is
+  deleted after an hour.
 - **Limits:** texts up to 256 kB, files up to 100 MB, 30 sends a minute per
   address.
 - **File types** come from the bytes: PNG, JPEG, GIF, WebP, AVIF and HEIC are
@@ -66,7 +66,8 @@ version, limits) at `/.well-known/kurobako`.
   namespace, and die with it. Encrypted ones carry the item's key after the
   `#`.
 - **Live:** open pages get every change over a WebSocket.
-- **Access log** at `<ns>/log`; the home page shows aggregate stats only.
+- **Access log** at `<ns>/log`. The home page shows aggregate stats only,
+  counted from page views, whose address and country are kept for a day.
 
 ## Running it
 
