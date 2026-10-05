@@ -93,7 +93,7 @@ private R2 bucket. Set `account_id`, `routes` and `bucket_name` in
 **Self-hosted.** `src/bun/server.ts` keeps one SQLite file per namespace and
 larger texts and files in any S3-compatible store. Namespace databases open
 lazily; the least recently used connections are closed after reaching
-`SQLITE_MAX_OPEN` (default `100`), and idle connections close after
+`SQLITE_MAX_OPEN` (default `1000`), and idle connections close after
 `SQLITE_IDLE_SECONDS` (default `60`). `compose.yaml` runs it with
 [Garage](https://garagehq.deuxfleurs.fr/):
 
