@@ -14,6 +14,7 @@ import {
   openSharedItem,
   safeName,
 } from "../public/k.mjs";
+import { BUN_LIMITS } from "../src/bun/limits";
 import { startServer } from "../src/bun/server";
 import { type AppConfig, loadConfig } from "../src/config";
 import { safeFileName } from "../src/image";
@@ -45,7 +46,7 @@ const memoryStore = () => {
 };
 
 const config: AppConfig = {
-  ...loadConfig({}),
+  ...loadConfig({}, BUN_LIMITS),
   // Short enough to watch a cleanup happen.
   emptyNamespaceTtlMs: 300,
   maxItems: 3,
@@ -83,7 +84,7 @@ const call = (path: string, init?: RequestInit) => fetch(`${base}${path}`, init)
  * address, as on Cloudflare.
  */
 describe("shared", () => {
-  const sharedConfig = loadConfig({ ADMIN_KEY: TEST_ADMIN_KEY });
+  const sharedConfig = loadConfig({ ADMIN_KEY: TEST_ADMIN_KEY }, BUN_LIMITS);
   const sharedDir = mkdtempSync(join(tmpdir(), "kurobako-shared-"));
   const sharedBlobs = memoryStore();
   let shared: Awaited<ReturnType<typeof startServer>>;
@@ -411,6 +412,20 @@ describe("bun server", () => {
  * k.mjs is a single file people download, so a few rules live both there and
  * in the server (or the pages). These must agree.
  */
+test("a self-hosted server takes larger sizes than Cloudflare", () => {
+  const config = loadConfig(
+    { MAX_FILE_BYTES: "2000000000", MAX_TEXT_BYTES: "4000000" },
+    BUN_LIMITS,
+  );
+  expect(config).toMatchObject({ maxFileBytes: 2_000_000_000, maxTextBytes: 4_000_000 });
+  // The defaults stay the same everywhere.
+  expect(loadConfig({}, BUN_LIMITS)).toMatchObject({
+    maxFileBytes: 100_000_000,
+    maxTextBytes: 256_000,
+  });
+  expect(() => loadConfig({ MAX_FILE_BYTES: "20000000000" }, BUN_LIMITS)).toThrow(/MAX_FILE_BYTES/);
+});
+
 describe("rules kept in two places", () => {
   test("default text names", () => {
     const texts = [

@@ -8,6 +8,7 @@ import { loadConfig } from "../config";
 import { objectName } from "../model";
 import { loadAssets } from "../pages";
 import type { NamespaceApi, Platform } from "../platform";
+import { CLOUDFLARE_LIMITS } from "./limits";
 import { hubOf, VISIT_HEADER } from "./objects";
 import { r2Store } from "./r2";
 
@@ -64,7 +65,7 @@ const readAsset = (assets: Fetcher) => async (path: string) => {
 };
 
 const buildApp = async (env: Env) =>
-  createApp(loadConfig(env), await loadAssets(readAsset(env.ASSETS)), (c) =>
+  createApp(loadConfig(env, CLOUDFLARE_LIMITS), await loadAssets(readAsset(env.ASSETS)), (c) =>
     platformFor(c.env as Env, c.executionCtx as ExecutionContext),
   );
 
