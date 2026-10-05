@@ -492,6 +492,9 @@ export const sharedTests = (harness: Harness) => {
       // /c is the same, as on a share link.
       const viaC = await call(`/e/${id}/${item.id}/c`);
       expect(new Uint8Array(await viaC.arrayBuffer())).toEqual(ciphertext);
+      // Its name is sealed: a download goes by its ID, so curl -OJ names it sensibly.
+      const download = await call(`/e/${id}/${item.id}/d`);
+      expect(download.headers.get("content-disposition")).toContain(`filename="${item.id}.sealed"`);
       // A plain namespace with a similar name holds nothing of it.
       const twin = id.toLowerCase().replace(/[^a-z0-9]/g, "0");
       expect(await json<Item[]>(`/${twin}/ls`)).toEqual([]);
@@ -738,6 +741,11 @@ export const sharedTests = (harness: Harness) => {
       expect(new Uint8Array(await (await call(`${url}/c`)).arrayBuffer())).toEqual(
         new Uint8Array([7, 7, 7]),
       );
+      // Downloaded under the token, which the link already shows, never the item's ID.
+      const token = url.split("/").pop();
+      const disposition = (await call(`${url}/d`)).headers.get("content-disposition") ?? "";
+      expect(disposition).toContain(`filename="${token}.sealed"`);
+      expect(disposition).not.toContain(item.id);
     });
   });
 
