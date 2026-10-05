@@ -73,8 +73,8 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 
 | Variable | Default | Notes |
 | --- | ---: | --- |
-| `MAX_FILE_BYTES` | `100000000` | 100 MB at most: Cloudflare's request size on its Free and Pro plans |
-| `MAX_TEXT_BYTES` | `256000` | 1 MB at most: a text is kept in a database row, which Cloudflare caps at 2 MB |
+| `MAX_FILE_BYTES` | `100000000` | at most 100 MB on Cloudflare (its request size on the Free and Pro plans), 10 GB self-hosted |
+| `MAX_TEXT_BYTES` | `256000` | at most 1 MB on Cloudflare (a text is kept in a database row, capped there at 2 MB), 16 MB self-hosted |
 | `ITEM_TTL_SECONDS` | `86400` | `0`: no expiry; 30 days at most |
 | `MAX_ITEMS` | `20` | per namespace; 1,000 at most |
 | `EMPTY_NAMESPACE_TTL_SECONDS` | `3600` | before an empty namespace is deleted |

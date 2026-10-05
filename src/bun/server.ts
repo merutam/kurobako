@@ -11,6 +11,7 @@ import { createApp } from "../app";
 import { type AppConfig, loadConfig } from "../config";
 import { ICON_FILES, loadAssets, STATIC_FILES } from "../pages";
 import type { BlobStore } from "../platform";
+import { BUN_LIMITS } from "./limits";
 import { type BunEnv, createBunPlatform } from "./platform";
 import { s3Store } from "./s3";
 
@@ -145,7 +146,7 @@ if (import.meta.main) {
     }),
   );
   const { server } = await startServer({
-    config: loadConfig(env),
+    config: loadConfig(env, BUN_LIMITS),
     dataDir: env.DATA_DIR || "data",
     blobs,
     port: Number(env.PORT || 3000),

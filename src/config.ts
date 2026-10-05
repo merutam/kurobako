@@ -15,6 +15,9 @@ export type AppConfig = {
   adminSessionHours: number;
 };
 
+/** The largest sizes a platform can take; each platform sets its own. */
+export type PlatformLimits = { maxFileBytes: number; maxTextBytes: number };
+
 /** Long enough that guessing it, even without the login rate limit, is hopeless. */
 export const ADMIN_KEY_MIN_LENGTH = 32;
 
@@ -48,15 +51,28 @@ const adminKey = (vars: Vars): string | null => {
   return key;
 };
 
-/** Reads the settings from environment variables (or a Worker's vars and secrets). */
-export const loadConfig = (env: object): AppConfig => {
+/**
+ * Reads the settings from environment variables (or a Worker's vars and
+ * secrets). The defaults are the same everywhere; how far the sizes may go is
+ * the platform's `limits`.
+ */
+export const loadConfig = (env: object, limits: PlatformLimits): AppConfig => {
   const vars = env as Vars;
   return {
-    // Cloudflare Workers accept request bodies up to 100 MB.
-    maxFileBytes: integer(vars, "MAX_FILE_BYTES", 100_000_000, 1_000, 100_000_000),
-    // Texts live in a database row (2 MB at most on Cloudflare) and are pushed
-    // to every live viewer with the whole queue, so they stay much smaller.
-    maxTextBytes: integer(vars, "MAX_TEXT_BYTES", 256_000, 1, 1_000_000),
+    maxFileBytes: integer(
+      vars,
+      "MAX_FILE_BYTES",
+      Math.min(100_000_000, limits.maxFileBytes),
+      1_000,
+      limits.maxFileBytes,
+    ),
+    maxTextBytes: integer(
+      vars,
+      "MAX_TEXT_BYTES",
+      Math.min(256_000, limits.maxTextBytes),
+      1,
+      limits.maxTextBytes,
+    ),
     itemTtlMs: integer(vars, "ITEM_TTL_SECONDS", 24 * 60 * 60, 0, 30 * 24 * 60 * 60) * 1000,
     maxItems: integer(vars, "MAX_ITEMS", 20, 1, 1_000),
     maxLiveConnections: integer(vars, "MAX_LIVE_CONNECTIONS", 100, 1, 10_000),

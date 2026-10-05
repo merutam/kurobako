@@ -8,6 +8,7 @@ import {
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, test } from "vitest";
+import { CLOUDFLARE_LIMITS } from "../src/cloudflare/limits";
 import { HUB_NAME } from "../src/cloudflare/objects";
 import worker from "../src/cloudflare/worker";
 import { loadConfig } from "../src/config";
@@ -85,7 +86,7 @@ sharedTests({
   call,
   storedFiles: async (prefix) =>
     (await env.BUCKET.list({ prefix })).objects.map((object) => object.key),
-  config: loadConfig(env),
+  config: loadConfig(env, CLOUDFLARE_LIMITS),
   origin: ORIGIN,
   adminKey: TEST_ADMIN_KEY,
 });
@@ -95,7 +96,7 @@ sharedTests({
 
 describe("plain namespaces", () => {
   test("rejects bodies over the limit and files without a length", async () => {
-    const { maxTextBytes, maxFileBytes } = loadConfig(env);
+    const { maxTextBytes, maxFileBytes } = loadConfig(env, CLOUDFLARE_LIMITS);
     expect((await sendText(fresh(), "x".repeat(maxTextBytes + 1))).status).toBe(413);
     const tooBig = await call(`/${fresh()}/new`, {
       method: "POST",
@@ -381,9 +382,18 @@ describe("site", () => {
 
 describe("config", () => {
   test("disables the admin without a key and refuses short keys", () => {
-    expect(loadConfig({}).adminKey).toBeNull();
-    expect(() => loadConfig({ ADMIN_KEY: "short" })).toThrow(/at least/);
-    expect(loadConfig({ ADMIN_KEY: TEST_ADMIN_KEY }).adminKey).toBe(TEST_ADMIN_KEY);
+    expect(loadConfig({}, CLOUDFLARE_LIMITS).adminKey).toBeNull();
+    expect(() => loadConfig({ ADMIN_KEY: "short" }, CLOUDFLARE_LIMITS)).toThrow(/at least/);
+    expect(loadConfig({ ADMIN_KEY: TEST_ADMIN_KEY }, CLOUDFLARE_LIMITS).adminKey).toBe(
+      TEST_ADMIN_KEY,
+    );
+    // Cloudflare's own limits cap the sizes.
+    expect(() => loadConfig({ MAX_FILE_BYTES: "200000000" }, CLOUDFLARE_LIMITS)).toThrow(
+      /MAX_FILE_BYTES/,
+    );
+    expect(() => loadConfig({ MAX_TEXT_BYTES: "2000000" }, CLOUDFLARE_LIMITS)).toThrow(
+      /MAX_TEXT_BYTES/,
+    );
   });
 });
 

@@ -10,6 +10,7 @@ import { type NamespaceRef, objectName } from "../model";
 import { type ItemRef, LIVE, NamespaceCore, type SaveInput } from "../namespace";
 import type { HubApi, Sql, SqlValue } from "../platform";
 import type { AccessEvent } from "../request-info";
+import { CLOUDFLARE_LIMITS } from "./limits";
 import { r2Store } from "./r2";
 
 /** There is exactly one hub. */
@@ -32,7 +33,7 @@ export class NamespaceObject extends DurableObject<Env> {
     // Answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(LIVE.ping, LIVE.pong));
     const sql = sqlOf(ctx.storage);
-    this.core = new NamespaceCore(loadConfig(env), {
+    this.core = new NamespaceCore(loadConfig(env, CLOUDFLARE_LIMITS), {
       hasStorage: () =>
         sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").length > 0,
       sql: () => sql,
@@ -125,7 +126,7 @@ export class HubObject extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.core = new HubCore(loadConfig(env), {
+    this.core = new HubCore(loadConfig(env, CLOUDFLARE_LIMITS), {
       sql: sqlOf(ctx.storage),
       ensureAlarm: async (time) => {
         if ((await ctx.storage.getAlarm()) === null) await ctx.storage.setAlarm(time);
