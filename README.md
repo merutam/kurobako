@@ -118,6 +118,7 @@ bun run dev          # wrangler dev
 bun run test         # Worker tests, then the Bun server's
 bun run typecheck
 bun run lint         # Biome; bun run format applies its fixes
+bun pm version minor # new version, in package.json and public/k.mjs
 ```
 
 - `src/app.ts` puts together the routes in `src/api/`.

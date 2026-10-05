@@ -5,6 +5,6 @@
     "allowJs": true
   },
   // The shared code, the Bun server and its tests; Cloudflare-only code is left out.
-  "include": ["src/**/*.ts", "test/bun.test.ts"],
+  "include": ["src/**/*.ts", "test/bun.test.ts", "ops/*.ts"],
   "exclude": ["src/cloudflare", "src/worker-configuration.d.ts"]
 }
