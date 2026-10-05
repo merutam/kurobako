@@ -57,7 +57,8 @@ type Relay = {
   target: string;
   headers: Headers;
   upstream?: WebSocket;
-  pending: (string | Buffer)[];
+  /** What the client sent before the server's side was open. */
+  pending: (string | Uint8Array<ArrayBuffer>)[];
 };
 
 /** Bun's WebSocket client also takes request headers, which the DOM types leave out. */
@@ -225,12 +226,14 @@ export const startRouter = (options: RouterOptions) => {
         const relay = socket.data;
         const upstream = new BunWebSocket(relay.target, { headers: relay.headers });
         relay.upstream = upstream;
-        upstream.binaryType = "nodebuffer";
+        upstream.binaryType = "arraybuffer";
         upstream.addEventListener("open", () => {
           for (const message of relay.pending) upstream.send(message);
           relay.pending = [];
         });
-        upstream.addEventListener("message", (event) => socket.send(event.data as string | Buffer));
+        upstream.addEventListener("message", (event) =>
+          socket.send(event.data as string | ArrayBuffer),
+        );
         upstream.addEventListener("close", (event) =>
           socket.close(closeCode(event.code), event.reason),
         );
@@ -238,8 +241,11 @@ export const startRouter = (options: RouterOptions) => {
       },
       message(socket, message) {
         const { upstream, pending } = socket.data;
-        if (upstream?.readyState === WebSocket.OPEN) upstream.send(message);
-        else pending.push(message);
+        // Bun hands binary messages over as a Buffer, possibly on shared
+        // memory, which a WebSocket does not send: a plain copy goes.
+        const data = typeof message === "string" ? message : new Uint8Array(message);
+        if (upstream?.readyState === WebSocket.OPEN) upstream.send(data);
+        else pending.push(data);
       },
       close(socket) {
         socket.data.upstream?.close();
