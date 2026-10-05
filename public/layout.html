@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Kurobako contributors
+-->
+<!--
+  The frame of every page. The server fills it in once, at start: each page
+  in public/ is a <head> with its own tags and a <main> with its content.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="/theme.js"></script>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <!--%HEAD%-->
+  </head>
+  <body>
+    <main%MAIN_ATTRIBUTES%>
+      <header class="site-header">
+        <p class="site-name">
+          <a href="/"><img src="/logo.png" alt="" width="32" height="32" />Kurobako</a>
+        </p>
+        <div id="appearance"></div>
+      </header>
+      <!--%MAIN%-->
+    </main>
+    <footer class="site-footer">
+      Kurobako %APP_VERSION% · <a href="/protocol">Encryption</a> ·
+      <a href="https://github.com/merutam/kurobako">Source on GitHub</a>
+    </footer>
+  </body>
+</html>

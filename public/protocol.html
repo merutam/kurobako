@@ -1,0 +1,320 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Kurobako contributors
+-->
+<head>
+  <title>Encryption · Kurobako</title>
+</head>
+<main class="prose">
+  <h1>Encryption</h1>
+  <p class="lead">
+    Everything needed to read or write encrypted namespaces with your own
+    code.
+  </p>
+
+  <h2>Overview</h2>
+  <p>
+    Everything is encrypted in the client. The secret name stays on the
+    device, where it derives a <strong>namespace ID</strong>, which the
+    server uses to find the namespace, and a <strong>namespace key</strong>. Each item has its own
+    random <strong>item key</strong>, which encrypts its contents and
+    metadata and is wrapped with the namespace key. A share link carries
+    one item key and opens that one item. All encryption is AES-128-GCM,
+    and binary values in text form are base64url without padding
+    (<a href="https://www.rfc-editor.org/rfc/rfc4648#section-5">RFC 4648 §5</a>).
+  </p>
+
+  <h2>Namespace ID and key</h2>
+  <ol>
+    <li>
+      Normalize the name: Unicode NFC, then trim surrounding whitespace.
+      The name cannot contain <code>/</code>, which in a link
+      (<code>/e#name/ls</code>) starts the path.
+    </li>
+    <li>
+      Derive 32 bytes (one SHA-256 block) with PBKDF2:
+      <table class="wikitable">
+        <tbody>
+          <tr>
+            <th scope="row">Hash</th>
+            <td>SHA-256</td>
+          </tr>
+          <tr>
+            <th scope="row">Password</th>
+            <td>the normalized name, UTF-8</td>
+          </tr>
+          <tr>
+            <th scope="row">Salt</th>
+            <td><code>kurobako/sealed/v2</code> (UTF-8)</td>
+          </tr>
+          <tr>
+            <th scope="row">Iterations</th>
+            <td>600,000</td>
+          </tr>
+          <tr>
+            <th scope="row">Output</th>
+            <td>256 bits (32 bytes)</td>
+          </tr>
+        </tbody>
+      </table>
+    </li>
+    <li>
+      <strong>Namespace ID</strong>: bytes 0-15 as lowercase hex (32
+      characters). The namespace lives at <code>/e/&lt;id&gt;/…</code>.
+    </li>
+    <li>
+      <strong>Namespace key</strong>: bytes 16-31, an AES-128-GCM key. A
+      namespace is as safe as its name is hard to guess, since each guess
+      can be checked against the ID.
+    </li>
+  </ol>
+
+  <h2>How strong a name is</h2>
+  <p>
+    An encrypted namespace is as safe as its name is hard to guess. The
+    server stores each namespace under its ID, so anyone holding a copy
+    of its data (whoever runs it, a leak, the hosting provider) can try
+    names offline: derive the ID of each guess and look for it. The
+    600,000 PBKDF2 iterations make each guess slow, roughly 15,000 a
+    second on a fast GPU; without that data, every guess has to go
+    through the site itself. With 1,000 such GPUs:
+  </p>
+  <table class="wikitable">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>About</th>
+        <th>To guess</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Random name (16 characters)</td>
+        <td>80 bits</td>
+        <td>a billion years</td>
+      </tr>
+      <tr>
+        <td>4 random words from a large dictionary</td>
+        <td>50 bits</td>
+        <td>2 years</td>
+      </tr>
+      <tr>
+        <td>3 random words</td>
+        <td>38 bits</td>
+        <td>4 hours</td>
+      </tr>
+      <tr>
+        <td>a personal phrase (<code>joao2024</code>, <code>beach house</code>)</td>
+        <td>20-30 bits</td>
+        <td>seconds</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    The home page counts a typed name at 2.5 bits a character at most,
+    since names people pick follow patterns: words, dates, names.
+  </p>
+
+  <h2>Sealing</h2>
+  <p>
+    <em>Seal(key, plaintext)</em> = a random 12-byte IV, followed by the
+    AES-GCM ciphertext, followed by the 16-byte authentication tag (what Web
+    Crypto's <code>encrypt</code> returns after the IV). No additional
+    authenticated data. <em>Open</em> reverses it and fails if anything was
+    changed.
+  </p>
+
+  <h2>Items</h2>
+  <ol>
+    <li>Pick a random 16-byte item key (AES-128-GCM).</li>
+    <li>
+      Metadata is JSON, sealed with the item key:
+      <table class="wikitable">
+        <tbody>
+          <tr>
+            <th scope="row"><code>kind</code></th>
+            <td><code>"text"</code> or <code>"file"</code></td>
+          </tr>
+          <tr>
+            <th scope="row"><code>title</code></th>
+            <td>a short title; empty for burn-after-reading texts</td>
+          </tr>
+          <tr>
+            <th scope="row"><code>filename</code>, <code>mime</code></th>
+            <td>for files</td>
+          </tr>
+          <tr>
+            <th scope="row"><code>size</code></th>
+            <td>plaintext size in bytes</td>
+          </tr>
+        </tbody>
+      </table>
+    </li>
+    <li>
+      The <code>X-Sealed-Metadata</code> header is
+      <code
+        >base64url(Seal(namespace key, item key)) "." base64url(Seal(item
+        key, metadata JSON))</code
+      >.
+    </li>
+    <li>
+      The body is <code>Seal(item key, contents)</code>; a text's contents
+      are its UTF-8 bytes.
+    </li>
+  </ol>
+
+  <h2>API</h2>
+  <table class="wikitable">
+    <thead>
+      <tr>
+        <th>Request</th>
+        <th>Use</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>GET /e/&lt;id&gt;/ls</code></td>
+        <td>
+          the queue: each item has <code>metadata</code> (the header above)
+          and <code>contentUrl</code>
+        </td>
+      </tr>
+      <tr>
+        <td><code>GET &lt;contentUrl&gt;</code></td>
+        <td>
+          the sealed body; reading it consumes a burn-after-reading item
+        </td>
+      </tr>
+      <tr>
+        <td><code>POST /e/&lt;id&gt;/new</code></td>
+        <td>
+          adds an item: sealed body, <code>X-Sealed-Metadata</code> and
+          <code>Content-Length</code>; optionally
+          <code>Burn: 1</code>
+        </td>
+      </tr>
+      <tr>
+        <td><code>GET /e/&lt;id&gt;/&lt;item&gt;.json</code></td>
+        <td>
+          one item: <code>metadata</code>, its <code>position</code> and a
+          <code>shareUrl</code> (add <code>#</code> and the item key)
+        </td>
+      </tr>
+      <tr>
+        <td><code>POST /e/&lt;id&gt;/&lt;item&gt;/n</code></td>
+        <td>
+          renames an item: <code>X-Sealed-Metadata</code> with the same
+          wrapped key and the metadata sealed again with the item key
+        </td>
+      </tr>
+      <tr>
+        <td><code>DELETE /e/&lt;id&gt;/&lt;item&gt;</code></td>
+        <td>
+          deletes an item; <code>&lt;item&gt;</code> is its position in the
+          queue (1 is the newest) or its six-letter ID; the server
+          cannot look up encrypted names, which <code>k.mjs</code> does
+          on the decrypted list
+        </td>
+      </tr>
+      <tr>
+        <td><code>GET /e/&lt;id&gt;/&lt;item&gt;/s</code></td>
+        <td>
+          a link to share an item, as text (<code>POST</code> works too);
+          add <code>#</code> and the item key
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Share links</h2>
+  <p>
+    A shared encrypted item is
+    <code>/i/&lt;token&gt;#&lt;base64url(item key)&gt;</code>. The part
+    after <code>#</code> never reaches the server.
+    <code>GET /i/&lt;token&gt;.json</code> returns the item with its
+    <code>metadata</code> header; open the part after the dot with the item
+    key, then open <code>GET /i/&lt;token&gt;/c</code> with the same key.
+  </p>
+
+  <h2>Command line</h2>
+  <p>
+    <a href="/k.mjs"><code>/k.mjs</code></a> is the code this site runs
+    and a command-line client that speaks curl (Node 20 or newer, or Bun;
+    no dependencies): the same options and paths as the plain API, with
+    <code>&lt;link&gt;</code> being
+    <code>https://&lt;site&gt;/e#&lt;secret name&gt;</code> in place of the
+    namespace. It encrypts what it sends and decrypts what comes back. Get
+    it with <code>curl -O https://&lt;site&gt;/k.mjs</code>;
+    <code>https://</code> may be left out of links.
+  </p>
+  <div class="table-scroll">
+    <table class="wikitable">
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>node k.mjs &lt;link&gt;/ls</code></td>
+          <td>the queue as JSON, decrypted</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs &lt;link&gt;/1</code></td>
+          <td>an item&#39;s contents: by position (1 is the newest), ID or name</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs &lt;link&gt;/1.json</code></td>
+          <td>its details, position and share link (with the item&#39;s key), decrypted</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs -OJ &lt;link&gt;/1/d</code></td>
+          <td>that item, saved under its own name (<code>-o&nbsp;&lt;file&gt;</code> picks the file)</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs -d &quot;text&quot; &lt;link&gt;/new</code></td>
+          <td>sends a text; <code>-d&nbsp;@file</code> and <code>-d&nbsp;@-</code> (standard input) too</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs -T photo.jpg &lt;link&gt;/</code></td>
+          <td>sends a file</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs -H burn:1 -d &quot;text&quot; &lt;link&gt;/new</code></td>
+          <td>sends an item deleted by its first read</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs -d &quot;new name&quot; &lt;link&gt;/1/n</code></td>
+          <td>renames an item; an empty name gives a text back its default</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs -X DELETE &lt;link&gt;/1</code></td>
+          <td>deletes an item</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs &lt;link&gt;/1/s</code></td>
+          <td>a share link, with the item&#39;s key after the <code>#</code></td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs &lt;link&gt;</code></td>
+          <td>the items, one per line, reading none</td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs -O &lt;link&gt;</code></td>
+          <td>saves every item here: files under their names, texts as <code>text-&lt;id&gt;.txt</code></td>
+        </tr>
+        <tr>
+          <td><code>node k.mjs https://&lt;site&gt;/i/&lt;token&gt;#&lt;key&gt;</code></td>
+          <td>a shared item&#39;s contents</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    As with curl, binary contents are never written to a terminal,
+    <code>-O</code> never overwrites a file, and reading a
+    burn-after-reading item deletes it; listing reads nothing. Plain
+    links work too, passed through as they are.
+  </p>
+</main>

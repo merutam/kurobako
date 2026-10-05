@@ -1,0 +1,69 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Kurobako contributors
+-->
+<head>
+  <meta name="robots" content="noindex" />
+  <title>Admin · Kurobako</title>
+  <script type="module" src="/admin.js"></script>
+</head>
+<main>
+  <h1>/a</h1>
+  <p class="lead" id="summary">Admin</p>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+
+  <form id="login-form" class="login" hidden>
+    <fieldset>
+      <legend>Log in</legend>
+      <label for="key">Admin key</label>
+      <input id="key" name="key" type="password" autocomplete="current-password" required />
+      <p class="actions">
+        <button type="submit" class="primary">Log in</button>
+      </p>
+    </fieldset>
+  </form>
+
+  <div id="dashboard" hidden>
+    <p class="admin-controls">
+      <label for="refresh-interval">Auto-refresh</label>
+      <select id="refresh-interval">
+        <option value="0">Off</option>
+        <option value="5" selected>5 s</option>
+        <option value="30">30 s</option>
+      </select>
+      <button id="refresh" type="button">Refresh</button>
+      <button id="logout" type="button">Log out</button>
+    </p>
+
+    <div class="columns">
+      <section aria-labelledby="system-title">
+        <h2 id="system-title">System</h2>
+        <table class="wikitable stats-table">
+          <tbody id="system-stats"></tbody>
+        </table>
+      </section>
+
+      <section id="logs" aria-labelledby="logs-title" hidden>
+        <h2 id="logs-title">Requests, errors and logs</h2>
+        <p id="logs-link"></p>
+      </section>
+    </div>
+
+    <section aria-labelledby="namespaces-title">
+      <h2 id="namespaces-title">Namespaces</h2>
+      <p class="admin-controls">
+        <input id="namespace-search" type="search" placeholder="Filter namespaces" aria-label="Filter namespaces" />
+      </p>
+      <div class="table-scroll">
+        <table class="wikitable">
+          <thead>
+            <tr><th>Namespace</th><th>Items</th><th>Links</th></tr>
+          </thead>
+          <tbody id="namespaces"></tbody>
+        </table>
+      </div>
+      <p id="namespaces-pager" class="pager"></p>
+    </section>
+  </div>
+</main>

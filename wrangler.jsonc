@@ -1,0 +1,74 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kurobako",
+  "main": "src/cloudflare/worker.ts",
+  // The account that owns the R2 bucket below.
+  "account_id": "e78e21c9934eecfbbd91fced877e9153",
+  "compatibility_date": "2026-10-03",
+  "compatibility_flags": ["nodejs_compat"],
+  // Only reachable at its own domain, so the zone's WAF and rate limiting
+  // rules apply to every request (workers.dev would bypass them).
+  "workers_dev": false,
+  "routes": [{ "pattern": "kurobako.mugens.org", "custom_domain": true }],
+
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true }
+  },
+
+  // Public limits. ADMIN_KEY is a secret: `wrangler secret put ADMIN_KEY`
+  // (and .dev.vars for local development); leaving it unset disables /a.
+  "vars": {
+    "MAX_FILE_BYTES": "100000000",
+    "MAX_TEXT_BYTES": "256000",
+    "ITEM_TTL_SECONDS": "86400",
+    "MAX_ITEMS": "20",
+    "MAX_LIVE_CONNECTIONS": "100",
+    "EMPTY_NAMESPACE_TTL_SECONDS": "3600",
+    "ADMIN_SESSION_HOURS": "12"
+  },
+
+  // Private: only this Worker reads and writes it, so burn-after-reading,
+  // expiry and namespace privacy hold. Never make this bucket public.
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "kurobako" }],
+
+  "durable_objects": {
+    "bindings": [
+      // One object per namespace: its queue, access log and live sockets.
+      { "name": "NAMESPACES", "class_name": "NamespaceObject" },
+      // A single object for site-wide stats and the admin dashboard.
+      { "name": "HUB", "class_name": "HubObject" }
+    ]
+  },
+  "exports": {
+    "NamespaceObject": { "type": "durable-object", "storage": "sqlite" },
+    "HubObject": { "type": "durable-object", "storage": "sqlite" }
+  },
+
+  "version_metadata": { "binding": "VERSION" },
+
+  // Sends per IP. Counted per Cloudflare location and approximate by design:
+  // it slows scripts down, it is not accounting.
+  "ratelimits": [
+    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }
+  ],
+
+  // Scripts, styles and icons are served straight from Workers Static Assets, which
+  // costs no Worker request or CPU. Everything else, pages included, goes to
+  // the Worker; it also reads public/ through ASSETS to assemble the pages.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/*",
+      "!/*.js",
+      "!/*.mjs",
+      "!/*.css",
+      "!/vendor/*",
+      "!/favicon.ico",
+      "!/apple-touch-icon.png",
+      "!/logo.png"
+    ],
+    "html_handling": "none"
+  }
+}

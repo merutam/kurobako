@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "allowJs": true
+  },
+  // The shared code, the Bun server and its tests; Cloudflare-only code is left out.
+  "include": ["src/**/*.ts", "test/bun.test.ts"],
+  "exclude": ["src/cloudflare", "src/worker-configuration.d.ts"]
+}

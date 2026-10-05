@@ -1,0 +1,718 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Kurobako contributors
+ */
+/* Colors follow Wikipedia's Codex tokens, each as light-dark(light, dark).
+   "Automatic" follows the system through color-scheme; theme.js sets
+   data-theme="light" or "dark" when the visitor picks one, which fixes it. */
+:root {
+  color-scheme: light dark;
+  --text: light-dark(#202122, #eaecf0);
+  --text-subtle: light-dark(#54595d, #a2a9b1);
+  --background: light-dark(#ffffff, #101418);
+  --surface: light-dark(#f8f9fa, #202122);
+  --surface-strong: light-dark(#eaecf0, #27292d);
+  --border: light-dark(#a2a9b1, #72777d);
+  --border-subtle: light-dark(#c8ccd1, #54595d);
+  --link: light-dark(#36c, #88a3e8);
+  --link-visited: light-dark(#6a60b0, #a799cd);
+  --link-hover: light-dark(#3056a9, #a6bbf5);
+  --progressive: light-dark(#36c, #6485d1);
+  --progressive-hover: light-dark(#3056a9, #88a3e8);
+  --on-progressive: light-dark(#ffffff, #101418);
+  --destructive: light-dark(#bf3c2c, #fd7865);
+  --error-text: light-dark(#bf3c2c, #fd7865);
+  --error-surface: light-dark(#ffe9e5, #3c1a19);
+  --success-text: light-dark(#14866d, #4dc49c);
+  --success-surface: light-dark(#dff2eb, #11302a);
+  --warning-text: light-dark(#996000, #e9b44c);
+  --focus: light-dark(#36c, #88a3e8);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font-family: sans-serif;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+main {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+}
+
+/* Header */
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  padding: 12px 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+/* Links */
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:visited {
+  color: var(--link-visited);
+}
+a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+/* Navigation shortcuts (See JSON, Access log, Back, Download) are reopened
+   all the time; "already visited" tells nothing there. */
+.lead a:visited,
+.actions a:visited {
+  color: var(--link);
+}
+.lead a:hover,
+.actions a:hover {
+  color: var(--link-hover);
+}
+
+.site-name {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: "Linux Libertine", Georgia, Times, serif;
+  font-size: 1.5rem;
+  font-weight: normal;
+  line-height: 1.3;
+}
+.site-name a,
+.site-name a:visited {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  color: var(--text);
+  text-decoration: none;
+}
+.site-name img {
+  width: 1.3em;
+  height: 1.3em;
+  border-radius: 20%;
+}
+
+fieldset {
+  margin: 0;
+  padding: 12px 16px 16px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+legend {
+  padding: 0 6px;
+  font-weight: bold;
+}
+label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.appearance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.875rem;
+}
+.appearance legend {
+  float: left;
+  margin-right: 4px;
+  padding: 0;
+  font-weight: bold;
+}
+.appearance label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+/* Typography */
+h1,
+h2 {
+  margin: 0 0 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-family: "Linux Libertine", Georgia, Times, serif;
+  font-weight: normal;
+  line-height: 1.3;
+}
+h1 {
+  font-size: 1.8rem;
+  overflow-wrap: anywhere;
+}
+h2 {
+  font-size: 1.5rem;
+}
+h2 small {
+  color: var(--text-subtle);
+  font-family: sans-serif;
+  font-size: 0.875rem;
+}
+p {
+  margin: 0 0 12px;
+}
+.lead {
+  margin-bottom: 24px;
+}
+.hint {
+  margin: 4px 0 12px;
+  color: var(--text-subtle);
+  font-size: 0.875rem;
+}
+/* A name's strength: a colored dot and text, red to green. */
+.hint[data-level] {
+  font-weight: bold;
+}
+.hint[data-level]::before {
+  content: "● ";
+}
+.hint[data-level="weak"] {
+  color: var(--error-text);
+}
+.hint[data-level="fair"] {
+  color: var(--warning-text);
+}
+.hint[data-level="strong"] {
+  color: var(--success-text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Layout: one column on phones, two on wider screens */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+}
+@media (min-width: 800px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 48px;
+  }
+}
+
+/* Forms */
+form + form {
+  margin-top: 24px;
+}
+
+label.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  cursor: pointer;
+}
+.checkbox input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+textarea,
+input[type="text"],
+input[type="password"],
+input[type="search"],
+select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+}
+textarea {
+  min-height: 10rem;
+  resize: vertical;
+  font-family: monospace;
+  font-size: 0.9375rem;
+}
+textarea:focus,
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+select:focus {
+  border-color: var(--focus);
+  outline: 1px solid var(--focus);
+}
+input[type="file"] {
+  max-width: 100%;
+  font: inherit;
+}
+
+.namespace-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: monospace;
+}
+.namespace-input input {
+  font-family: monospace;
+}
+/* Wide enough for "/e#", so toggling Encrypted never resizes the field. */
+.namespace-input span {
+  flex: none;
+  width: 3ch;
+  text-align: right;
+  white-space: nowrap;
+}
+
+button,
+a.button {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+}
+button:hover,
+a.button:hover {
+  background: var(--background);
+}
+/* A real link (it still navigates and can be saved), drawn as a button. */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+a.button:visited,
+a.button:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+button:active {
+  background: var(--surface-strong);
+}
+button:disabled {
+  color: var(--text-subtle);
+  cursor: default;
+  opacity: 0.6;
+}
+button.primary {
+  border-color: var(--progressive);
+  background: var(--progressive);
+  color: var(--on-progressive);
+}
+button.primary:hover {
+  border-color: var(--progressive-hover);
+  background: var(--progressive-hover);
+}
+button.destructive {
+  color: var(--destructive);
+}
+
+/* The button sits over the heading's border so this heading keeps the same
+   height as its neighbor in the other column. */
+.section-title {
+  position: relative;
+}
+.section-title h2 {
+  padding-right: 7rem;
+}
+.section-title button {
+  position: absolute;
+  right: 0;
+  bottom: 5px;
+  min-height: 0;
+  padding: 2px 10px;
+}
+
+/* Renaming an item in place, where its name was. */
+.rename-input {
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--focus);
+  border-radius: 2px;
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+}
+
+/* Status messages */
+.status:empty {
+  display: none;
+}
+.status {
+  position: sticky;
+  top: 8px;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 24px;
+  padding: 8px 12px;
+  border: 1px solid var(--success-text);
+  background: var(--success-surface);
+  color: var(--text);
+}
+.status.error {
+  border-color: var(--error-text);
+  background: var(--error-surface);
+}
+.status > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.status-dismiss {
+  flex: none;
+  min-height: 0;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+.status-dismiss:hover {
+  background: none;
+  color: var(--text-subtle);
+}
+fieldset .status {
+  position: static;
+  margin: 12px 0 0;
+}
+
+/* Item list */
+.items {
+  margin: 0;
+  padding: 0 0 0 1.75em;
+}
+.item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.item:first-child {
+  padding-top: 4px;
+}
+.item summary {
+  display: flex;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+}
+.item summary::-webkit-details-marker {
+  display: none;
+}
+.item summary::before {
+  content: "▸";
+  flex: none;
+  color: var(--text-subtle);
+}
+.item details[open] > summary::before {
+  content: "▾";
+}
+/* The full text lives in the expanded box; the title only hints at it. */
+.item-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.item-heading {
+  margin: 0;
+  padding-left: calc(1ch + 6px);
+}
+.item-meta {
+  margin: 4px 0 8px;
+  color: var(--text-subtle);
+  font-size: 0.875rem;
+}
+.item pre {
+  max-height: 24rem;
+  overflow: auto;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.item img {
+  display: block;
+  max-width: 100%;
+  max-height: 30rem;
+  height: auto;
+  margin: 8px 0;
+  border: 1px solid var(--border-subtle);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0;
+}
+.empty {
+  color: var(--text-subtle);
+  font-style: italic;
+}
+.clipboard-fallback {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+}
+
+.live-status {
+  color: var(--success-text);
+}
+.live-status.offline {
+  color: var(--error-text);
+}
+
+/* Open on another device */
+.open-elsewhere {
+  margin-top: 48px;
+}
+.qr {
+  display: block;
+  width: 160px;
+  height: 160px;
+  margin-bottom: 8px;
+  /* QR codes must stay dark-on-light to scan, even in dark mode. */
+  background: #ffffff;
+  image-rendering: pixelated;
+}
+.copy-link {
+  display: flex;
+  gap: 8px;
+  max-width: 40rem;
+}
+/* Looks like a field, not a link: clicking copies instead of navigating. */
+.copy-link input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--text);
+  font: 0.875rem monospace;
+  cursor: copy;
+}
+
+.send-options {
+  margin: 0 0 16px;
+}
+.send-options label.checkbox {
+  margin: 0;
+}
+.burn-note {
+  color: var(--destructive);
+}
+
+/* Footer */
+.site-footer {
+  width: calc(100% - 32px);
+  max-width: calc(72rem - 32px);
+  margin: 0 auto;
+  padding: 16px 0 32px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-subtle);
+  font-size: 0.875rem;
+}
+
+/* Tables */
+.table-scroll {
+  overflow-x: auto;
+}
+/* Inline code on text pages reads like Markdown's: a small tinted box. */
+.prose code {
+  padding: 1px 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-strong);
+  font-size: 0.875em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.prose pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+}
+
+.wikitable {
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-collapse: collapse;
+  background: var(--surface);
+  font-size: 0.875rem;
+}
+.wikitable th,
+.wikitable td {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.wikitable th {
+  background: var(--surface-strong);
+}
+.wikitable td code {
+  overflow-wrap: anywhere;
+}
+.wikitable td:nth-child(-n + 2) {
+  white-space: nowrap;
+}
+/* On text pages only the first column (a command or a route) stays on one line. */
+.prose .wikitable td:nth-child(2) {
+  white-space: normal;
+}
+.wikitable td small {
+  display: block;
+  color: var(--text-subtle);
+}
+/* Method above, path below on one line; long paths end in "…" (full path on hover). */
+.wikitable td.route code {
+  display: block;
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.wikitable td.agent {
+  min-width: 20rem;
+  color: var(--text-subtle);
+}
+.wikitable td.agent span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* Admin dashboard */
+.login {
+  max-width: 28rem;
+}
+.login input {
+  font-family: monospace;
+}
+.login .actions {
+  margin-top: 12px;
+}
+.admin-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 16px;
+}
+.admin-controls label {
+  margin: 0;
+}
+.admin-controls select {
+  width: auto;
+}
+.admin-controls input[type="search"] {
+  flex: 1;
+  min-width: 12rem;
+  width: auto;
+}
+#dashboard section {
+  margin-bottom: 32px;
+}
+.stats-table {
+  width: 100%;
+}
+.stats-table th {
+  width: 50%;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 12px 0 0;
+  color: var(--text-subtle);
+  font-size: 0.875rem;
+}
+.pager:empty {
+  display: none;
+}
+
+/* Shared item page */
+.shared-item pre,
+.shared-item img {
+  margin: 0 0 16px;
+}
+.shared-item img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border-subtle);
+}
+.shared-item pre {
+  max-height: 32rem;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Long-form pages (the encryption spec): readable line length. */
+.prose > p,
+.prose > ul,
+.prose > ol {
+  max-width: 48rem;
+}
+.prose li {
+  margin-bottom: 6px;
+}
+.prose li > .wikitable {
+  margin-top: 8px;
+}
+.prose pre {
+  overflow-x: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  font-size: 0.875rem;
+}

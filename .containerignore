@@ -1,0 +1,9 @@
+node_modules
+data
+.wrangler
+.env
+.dev.vars*
+test
+*.log
+*.png
+assets

@@ -1,0 +1,116 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Kurobako contributors
+-->
+<head>
+  <title>Kurobako</title>
+  <script type="module" src="/home.js"></script>
+  <!-- Filled in by the server: limits and rules, fixed for each deployment. -->
+  <script type="application/json" id="config">
+  "%CONFIG%"
+  </script>
+</head>
+<main>
+  <h1 id="page-title">/</h1>
+  <p class="lead">
+    Share text and files between devices. ·
+    <a href="/stats.json">See JSON</a>
+  </p>
+
+  <div class="columns">
+    <section aria-labelledby="namespace-title">
+      <h2 id="namespace-title">Open</h2>
+      <form id="namespace-form">
+        <fieldset>
+          <label for="namespace">Namespace</label>
+          <div class="namespace-input">
+            <span id="namespace-prefix" aria-hidden="true">/</span>
+            <input
+              id="namespace"
+              name="namespace"
+              type="text"
+              placeholder="myns"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              aria-describedby="namespace-hint name-strength home-status"
+              required
+            />
+          </div>
+          <p id="namespace-hint" class="hint"></p>
+          <p id="name-strength" class="hint" aria-live="polite" hidden></p>
+          <label class="checkbox">
+            <input
+              id="encrypted"
+              name="encrypted"
+              type="checkbox"
+              aria-describedby="encrypted-hint"
+            />
+            Encrypted
+          </label>
+          <p id="encrypted-hint" class="hint">
+            Readable only on devices with the name.
+          </p>
+          <p class="actions">
+            <button type="submit" class="primary">Open</button>
+            <button id="random-name" type="button">Random name</button>
+          </p>
+          <p
+            id="home-status"
+            class="status"
+            role="status"
+            aria-live="polite"
+          ></p>
+        </fieldset>
+      </form>
+    </section>
+
+    <section aria-labelledby="about-title">
+      <h2 id="about-title">Stats</h2>
+      <table class="wikitable">
+        <tbody>
+          <tr>
+            <th scope="row">Total items</th>
+            <td data-stat="totalItems">…</td>
+          </tr>
+          <tr>
+            <th scope="row">Encrypted items</th>
+            <td data-stat="encryptedItems">…</td>
+          </tr>
+          <tr>
+            <th scope="row">Sent today</th>
+            <td data-stat="sentToday">…</td>
+          </tr>
+          <tr>
+            <th scope="row">Visitors today</th>
+            <td data-stat="visitorsLast24h">…</td>
+          </tr>
+          <tr>
+            <th scope="row">Sent, last 7 days</th>
+            <td data-stat="sentLast7Days">…</td>
+          </tr>
+          <tr>
+            <th scope="row">Opened once, last 7 days</th>
+            <td data-stat="openedOnceLast7Days">…</td>
+          </tr>
+          <tr>
+            <th scope="row">Top countries, last 24 h</th>
+            <td data-stat="topCountriesLast24h">…</td>
+          </tr>
+          <tr>
+            <th scope="row">Live connections</th>
+            <td data-stat="liveConnections">…</td>
+          </tr>
+          <tr>
+            <th scope="row">Items per namespace</th>
+            <td id="max-items">…</td>
+          </tr>
+          <tr>
+            <th scope="row">Items expire after</th>
+            <td id="expiry">…</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</main>

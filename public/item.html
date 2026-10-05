@@ -1,0 +1,22 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Kurobako contributors
+-->
+<head>
+  <meta name="robots" content="noindex" />
+  <title>Shared item · Kurobako</title>
+  <script type="module" src="/item.js"></script>
+  <!-- Filled in by the server: the shared item, or null once it is gone. -->
+  <script type="application/json" id="item-data">"%ITEM%"</script>
+</head>
+<main>
+  <h1 id="item-title">Shared item</h1>
+  <p id="item-meta" class="lead"></p>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+
+  <section id="item" class="shared-item" aria-labelledby="item-title" hidden>
+    <div id="item-body"></div>
+    <p id="item-actions" class="actions"></p>
+  </section>
+</main>
