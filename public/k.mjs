@@ -213,6 +213,9 @@ const openItemWithKey = async (keyText, sealedMetadata) => {
 };
 
 // --- Command line ------------------------------------------------------------
+
+/** This file's version, the same as the server it comes from (package.json). */
+export const VERSION = "0.2.0";
 // Everything below only runs when this file is executed directly. It reads
 // like curl: the same options and the same paths as the plain API, with
 // e#<name> in place of the namespace.
@@ -362,6 +365,12 @@ const parseArgs = (args) => {
 
 /** A link as the site shows it; "https://" may be left out. */
 const parseLink = (text) => {
+  // What is left of "$BOX/e#name" when BOX is empty.
+  if (text.startsWith("/")) {
+    throw new Error(
+      `"${text}" has no site in front: the variable before it may be empty. A link looks like https://<site>${text}.`,
+    );
+  }
   const url = new URL(/^[a-z]+:\/\//i.test(text) ? text : `https://${text}`);
   const fragment = url.hash.slice(1);
   if (url.pathname === "/e" && fragment) {
@@ -384,14 +393,55 @@ const parseLink = (text) => {
 
 // --- Requests and output ----------------------------------------------------
 
-/** Fails with the server's own error message. */
-const call = async (url, init) => {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error ?? `Server error (${response.status}).`);
+/** fetch, failing with which site could not be reached and why. */
+const reach = async (url, init) => {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    const reason = error.cause?.code ?? error.cause?.message ?? error.message;
+    throw new Error(`Could not reach ${new URL(url).origin} (${reason}).`);
   }
-  return response;
+};
+
+/**
+ * A Kurobako server's public config, or null when the site is no Kurobako
+ * server: every one serves /config.json, with the rules its pages use.
+ */
+const kurobakoConfig = async (origin) => {
+  try {
+    const config = await (await fetch(`${origin}/config.json`)).json();
+    return config?.namespace?.pattern && config?.live?.ping ? config : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Why a request failed, told better once the site is known: no Kurobako
+ * server at all, or one of another version than this file (which may or may
+ * not be the cause, so it is only a hint).
+ */
+const explainFailure = async (origin, message) => {
+  const config = await kurobakoConfig(origin);
+  if (!config) return `${origin} does not look like a Kurobako server: it has no /config.json.`;
+  if (config.version && config.version !== VERSION) {
+    return `${message}\nThis k.mjs is ${VERSION} and the server is ${config.version}; its own matches it: curl -O ${origin}/k.mjs`;
+  }
+  return message;
+};
+
+/**
+ * An API request. Fails with the server's own error message, or says the site
+ * is no Kurobako server when it answers like something else (an error without
+ * Kurobako's JSON, or a web page). `page` allows a page as the answer.
+ */
+const call = async (url, init, { page = false } = {}) => {
+  const response = await reach(url, init);
+  const isPage = (response.headers.get("content-type") ?? "").startsWith("text/html");
+  const body = response.ok ? null : await response.json().catch(() => null);
+  if (response.ok && (page || !isPage)) return response;
+  const message = body?.error ?? `Server error (${response.status}).`;
+  throw new Error(await explainFailure(new URL(url).origin, message));
 };
 const fetchBytes = async (url) => new Uint8Array(await (await call(url)).arrayBuffer());
 
@@ -749,7 +799,11 @@ const sealedRequest = async ({ site, name, path }, options) => {
     return printJson(items);
   }
   if (path === "log" || path === "log.json") {
-    return writeStdout(new Uint8Array(await (await call(`${base}/${path}`)).arrayBuffer()));
+    return writeStdout(
+      new Uint8Array(
+        await (await call(`${base}/${path}`, undefined, { page: true })).arrayBuffer(),
+      ),
+    );
   }
   // .json is an item's JSON, unless an item has exactly that name.
   if (first.endsWith(".json") && second === undefined && method === "GET") {
@@ -836,10 +890,18 @@ const plainRequest = async ({ url }, options) => {
       target = `${target.replace(/\/$/, "")}/${encodeURIComponent(safeName(options.upload, "file"))}`;
     }
   }
-  const response = await fetch(target, { method: options.method, headers, body });
+  const response = await reach(target, { method: options.method, headers, body });
   const bytes = new Uint8Array(await response.arrayBuffer());
   const type = response.headers.get("content-type") ?? "";
   if (!response.ok) {
+    // Kurobako answers errors as {"error": …}; anything else is another kind of site.
+    let error = null;
+    try {
+      error = JSON.parse(decoder.decode(bytes))?.error ?? null;
+    } catch {}
+    const explained = await explainFailure(origin, error ?? `Server error (${response.status}).`);
+    // Kurobako's own error, with nothing to add, prints as curl would show it.
+    if (explained !== error) throw new Error(explained);
     process.exitCode = 1;
     return writeStdout(bytes);
   }
