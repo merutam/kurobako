@@ -46,8 +46,9 @@ node k.mjs -d 'hello' "$BOX/e#secret name/new"
 node k.mjs -O "$BOX/e#secret name"             # save every item here
 ```
 
-`node k.mjs` lists everything it does. The encryption is described at
-`/protocol` on every instance.
+`node k.mjs` lists everything it does. When a request fails and the server
+runs another version, it says so. The encryption is described at `/protocol`
+on every instance.
 
 ## Behavior
 

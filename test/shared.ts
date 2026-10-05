@@ -780,7 +780,11 @@ export const sharedTests = (harness: Harness) => {
 
     test("exposes the public config the client needs", async () => {
       const body = await json<PublicConfig>("/config.json");
-      expect(body).toMatchObject({ maxItems: config.maxItems, live: { ping: "ping" } });
+      expect(body).toMatchObject({
+        version: expect.any(String),
+        maxItems: config.maxItems,
+        live: { ping: "ping" },
+      });
       expect(new RegExp(body.namespace.pattern).test("alpha")).toBe(true);
       expect(body.namespace.reserved).toEqual(expect.arrayContaining(["a", "e", "i"]));
     });

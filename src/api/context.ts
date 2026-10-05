@@ -50,6 +50,8 @@ export const createContext = (
   const visit = (c: AppContext) => accessEvent(c, platformOf(c).client(c));
 
   const publicConfig = () => ({
+    /** The server's version, which k.mjs compares with its own when a request fails. */
+    version: assets.version,
     maxFileBytes: config.maxFileBytes,
     maxTextBytes: config.maxTextBytes,
     itemTtlSeconds: config.itemTtlMs / 1000,

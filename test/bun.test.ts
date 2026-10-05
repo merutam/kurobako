@@ -10,6 +10,7 @@ import { formatBytes as pageFormatBytes } from "../public/common.js";
 import {
   defaultTextName as clientDefaultName,
   formatBytes as cliFormatBytes,
+  VERSION as K_VERSION,
   openSealedSpace,
   openSharedItem,
   safeName,
@@ -360,6 +361,48 @@ describe("bun server", () => {
       name: "plain name",
     });
 
+    // A link without its site, and a site that is no Kurobako server, say so.
+    expect((await run(["/e#name"])).error).toContain("has no site in front");
+    const other = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () =>
+        new Response("<h1>Not here</h1>", {
+          status: 404,
+          headers: { "content-type": "text/html" },
+        }),
+    });
+    try {
+      for (const target of [`${other.url.origin}/e#name`, `${other.url.origin}/ns/1`]) {
+        expect((await run([target])).error).toContain("does not look like a Kurobako server");
+      }
+    } finally {
+      await other.stop(true);
+    }
+
+    // A Kurobako server of another version: its error, and a hint to get its own k.mjs.
+    const newer = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: (request) =>
+        new URL(request.url).pathname === "/config.json"
+          ? Response.json({
+              version: "99.0.0",
+              namespace: { pattern: "." },
+              live: { ping: "ping" },
+            })
+          : Response.json({ error: "Item not found." }, { status: 404 }),
+    });
+    try {
+      for (const target of [`${newer.url.origin}/e#name/1`, `${newer.url.origin}/ns/1`]) {
+        const { error } = await run([target]);
+        expect(error).toContain("Item not found.");
+        expect(error).toContain("the server is 99.0.0");
+      }
+    } finally {
+      await newer.stop(true);
+    }
+
     // "/" ends the secret name, so a name cannot contain one.
     expect((await run([`${base}/e#${encodeURIComponent("a/b")}`])).error).toContain(
       'cannot contain "/"',
@@ -454,6 +497,13 @@ describe("rules kept in two places", () => {
       "no-extension",
     ];
     for (const name of names) expect(safeName(name, "file")).toBe(safeFileName(name));
+  });
+
+  test("versions: k.mjs says which server version it comes from", async () => {
+    const pkg = (await Bun.file(join(import.meta.dir, "..", "package.json")).json()) as {
+      version: string;
+    };
+    expect(K_VERSION).toBe(pkg.version);
   });
 
   test("byte sizes", () => {
