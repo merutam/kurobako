@@ -54,6 +54,7 @@ export const createContext = (
     version: assets.version,
     maxFileBytes: config.maxFileBytes,
     maxTextBytes: config.maxTextBytes,
+    inlineTextBytes: config.inlineTextBytes,
     itemTtlSeconds: config.itemTtlMs / 1000,
     maxItems: config.maxItems,
     namespace: {

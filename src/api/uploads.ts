@@ -1,20 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Receiving items: texts read whole, files streamed to the blob store.
+// Receiving items: small texts stay in SQLite; files and larger texts stream
+// to the blob store.
 import { createHash } from "node:crypto";
 import { detectImage, IMAGE_SIGNATURE_BYTES, safeFileName, safeImageName } from "../image";
-import { type NamespaceRef, publicItem, SEALED_METADATA_PATTERN } from "../model";
+import {
+  type NamespaceRef,
+  publicItem,
+  SEALED_METADATA_PATTERN,
+  TEXT_PREVIEW_CHARS,
+} from "../model";
 import type { Saved, SaveInput } from "../namespace";
 import { type Api, type AppContext, jsonError } from "./context";
 
 /** A file-backed item before its bytes are in the blob store. */
-type ObjectInput = DistributiveOmit<Exclude<SaveInput, { kind: "text" }>, "object" | "size">;
+type ObjectInput = DistributiveOmit<Extract<SaveInput, { object: string }>, "object" | "size">;
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 const BURN_HEADER_VALUES = new Set(["1", "true", "yes"]);
 /** Request types stored as text: what the page sends, and what `curl -d` sends. */
 const TEXT_TYPES = new Set(["text/plain", "application/x-www-form-urlencoded"]);
+const TEXT_MIME = "text/plain; charset=utf-8";
+
+class InvalidUtf8Error extends Error {}
 
 /** The name a send gives, or null when it gives none. */
 export const decodeFilename = (value: string | undefined): string | null => {
@@ -87,6 +96,50 @@ const streamedBody = async (c: AppContext, limit: number): Promise<Upload | Resp
   return { body, size, head };
 };
 
+/** Validates streamed UTF-8 while retaining just enough text for list previews. */
+const validatedText = (upload: Upload) => {
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
+  const input: ObjectInput = { kind: "text", preview: "" };
+  let invalid = false;
+  const appendPreview = (value: string) => {
+    if (input.kind === "text" && input.preview.length < TEXT_PREVIEW_CHARS) {
+      input.preview += value.slice(0, TEXT_PREVIEW_CHARS - input.preview.length);
+    }
+  };
+  const body = upload.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        if (!invalid) {
+          try {
+            appendPreview(decoder.decode(chunk, { stream: true }));
+          } catch {
+            // Keep the fixed-length upload flowing; it is deleted below before
+            // any namespace row can point at it.
+            invalid = true;
+          }
+        }
+        controller.enqueue(chunk);
+      },
+      flush() {
+        if (!invalid) {
+          try {
+            appendPreview(decoder.decode());
+          } catch {
+            invalid = true;
+          }
+        }
+      },
+    }),
+  );
+  return {
+    upload: { ...upload, body },
+    input,
+    validate: () => {
+      if (invalid) throw new InvalidUtf8Error();
+    },
+  };
+};
+
 /** Reads a (small) request body, enforcing `limit` before and after reading. */
 const readBody = async (c: AppContext, limit: number) => {
   const declared = Number(c.req.header("content-length"));
@@ -129,19 +182,22 @@ const sentResponse = (c: AppContext, ref: NamespaceRef, saved: Saved) =>
 export const createUploads = (api: Api) => {
   const { config, namespace, platformOf, later, record, visit } = api;
 
-  /**
-   * Streams a file into the blob store, then records it in the namespace:
-   * the bytes never pass through the namespace itself.
-   */
+  /** Streams contents into the blob store, then records their key in the namespace. */
   const saveObject = async (
     c: AppContext,
     ref: NamespaceRef,
     upload: Upload,
     input: ObjectInput,
+    validate?: () => void,
   ): Promise<Saved> => {
     // The file's own key, never shown: the item's ID is picked by the namespace.
     const object = `${ref.space}/${ref.name}/${crypto.randomUUID()}`;
-    const contentType = input.kind === "sealed" ? "application/octet-stream" : input.mime;
+    const contentType =
+      input.kind === "sealed"
+        ? "application/octet-stream"
+        : input.kind === "text"
+          ? TEXT_MIME
+          : input.mime;
     const { blobs } = platformOf(c);
     // Plain files are hashed on the way to storage, so the same contents sent
     // again can be spotted; encrypted ones never match, so they are not.
@@ -158,6 +214,7 @@ export const createUploads = (api: Api) => {
       : upload.body;
     await blobs.put(object, body, upload.size, contentType);
     try {
+      validate?.();
       const saved = (await namespace(c, ref).save(
         ref,
         { ...input, object, size: upload.size, ...(hash ? { sha256: hash.digest("hex") } : {}) },
@@ -188,6 +245,26 @@ export const createUploads = (api: Api) => {
       return uploadFile(c, ref, decodeFilename(c.req.header("x-filename")));
     }
 
+    const declared = Number(c.req.header("content-length") ?? Number.NaN);
+    if (Number.isSafeInteger(declared) && declared > config.maxTextBytes) {
+      return jsonError(c, 413, `The limit is ${config.maxTextBytes} bytes.`);
+    }
+    if (Number.isSafeInteger(declared) && declared > config.inlineTextBytes) {
+      const upload = await streamedBody(c, config.maxTextBytes);
+      if (upload instanceof Response) return upload;
+      const external = validatedText(upload);
+      try {
+        const saved = await saveObject(c, ref, external.upload, external.input, external.validate);
+        record(c, "sentText");
+        return sentResponse(c, ref, saved);
+      } catch (error) {
+        if (error instanceof InvalidUtf8Error) {
+          return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
+        }
+        throw error;
+      }
+    }
+
     const bytes = await readBody(c, config.maxTextBytes);
     if (bytes instanceof Response) return bytes;
     let text: string;
@@ -196,17 +273,27 @@ export const createUploads = (api: Api) => {
     } catch {
       return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
     }
-    const saved = (await namespace(c, ref).save(
-      ref,
-      {
-        kind: "text",
-        text,
-        size: bytes.byteLength,
-        sha256: createHash("sha256").update(new Uint8Array(bytes)).digest("hex"),
-      },
-      burnRequested(c),
-      visit(c),
-    )) as Saved;
+    let saved: Saved;
+    if (bytes.byteLength > config.inlineTextBytes) {
+      saved = await saveObject(
+        c,
+        ref,
+        { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
+        { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS) },
+      );
+    } else {
+      saved = (await namespace(c, ref).save(
+        ref,
+        {
+          kind: "text",
+          text,
+          size: bytes.byteLength,
+          sha256: createHash("sha256").update(new Uint8Array(bytes)).digest("hex"),
+        },
+        burnRequested(c),
+        visit(c),
+      )) as Saved;
+    }
     record(c, "sentText");
     return sentResponse(c, ref, saved);
   };

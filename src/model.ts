@@ -15,13 +15,27 @@ type CommonItem = {
   sha256?: string;
 };
 
-export type TextItem = CommonItem & {
+type TextItemBase = CommonItem & {
   kind: "text";
   mime: "text/plain; charset=utf-8";
-  text: string;
   /** A name given to the text; without one, it goes by the start of the text. */
   name?: string;
 };
+
+/** A small text kept directly in the namespace's SQLite database. */
+export type InlineTextItem = TextItemBase & {
+  text: string;
+};
+
+/** A larger text kept in the blob store, with only a list preview in SQLite. */
+export type ExternalTextItem = TextItemBase & {
+  /** Blob store key. */
+  object: string;
+  /** Absent for burn-after-reading items, whose contents must remain hidden. */
+  preview?: string;
+};
+
+export type TextItem = InlineTextItem | ExternalTextItem;
 
 /** Longest name a text can be given. */
 export const TEXT_NAME_MAX_CHARS = 200;
@@ -70,9 +84,9 @@ export type SealedItem = CommonItem & {
 };
 
 export type StoredItem = TextItem | ImageItem | FileItem | SealedItem;
-export type ObjectItem = ImageItem | FileItem | SealedItem;
+export type ObjectItem = ExternalTextItem | ImageItem | FileItem | SealedItem;
 
-export const hasObject = (item: StoredItem): item is ObjectItem => item.kind !== "text";
+export const hasObject = (item: StoredItem): item is ObjectItem => "object" in item;
 
 /**
  * "<wrapped item key>.<encrypted metadata>", both base64url: each sealed item
@@ -158,7 +172,9 @@ const exposeItem = (item: StoredItem, contentUrl: string, downloadUrl: string) =
   } = item as StoredItem & { object?: string; text?: string };
   // Burn-after-reading content is only handed out by a consuming read.
   if (item.burn) return { ...metadata, contentUrl };
-  if (item.kind === "text") return { ...metadata, text, contentUrl };
+  if (item.kind === "text") {
+    return "text" in item ? { ...metadata, text, contentUrl } : { ...metadata, contentUrl };
+  }
   if (item.kind === "sealed") return { ...metadata, contentUrl };
   return { ...metadata, contentUrl, downloadUrl };
 };
@@ -179,7 +195,14 @@ export const TEXT_PREVIEW_CHARS = 280;
  */
 export const summaryItem = (item: StoredItem, ref: NamespaceRef) => {
   const shown = publicItem(item, ref);
-  if (item.kind !== "text" || item.burn || item.text.length <= TEXT_PREVIEW_CHARS) return shown;
+  if (
+    item.kind !== "text" ||
+    item.burn ||
+    !("text" in item) ||
+    item.text.length <= TEXT_PREVIEW_CHARS
+  ) {
+    return shown;
+  }
   const { text: _text, ...rest } = shown as typeof shown & { text?: string };
   return { ...rest, preview: item.text.slice(0, TEXT_PREVIEW_CHARS) };
 };

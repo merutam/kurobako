@@ -15,7 +15,6 @@ import {
   openSharedItem,
   safeName,
 } from "../public/k.mjs";
-import { BUN_LIMITS } from "../src/bun/limits";
 import { startServer } from "../src/bun/server";
 import { type AppConfig, loadConfig } from "../src/config";
 import { safeFileName } from "../src/image";
@@ -47,7 +46,7 @@ const memoryStore = () => {
 };
 
 const config: AppConfig = {
-  ...loadConfig({}, BUN_LIMITS),
+  ...loadConfig({}),
   // Short enough to watch a cleanup happen.
   emptyNamespaceTtlMs: 300,
   maxItems: 3,
@@ -67,6 +66,7 @@ const start = async () => {
     port: 0,
     hostname: "127.0.0.1",
     logRequests,
+    maxOpenDatabases: 2,
   });
   base = running.server.url.origin;
 };
@@ -85,7 +85,7 @@ const call = (path: string, init?: RequestInit) => fetch(`${base}${path}`, init)
  * address, as on Cloudflare.
  */
 describe("shared", () => {
-  const sharedConfig = loadConfig({ ADMIN_KEY: TEST_ADMIN_KEY }, BUN_LIMITS);
+  const sharedConfig = loadConfig({ ADMIN_KEY: TEST_ADMIN_KEY });
   const sharedDir = mkdtempSync(join(tmpdir(), "kurobako-shared-"));
   const sharedBlobs = memoryStore();
   let shared: Awaited<ReturnType<typeof startServer>>;
@@ -432,9 +432,11 @@ describe("bun server", () => {
     const item = await typed(ns, "kept");
     await running.stop();
     await start();
-    expect(await (await call(`/${ns}/1`)).text()).toBe("kept");
-
     const file = join(dataDir, "namespaces", "plain", `${ns}.sqlite`);
+    // Startup visits every namespace to restore its timers, but closes each
+    // connection again instead of retaining one per database.
+    expect(existsSync(`${file}-shm`)).toBe(false);
+    expect(await (await call(`/${ns}/1`)).text()).toBe("kept");
     expect(existsSync(file)).toBe(true);
     await call(`/${ns}/${item.id}`, { method: "DELETE" });
     await Bun.sleep(config.emptyNamespaceTtlMs + 300);
@@ -449,24 +451,42 @@ describe("bun server", () => {
       statuses.push((await call(`/${ns}/new`, { method: "POST", body: "x" })).status);
     expect(statuses.at(-1)).toBe(429);
   });
+
+  test("keeps only the most recently used namespace databases open", async () => {
+    for (let index = 0; index < 4; index += 1) await typed(fresh(), `database ${index}`);
+    const directory = join(dataDir, "namespaces", "plain");
+    const open = readdirSync(directory).filter((file) => file.endsWith(".sqlite-shm"));
+    expect(open.length).toBeLessThanOrEqual(2);
+  });
 });
 
 /**
  * k.mjs is a single file people download, so a few rules live both there and
  * in the server (or the pages). These must agree.
  */
-test("a self-hosted server takes larger sizes than Cloudflare", () => {
-  const config = loadConfig(
-    { MAX_FILE_BYTES: "2000000000", MAX_TEXT_BYTES: "4000000" },
-    BUN_LIMITS,
-  );
-  expect(config).toMatchObject({ maxFileBytes: 2_000_000_000, maxTextBytes: 4_000_000 });
+test("a self-hosted server leaves its limits to configuration", () => {
+  const config = loadConfig({
+    MAX_FILE_BYTES: "20000000000",
+    MAX_TEXT_BYTES: "4000000",
+    INLINE_TEXT_BYTES: "256000",
+  });
+  expect(config).toMatchObject({
+    maxFileBytes: 20_000_000_000,
+    maxTextBytes: 4_000_000,
+    inlineTextBytes: 256_000,
+  });
   // The defaults stay the same everywhere.
-  expect(loadConfig({}, BUN_LIMITS)).toMatchObject({
+  expect(loadConfig({})).toMatchObject({
     maxFileBytes: 100_000_000,
     maxTextBytes: 256_000,
+    inlineTextBytes: 64_000,
   });
-  expect(() => loadConfig({ MAX_FILE_BYTES: "20000000000" }, BUN_LIMITS)).toThrow(/MAX_FILE_BYTES/);
+  expect(() => loadConfig({ MAX_FILE_BYTES: String(Number.MAX_SAFE_INTEGER) })).toThrow(
+    /MAX_FILE_BYTES/,
+  );
+  expect(() => loadConfig({ MAX_TEXT_BYTES: "64000", INLINE_TEXT_BYTES: "256000" })).toThrow(
+    /INLINE_TEXT_BYTES/,
+  );
 });
 
 describe("rules kept in two places", () => {

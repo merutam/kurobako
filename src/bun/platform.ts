@@ -31,6 +31,10 @@ export type BunOptions = {
   sendsPerMinute: number;
   /** The site's public address (e.g. https://box.example); unset, it comes from each request. */
   publicUrl: string | null;
+  /** Namespace databases kept open at once. The least recently used is closed first. */
+  maxOpenDatabases?: number;
+  /** Close an unused namespace database on the next prune after this many milliseconds. */
+  databaseIdleMs?: number;
 };
 
 type SocketData = { ref: NamespaceRef; snapshot: string };
@@ -47,13 +51,16 @@ const header = (c: Context, name: string) => c.req.header(name) || null;
 
 export const createBunPlatform = (options: BunOptions) => {
   const { config, dataDir, blobs } = options;
+  const maxOpenDatabases = Math.max(1, options.maxOpenDatabases ?? 100);
+  const databaseIdleMs = Math.max(0, options.databaseIdleMs ?? 60_000);
   for (const space of SPACES)
     mkdirSync(join(dataDir, "namespaces", space.kind), { recursive: true });
 
   // --- Hub ----------------------------------------------------------------
   const hubAlarm = new Alarm(() => hub.alarm());
+  const hubDatabase = openDatabase(join(dataDir, "hub.sqlite"));
   const hub: HubCore = new HubCore(config, {
-    sql: sqlOf(openDatabase(join(dataDir, "hub.sqlite"))),
+    sql: sqlOf(hubDatabase),
     ensureAlarm: async (time) => {
       if (hubAlarm.at === null) hubAlarm.set(time);
     },
@@ -67,8 +74,10 @@ export const createBunPlatform = (options: BunOptions) => {
     sockets: Set<ServerWebSocket<SocketData>>;
     alarm: Alarm;
     hasStorage(): boolean;
+    closeDatabase(): void;
   };
   const namespaces = new Map<string, Entry>();
+  const openDatabases = new Map<string, { close: () => void; lastUsed: number }>();
 
   const namespaceOf = (ref: NamespaceRef): Entry => {
     const key = objectName(ref);
@@ -80,16 +89,31 @@ export const createBunPlatform = (options: BunOptions) => {
     const sockets = new Set<ServerWebSocket<SocketData>>();
     const alarm = new Alarm(() => core.alarm());
     const hasStorage = () => db !== null || existsSync(file);
+    const closeDatabase = () => {
+      openDatabases.delete(key);
+      db?.close();
+      db = null;
+    };
+    const touchDatabase = () => {
+      openDatabases.delete(key);
+      openDatabases.set(key, { close: closeDatabase, lastUsed: Date.now() });
+      while (openDatabases.size > maxOpenDatabases) {
+        const oldest = openDatabases.values().next().value as
+          | { close: () => void; lastUsed: number }
+          | undefined;
+        oldest?.close();
+      }
+    };
     const core: NamespaceCore = new NamespaceCore(config, {
       hasStorage,
       sql: () => {
         db ??= openDatabase(file);
+        touchDatabase();
         return sqlOf(db);
       },
       async deleteStorage() {
         alarm.set(null);
-        db?.close();
-        db = null;
+        closeDatabase();
         for (const suffix of ["", "-wal", "-shm"]) rmSync(`${file}${suffix}`, { force: true });
       },
       setAlarm: async (time) => alarm.set(time),
@@ -97,13 +121,17 @@ export const createBunPlatform = (options: BunOptions) => {
       blobs,
       hub: () => hub as unknown as HubApi,
     });
-    const entry = { core, sockets, alarm, hasStorage };
+    const entry = { core, sockets, alarm, hasStorage, closeDatabase };
     namespaces.set(key, entry);
     return entry;
   };
 
   /** Forgets namespaces that hold nothing in memory or on disk. */
   const prune = () => {
+    const idleBefore = Date.now() - databaseIdleMs;
+    for (const open of [...openDatabases.values()]) {
+      if (open.lastUsed <= idleBefore) open.close();
+    }
     for (const [key, entry] of namespaces) {
       if (!entry.hasStorage() && !entry.sockets.size && entry.alarm.at === null)
         namespaces.delete(key);
@@ -116,7 +144,13 @@ export const createBunPlatform = (options: BunOptions) => {
       for (const file of readdirSync(join(dataDir, "namespaces", space.kind))) {
         const name = space.valid(file.replace(/\.sqlite$/, ""));
         if (!file.endsWith(".sqlite") || !name) continue;
-        await namespaceOf({ space: space.kind, name }).core.resume();
+        const entry = namespaceOf({ space: space.kind, name });
+        try {
+          await entry.core.resume();
+        } finally {
+          // Restoring every namespace must not leave every database open.
+          entry.closeDatabase();
+        }
       }
     }
     hubAlarm.set(Date.now() + HUB_START_DELAY_MS);
@@ -218,5 +252,14 @@ export const createBunPlatform = (options: BunOptions) => {
     },
   };
 
-  return { platform, websocket, resume, prune };
+  const close = () => {
+    hubAlarm.set(null);
+    for (const entry of namespaces.values()) {
+      entry.alarm.set(null);
+      entry.closeDatabase();
+    }
+    hubDatabase.close();
+  };
+
+  return { platform, websocket, resume, prune, close };
 };

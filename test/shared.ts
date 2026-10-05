@@ -753,6 +753,54 @@ export const sharedTests = (harness: Harness) => {
       const [shortSummary] = await json<Item[]>(`/${ns}/ls?summary`);
       expect(shortSummary?.text).toBe("short");
     });
+
+    test("stores text above the inline threshold in object storage", async () => {
+      const ns = fresh("external");
+      const text = "external ".repeat(Math.ceil((config.inlineTextBytes + 1) / 9));
+      const sent = await sendText(ns, text);
+      expect(sent.status).toBe(201);
+      const item = await parse<Item>(sent);
+      expect(item).toMatchObject({ kind: "text", size: text.length });
+      expect(item.text).toBeUndefined();
+      expect(text.startsWith(defined(item.preview, "an external text preview"))).toBe(true);
+      expect(await storedFiles(`plain/${ns}/`)).toHaveLength(1);
+
+      const listed = defined((await json<Item[]>(`/${ns}/ls`))[0], "the external text");
+      expect(listed.text).toBeUndefined();
+      expect(await (await call(listed.contentUrl)).text()).toBe(text);
+      expect((await call(`${listed.contentUrl}/d`)).headers.get("content-disposition")).toContain(
+        ".txt",
+      );
+
+      // Deduplication keeps the original object and discards the just-uploaded copy.
+      expect((await sendText(ns, text)).status).toBe(200);
+      expect(await storedFiles(`plain/${ns}/`)).toHaveLength(1);
+      expect((await call(`/${ns}/${item.id}`, { method: "DELETE" })).status).toBe(200);
+      expect(await storedFiles(`plain/${ns}/`)).toHaveLength(0);
+
+      const burnNamespace = fresh("externalburn");
+      const burning = await parse<Item>(sendText(burnNamespace, `${text}!`, { burn: "1" }));
+      expect(burning).toMatchObject({ kind: "text", burn: true });
+      expect(burning.preview).toBeUndefined();
+      expect(await storedFiles(`plain/${burnNamespace}/`)).toHaveLength(1);
+      expect(await (await call(burning.contentUrl)).text()).toBe(`${text}!`);
+      expect((await call(burning.contentUrl)).status).toBe(404);
+      expect(await storedFiles(`plain/${burnNamespace}/`)).toHaveLength(0);
+    });
+
+    test("validates UTF-8 while an external text streams", async () => {
+      const ns = fresh("utf8");
+      const bytes = new Uint8Array(config.inlineTextBytes + 1).fill(0x61);
+      bytes[bytes.length - 1] = 0xff;
+      const response = await call(`/${ns}/new`, {
+        method: "POST",
+        headers: { "content-type": "text/plain", "content-length": String(bytes.length) },
+        body: bytes,
+      });
+      expect(response.status).toBe(415);
+      expect(await storedFiles(`plain/${ns}/`)).toHaveLength(0);
+      expect(await json<Item[]>(`/${ns}/ls`)).toEqual([]);
+    });
   });
 
   describe("live updates", () => {
@@ -783,6 +831,7 @@ export const sharedTests = (harness: Harness) => {
       expect(body).toMatchObject({
         version: expect.any(String),
         maxItems: config.maxItems,
+        inlineTextBytes: config.inlineTextBytes,
         live: { ping: "ping" },
       });
       expect(new RegExp(body.namespace.pattern).test("alpha")).toBe(true);

@@ -399,8 +399,11 @@ describe("config", () => {
     expect(() => loadConfig({ MAX_FILE_BYTES: "200000000" }, CLOUDFLARE_LIMITS)).toThrow(
       /MAX_FILE_BYTES/,
     );
-    expect(() => loadConfig({ MAX_TEXT_BYTES: "2000000" }, CLOUDFLARE_LIMITS)).toThrow(
+    expect(() => loadConfig({ MAX_TEXT_BYTES: "200000000" }, CLOUDFLARE_LIMITS)).toThrow(
       /MAX_TEXT_BYTES/,
+    );
+    expect(() => loadConfig({ INLINE_TEXT_BYTES: "2000000" }, CLOUDFLARE_LIMITS)).toThrow(
+      /INLINE_TEXT_BYTES/,
     );
   });
 });
