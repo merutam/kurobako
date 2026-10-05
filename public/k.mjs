@@ -592,7 +592,11 @@ const findEntry = async (space, site, selector) => {
   return entry;
 };
 
-/** An item as the plain API's JSON shows it, with the encrypted fields opened. */
+/**
+ * An item as the plain API's JSON shows it, with the encrypted fields opened:
+ * a text's name, a file's name and type. `contentUrl` is where its contents
+ * are, still sealed.
+ */
 const itemJson = (item, metadata) => {
   const isImage = metadata?.mime?.startsWith("image/");
   return {
@@ -601,8 +605,11 @@ const itemJson = (item, metadata) => {
     expiresAt: item.expiresAt,
     ...(item.burn ? { burn: true } : {}),
     kind: !metadata ? "unreadable" : metadata.kind === "text" ? "text" : isImage ? "image" : "file",
-    size: metadata?.size ?? item.size,
+    // Burn-after-reading texts have no name, as in the plain API.
+    ...(metadata?.kind === "text" && !item.burn ? { name: metadata.title } : {}),
     ...(metadata?.kind === "file" ? { mime: metadata.mime, filename: metadata.filename } : {}),
+    size: metadata?.size ?? item.size,
+    contentUrl: item.contentUrl,
   };
 };
 
