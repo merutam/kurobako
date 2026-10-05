@@ -24,7 +24,7 @@ export const dateFormatter = new Intl.DateTimeFormat(undefined, {
 });
 const relativeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
 
-/** Decimal units, like the limits they show (100 MB, 256 kB). */
+/** Decimal units, like the limits they show (100 MB, 64 kB). */
 export const formatBytes = (bytes) => {
   if (bytes < 1000) return `${bytes} B`;
   const units = ["kB", "MB", "GB"];
