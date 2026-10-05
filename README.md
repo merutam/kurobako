@@ -82,6 +82,7 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 | `MAX_ITEMS` | `20` | per namespace; 1,000 at most |
 | `EMPTY_NAMESPACE_TTL_SECONDS` | `3600` | before an empty namespace is deleted |
 | `MAX_LIVE_CONNECTIONS` | `100` | per namespace |
+| `SENDS_PER_MINUTE` | `30` | per client address; on Cloudflare, also set `UPLOAD_LIMITER`'s limit in `wrangler.jsonc` |
 | `ADMIN_KEY` | unset | enables `/a`; 32 characters or more |
 | `ADMIN_SESSION_HOURS` | `12` | |
 | `BASE_PATH` | unset | e.g. `/k`, to share a domain with another site: `$BOX` is then `https://example.com/k` |
@@ -108,7 +109,7 @@ podman compose up -d --build   # or docker compose
 It listens on `127.0.0.1:3000`; put a reverse proxy with HTTPS in front.
 Besides the settings above it takes `S3_ENDPOINT`, `S3_BUCKET`,
 `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `DATA_DIR`, `PORT`,
-`HOST`, `SENDS_PER_MINUTE`, `SQLITE_MAX_OPEN`, `SQLITE_IDLE_SECONDS`,
+`HOST`, `SQLITE_MAX_OPEN`, `SQLITE_IDLE_SECONDS`,
 `PUBLIC_URL` and, behind a proxy,
 `CLIENT_IP_HEADER` (e.g. `x-forwarded-for`). It logs each request and
 error, as one JSON line when not in a terminal: `podman compose logs -f kurobako`.

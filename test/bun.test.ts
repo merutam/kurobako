@@ -551,6 +551,15 @@ describe("rules kept in two places", () => {
     expect([...skipped].sort()).toEqual([...STATIC_FILES, ...ICON_FILES].sort());
   });
 
+  test("the send limit Cloudflare enforces is the one clients are told", async () => {
+    const wrangler = await Bun.file(join(import.meta.dir, "..", "wrangler.jsonc")).text();
+    const told = /"SENDS_PER_MINUTE":\s*"(\d+)"/.exec(wrangler)?.[1];
+    const limiter =
+      /"UPLOAD_LIMITER"[^}]*"simple":\s*\{\s*"limit":\s*(\d+),\s*"period":\s*(\d+)/.exec(wrangler);
+    expect(limiter?.[2]).toBe("60");
+    expect(told).toBe(limiter?.[1]);
+  });
+
   test("versions: k.mjs says which server version it comes from", async () => {
     const pkg = (await Bun.file(join(import.meta.dir, "..", "package.json")).json()) as {
       version: string;
@@ -590,14 +599,13 @@ describe("several servers", () => {
     nodes = await Promise.all(
       dirs.map((dataDir) =>
         startServer({
-          config: { ...config, adminKey: TEST_ADMIN_KEY },
+          // Every test here sends from one address.
+          config: { ...config, adminKey: TEST_ADMIN_KEY, sendsPerMinute: 1000 },
           dataDir,
           blobs: sharedBlobs.store,
           port: 0,
           hostname: "127.0.0.1",
           clientIpHeader: "x-forwarded-for",
-          // Every test here sends from one address.
-          sendsPerMinute: 1000,
           logRequests: false,
         }),
       ),

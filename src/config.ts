@@ -17,6 +17,8 @@ export type AppConfig = {
   emptyNamespaceTtlMs: number;
   /** Open live-update sockets allowed per namespace. */
   maxLiveConnections: number;
+  /** Sends allowed per client address per minute. */
+  sendsPerMinute: number;
   /** Unset disables the admin dashboard at /a. */
   adminKey: string | null;
   adminSessionHours: number;
@@ -73,7 +75,9 @@ const adminKey = (vars: Vars): string | null => {
 
 const basePath = (vars: Vars): string => {
   const raw = typeof vars.BASE_PATH === "string" ? vars.BASE_PATH.trim() : "";
-  const path = raw.replace(/\/+$/, "");
+  // "k", "/k" and "/k/" all mean /k.
+  const trimmed = raw.replace(/^\/+|\/+$/g, "");
+  const path = trimmed ? `/${trimmed}` : "";
   if (path && !/^(?:\/[A-Za-z0-9._~-]+)+$/.test(path)) {
     throw new Error("BASE_PATH must be a path such as /k (letters, digits, . _ ~ -).");
   }
@@ -115,6 +119,7 @@ export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMIT
     itemTtlMs: integer(vars, "ITEM_TTL_SECONDS", 24 * 60 * 60, 0, 30 * 24 * 60 * 60) * 1000,
     maxItems: integer(vars, "MAX_ITEMS", 20, 1, 1_000),
     maxLiveConnections: integer(vars, "MAX_LIVE_CONNECTIONS", 100, 1, 10_000),
+    sendsPerMinute: integer(vars, "SENDS_PER_MINUTE", 30, 1, 100_000),
     emptyNamespaceTtlMs:
       integer(vars, "EMPTY_NAMESPACE_TTL_SECONDS", 60 * 60, 60, 30 * 24 * 60 * 60) * 1000,
     adminKey: adminKey(vars),

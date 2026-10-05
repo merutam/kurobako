@@ -26,7 +26,10 @@
     "MAX_ITEMS": "20",
     "MAX_LIVE_CONNECTIONS": "100",
     "EMPTY_NAMESPACE_TTL_SECONDS": "3600",
-    "ADMIN_SESSION_HOURS": "12"
+    "ADMIN_SESSION_HOURS": "12",
+    // What clients are told (/.well-known/kurobako); the limit itself is
+    // UPLOAD_LIMITER's below, which must say the same.
+    "SENDS_PER_MINUTE": "30"
   },
 
   // Private: only this Worker reads and writes it, so burn-after-reading,

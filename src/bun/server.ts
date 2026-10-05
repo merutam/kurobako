@@ -34,7 +34,6 @@ export type ServerOptions = {
   port: number;
   hostname?: string;
   clientIpHeader?: string | null;
-  sendsPerMinute?: number;
   publicUrl?: string | null;
   maxOpenDatabases?: number;
   databaseIdleMs?: number;
@@ -49,7 +48,7 @@ export const startServer = async (options: ServerOptions) => {
     dataDir: options.dataDir,
     blobs: options.blobs,
     clientIpHeader: options.clientIpHeader ?? null,
-    sendsPerMinute: options.sendsPerMinute ?? 30,
+    sendsPerMinute: options.config.sendsPerMinute,
     publicUrl: options.publicUrl ?? null,
     maxOpenDatabases: options.maxOpenDatabases,
     databaseIdleMs: options.databaseIdleMs,
@@ -180,7 +179,6 @@ if (import.meta.main) {
     port: Number(env.PORT || 3000),
     hostname: env.HOST || "0.0.0.0",
     clientIpHeader: env.CLIENT_IP_HEADER?.toLowerCase() || null,
-    sendsPerMinute: Number(env.SENDS_PER_MINUTE || 30),
     publicUrl: env.PUBLIC_URL ? new URL(env.PUBLIC_URL).origin : null,
     maxOpenDatabases: positiveInteger("SQLITE_MAX_OPEN", 1000),
     databaseIdleMs: positiveInteger("SQLITE_IDLE_SECONDS", 60) * 1000,

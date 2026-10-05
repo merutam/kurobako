@@ -8,7 +8,7 @@
     "deploy": "wrangler deploy",
     "start": "bun src/bun/server.ts",
     "test": "vitest run && bun test test/bun.test.ts",
-    "types": "wrangler types src/worker-configuration.d.ts",
+    "types": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-configuration.d.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test && tsc --noEmit -p tsconfig.bun.json",
     "lint": "biome check .",
     "format": "biome check --write .",
