@@ -55,7 +55,7 @@ encrypted, is at `/k/protocol` on every instance. Every instance describes itsel
 - **A namespace exists once something is sent to it**, so opening random
   names creates nothing. Once its items are gone, it is
   deleted after an hour.
-- **Limits:** texts up to 256 kB, files up to 100 MB, 30 sends a minute per
+- **Limits:** texts up to 1 MB, files up to 100 MB, 30 sends a minute per
   address.
 - **File types** come from the bytes: PNG, JPEG, GIF, WebP, AVIF and HEIC are
   shown as images; anything else is a download.
@@ -76,7 +76,7 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 | Variable | Default | Notes |
 | --- | ---: | --- |
 | `MAX_FILE_BYTES` | `100000000` | at most 100 MB on Cloudflare Free and Pro; self-hosted has no application cap |
-| `MAX_TEXT_BYTES` | `256000` | at most 100 MB on Cloudflare Free and Pro; self-hosted has no application cap |
+| `MAX_TEXT_BYTES` | `1000000` | at most 100 MB on Cloudflare Free and Pro; self-hosted has no application cap |
 | `INLINE_TEXT_BYTES` | `64000` | texts above this size go to R2/S3 instead of SQLite; at most 2 MB on Cloudflare and no application cap self-hosted |
 | `ITEM_TTL_SECONDS` | `86400` | `0`: no expiry; 30 days at most |
 | `MAX_ITEMS` | `20` | per namespace; 1,000 at most |

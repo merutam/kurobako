@@ -774,7 +774,7 @@ const ownName = (entry) => {
 
 const contentsOf = async (entry) => entry.opened.open(await fetchBytes(entry.contentUrl));
 
-/** Decimal units, like the site's limits (100 MB, 256 kB). */
+/** Decimal units, like the site's limits (100 MB, 64 kB). */
 export const formatBytes = (bytes) => {
   const units = ["B", "kB", "MB", "GB"];
   let value = bytes;

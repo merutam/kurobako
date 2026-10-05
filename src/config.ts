@@ -94,7 +94,7 @@ export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMIT
   const maxTextBytes = integer(
     vars,
     "MAX_TEXT_BYTES",
-    Math.min(256_000, limits.maxTextBytes),
+    Math.min(1_000_000, limits.maxTextBytes),
     1,
     limits.maxTextBytes,
   );

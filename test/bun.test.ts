@@ -526,7 +526,7 @@ test("a self-hosted server leaves its limits to configuration", () => {
   // The defaults stay the same everywhere.
   expect(loadConfig({})).toMatchObject({
     maxFileBytes: 100_000_000,
-    maxTextBytes: 256_000,
+    maxTextBytes: 1_000_000,
     inlineTextBytes: 64_000,
   });
   expect(() => loadConfig({ MAX_FILE_BYTES: String(Number.MAX_SAFE_INTEGER) })).toThrow(
