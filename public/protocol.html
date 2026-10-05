@@ -282,11 +282,14 @@
 
   <h3>Sealing</h3>
   <p>
-    <em>Seal(key, plaintext)</em> = a random 12-byte IV, then the AES-GCM
-    ciphertext with its 16-byte authentication tag at the end (exactly what
-    Web Crypto's <code>encrypt</code> returns). No additional authenticated
-    data. <em>Open</em> reverses it and fails if anything was
-    changed.
+    <em>Seal(key, label, plaintext)</em> = a random 12-byte IV, then the
+    AES-GCM ciphertext with its 16-byte authentication tag at the end
+    (exactly what Web Crypto's <code>encrypt</code> returns), with the label,
+    in UTF-8, as additional authenticated data: it is checked, never sent.
+    The labels are <code>kurobako/v3/metadata</code> and
+    <code>kurobako/v3/body</code>, so that one item key's two kinds of seal
+    never open as each other. <em>Open</em> reverses it, with the same label,
+    and fails if anything was changed.
   </p>
 
   <h3>Items</h3>
@@ -324,11 +327,12 @@
       The <code>X-Sealed-Metadata</code> header is
       <code
         >base64url(AES-KW(namespace key, item key)) "." base64url(Seal(item
-        key, metadata JSON))</code
+        key, kurobako/v3/metadata, metadata JSON))</code
       >; the wrapped key is 24 bytes.
     </li>
     <li>
-      The body is <code>Seal(item key, contents)</code>; a text's contents
+      The body is <code>Seal(item key, kurobako/v3/body, contents)</code>;
+      a text's contents
       are its UTF-8 bytes.
     </li>
   </ol>
@@ -377,7 +381,7 @@
         </tr>
         <tr>
           <th scope="row">Sealed metadata</th>
-          <td>IV <code>202122232425262728292a2b</code>, base64url: <code data-vector="sealed-metadata">ICEiIyQlJicoKSor7_bxzuVEJyjMI_CIzoXb4Mwle-D5FaYbaGOff5LlVgIK</code></td>
+          <td>IV <code>202122232425262728292a2b</code>, label <code>kurobako/v3/metadata</code>; base64url: <code data-vector="sealed-metadata">ICEiIyQlJicoKSor7_bxzuVEJyjMI_CIzoXb4MzmODp1brUZtnkQbWXXZlcd</code></td>
         </tr>
         <tr>
           <th scope="row"><code>X-Sealed-Metadata</code></th>
@@ -385,7 +389,7 @@
         </tr>
         <tr>
           <th scope="row">Body for <code>hello</code></th>
-          <td>IV <code>303132333435363738393a3b</code>, base64url: <code data-vector="body">MDEyMzQ1Njc4OTo7-z6BejLwIyd7bnWjdKoK_z8ruLwp</code></td>
+          <td>IV <code>303132333435363738393a3b</code>, label <code>kurobako/v3/body</code>; base64url: <code data-vector="body">MDEyMzQ1Njc4OTo7-z6BejLYqjVZH8Yfhr2otKGLK1c7</code></td>
         </tr>
       </tbody>
     </table>
