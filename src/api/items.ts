@@ -60,9 +60,11 @@ export const mountItems = (
       }, "Item not found."),
     );
 
-    // Reading contents consumes burn-after-reading items.
+    // Reading contents consumes burn-after-reading items. /c is the same as
+    // the bare item, as on a share link (/i/<token>/c), whose bare path is a page.
     for (const [suffix, inline] of [
       ["", true],
+      ["/c", true],
       ["/d", false],
     ] as const) {
       app.get(
