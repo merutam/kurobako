@@ -10,8 +10,7 @@ newest items kept, each expiring after a day.
   the `#`, never reaches the server. Anyone with the name can read, so use a
   long one (*Random name* on the home page makes 80 bits).
 
-It runs on Cloudflare Workers or as a self-hosted Bun server, with the same
-code.
+It runs on Cloudflare Workers or as a self-hosted Bun server.
 
 ## Command line
 
