@@ -110,6 +110,24 @@ Besides the settings above it takes `S3_ENDPOINT`, `S3_BUCKET`,
 `CLIENT_IP_HEADER` (e.g. `x-forwarded-for`). It logs each request and
 error, as one JSON line when not in a terminal: `podman compose logs -f kurobako`.
 
+**Several servers.** Each server keeps its own data directory, and all share
+one S3 store. `src/bun/router.ts` sits in front, keeps no state and sends
+each namespace, with its share links and live connections, to the server
+that owns it:
+
+```sh
+SERVERS=http://10.0.0.1:3000,http://10.0.0.2:3000 bun src/bun/router.ts
+```
+
+The servers run with `CLIENT_IP_HEADER=x-forwarded-for` and listen only
+where the router reaches them. Every router needs the same `SERVERS`, in the
+same order. A server added later takes about 1/n of the namespaces; their
+SQLite files must move with them. Each server limits sends on its own, and
+admin logins go to the first. `/a` shows one server at a time, with a picker
+(`/a?server=2`); one login works on every server sharing `ADMIN_KEY`.
+`/stats.json` adds up every server's (a visitor seen by two servers counts
+twice).
+
 ## Development
 
 ```sh

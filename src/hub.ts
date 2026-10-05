@@ -5,6 +5,7 @@ import type { AppConfig } from "./config";
 import { logError } from "./log";
 import { type NamespaceRef, objectName, SHARE_TOKEN_BYTES } from "./model";
 import type { Sql, SqlValue } from "./platform";
+import { slotOf, slotPrefix } from "./routing";
 
 /** What the public stats count. Never tied to a namespace or a visitor. */
 export const ACTIVITY_EVENTS = ["sentText", "sentFile", "sentEncrypted", "openedOnce"] as const;
@@ -213,10 +214,12 @@ export class HubCore {
     if (existing) return existing.token;
 
     const bytes = crypto.getRandomValues(new Uint8Array(SHARE_TOKEN_BYTES));
-    const token = btoa(String.fromCharCode(...bytes))
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replace(/=+$/, "");
+    const token =
+      slotPrefix(slotOf(ref)) +
+      btoa(String.fromCharCode(...bytes))
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replace(/=+$/, "");
     this.sql.exec(
       "INSERT INTO item_shares (token, space, name, item_id, expires_at) VALUES (?, ?, ?, ?, ?)",
       token,

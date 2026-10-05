@@ -75,7 +75,7 @@ export const sharedTests = (harness: Harness) => {
       expect((await call(`/${ns}/3`)).status).toBe(404);
       // GET or POST, by position or ID: the same link.
       const shared = await shareLink(`/${ns}/1/s`);
-      expect(shared).toMatch(/^\/i\/[A-Za-z0-9_-]{12}$/);
+      expect(shared).toMatch(/^\/i\/[A-Za-z0-9_-]{14}$/);
       expect(await shareLink(`/${ns}/${put.id}/s`, { method: "POST" })).toBe(shared);
       expect(new Uint8Array(await (await call(`/${ns}/1`)).arrayBuffer())).toEqual(png);
       expect((await call(`/${ns}/1/d`)).headers.get("content-disposition")).toContain(
@@ -107,7 +107,7 @@ export const sharedTests = (harness: Harness) => {
       const byPosition = await json<Described>(`/${ns}/2.json`);
       expect(byPosition).toMatchObject({ id: first.id, position: 2, text: "first" });
       expect(byPosition.shareUrl.startsWith(`${harness.origin}/i/`)).toBe(true);
-      expect(byPosition.shareUrl).toMatch(/\/i\/[A-Za-z0-9_-]{12}$/);
+      expect(byPosition.shareUrl).toMatch(/\/i\/[A-Za-z0-9_-]{14}$/);
       // The same link every time, and the same one …/s gives.
       expect((await json<Described>(`/${ns}/${first.id}.json`)).shareUrl).toBe(byPosition.shareUrl);
       expect(await (await call(`/${ns}/2/s`)).text()).toBe(`${byPosition.shareUrl}\n`);
@@ -645,7 +645,7 @@ export const sharedTests = (harness: Harness) => {
       await sendText(ns, "not this one");
 
       const url = await share(`/${ns}`, text.id);
-      expect(url).toMatch(/^\/i\/[A-Za-z0-9_-]{12}$/);
+      expect(url).toMatch(/^\/i\/[A-Za-z0-9_-]{14}$/);
       expect(await share(`/${ns}`, text.id)).toBe(url);
 
       const page = await (await call(url)).text();

@@ -379,7 +379,7 @@ const parseLink = (text) => {
     if (problem) throw new Error(problem);
     return { kind: "sealed", site: url.origin, name, path };
   }
-  const shared = /^\/i\/([A-Za-z0-9_-]{12})(.*)$/.exec(url.pathname);
+  const shared = /^\/i\/((?:[A-Za-z0-9_-]{2})?[A-Za-z0-9_-]{12})(.*)$/.exec(url.pathname);
   if (shared && fragment) {
     return {
       kind: "shared",

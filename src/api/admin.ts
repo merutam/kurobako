@@ -29,8 +29,9 @@ const pageQuery = (c: Context) => ({
 /**
  * Mounts the dashboard at /a. Its JSON needs a session cookie (set by logging
  * in with the key) or `Authorization: Bearer <key>` for scripts. The key never
- * travels in a URL. Failed logins are counted in the hub, so the lockout
- * holds across every server instance.
+ * travels in a URL. Sessions are signed with the key, so they hold on every
+ * server sharing it. Failed logins are counted in the hub of the server that
+ * gets them (behind src/bun/router.ts, always the first).
  */
 export const mountAdmin = (app: App, api: Api, key: string) => {
   const { hub, clientIp, page, pages, log, platformOf, appVersion } = api;
