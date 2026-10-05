@@ -99,10 +99,7 @@ export class NamespaceObject extends DurableObject<Env> {
       return new Response("Missing namespace.", { status: 400 });
     }
     const visit = request.headers.get(VISIT_HEADER);
-    const snapshot = await this.core.watch(
-      ref as NamespaceRef,
-      visit ? (JSON.parse(visit) as AccessEvent) : undefined,
-    );
+    const snapshot = await this.core.watch(visit ? (JSON.parse(visit) as AccessEvent) : undefined);
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
     server.send(snapshot);

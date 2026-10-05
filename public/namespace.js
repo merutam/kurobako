@@ -17,6 +17,7 @@ import {
 } from "./common.js";
 import {
   defaultTextName,
+  fileMetadata,
   openSealedSpace,
   SEALED_OVERHEAD_BYTES,
   secretNameProblem,
@@ -95,9 +96,10 @@ const plainMode = (namespace) => {
             isImage: item.kind === "image",
           },
     loadText: async (item) =>
-      item.text ?? (await request(item.contentUrl, { cache: "no-store" })).text(),
-    loadBlob: async (item) => (await request(item.contentUrl, { cache: "no-store" })).blob(),
-    downloadUrl: (item) => item.downloadUrl,
+      item.text ?? (await request(`${basePath}/${item.id}`, { cache: "no-store" })).text(),
+    loadBlob: async (item) =>
+      (await request(`${basePath}/${item.id}`, { cache: "no-store" })).blob(),
+    downloadUrl: (item) => `${basePath}/${item.id}/d`,
     /** Plain share links need nothing besides the token. */
     shareKey: async () => null,
     sendText: (text, { burn }) =>
@@ -148,7 +150,8 @@ const sealedMode = async (secretName) => {
   const loadBytes = async (item) => {
     const opened = await openItem(item);
     if (!opened) throw new Error("This item could not be decrypted.");
-    return opened.open(await (await request(item.contentUrl, { cache: "no-store" })).arrayBuffer());
+    const response = await request(`${basePath}/${item.id}`, { cache: "no-store" });
+    return opened.open(await response.arrayBuffer());
   };
   const send = async (bytes, metadata, burn) => {
     const { header, body } = await space.sealItem(bytes, metadata);
@@ -194,12 +197,11 @@ const sealedMode = async (secretName) => {
       const title = burn ? "" : defaultTextName(text);
       return send(bytes, { kind: "text", title, size: bytes.byteLength }, burn);
     },
-    sendFile: async (file, { burn }) =>
-      send(
-        new Uint8Array(await file.arrayBuffer()),
-        { kind: "file", title: file.name, filename: file.name, mime: file.type, size: file.size },
-        burn,
-      ),
+    sendFile: async (file, { burn }) => {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // The same rules as the server's for plain files: images by their bytes.
+      return send(bytes, fileMetadata(bytes, file.name), burn);
+    },
     /**
      * The new name goes into the item's metadata, sealed again with its own
      * key. An empty name gives a text back its default, the start of its text.
@@ -443,7 +445,7 @@ const renderItem = (entry) => {
           // fetched (and decrypted) here.
           image.src =
             !entry.opened && item.kind === "image" && !item.burn
-              ? item.contentUrl
+              ? `${mode.basePath}/${item.id}`
               : objectUrl(await blobOf(entry));
           body.replaceChildren(image);
         }

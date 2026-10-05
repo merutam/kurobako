@@ -37,6 +37,7 @@
     after it), <code>version</code>, <code>protocolUrl</code> (this
     page), <code>clientUrl</code> (<code>k.mjs</code>), and its limits:
     <code>maxFileBytes</code>, <code>maxTextBytes</code>,
+    <code>inlineTextBytes</code> (longer texts are listed with a preview),
     <code>maxItems</code> (older items fall off the queue),
     <code>itemTtlSeconds</code> (<code>0</code>: no expiry),
     <code>sendsPerMinute</code> per client address and
@@ -100,9 +101,10 @@
   </div>
   <p>
     Each item has <code>id</code>, <code>kind</code>, <code>size</code>
-    (bytes), <code>createdAt</code>, <code>expiresAt</code>
-    (<code>null</code> without expiry) and <code>contentUrl</code>;
-    <code>burn: true</code> marks one deleted by its first read. Sending
+    (bytes), <code>createdAt</code> and <code>expiresAt</code>
+    (<code>null</code> without expiry). Its contents are at
+    <code>&lt;ns&gt;/&lt;id&gt;</code>, as the table above shows; the JSON
+    carries no links. <code>burn: true</code> marks one deleted by its first read. Sending
     with the header <code>Burn: 1</code> makes one; reading its contents
     consumes it, while <code>ls</code>, <code>.json</code> and
     <code>/s</code> read nothing.
@@ -149,9 +151,10 @@
     <li>
       <strong>Items</strong>: <code>kind</code> is <code>text</code>,
       <code>image</code> or <code>file</code>. A text has
-      <code>name</code> and, unless it is long, <code>text</code>; a file or
-      image has <code>filename</code>, <code>mime</code> and
-      <code>downloadUrl</code>.
+      <code>name</code> and <code>text</code>, or, beyond
+      <code>inlineTextBytes</code>, a <code>preview</code> of its first 280
+      characters; a file or image has <code>filename</code> and
+      <code>mime</code>.
     </li>
     <li>
       <strong>Types come from the bytes</strong>: PNG, JPEG, GIF, WebP, AVIF
@@ -299,7 +302,12 @@
           </tr>
           <tr>
             <th scope="row"><code>filename</code>, <code>mime</code></th>
-            <td>for files</td>
+            <td>
+              for files, by the server's rules for plain files: an image
+              told by its first bytes (as listed under Plain namespaces)
+              gets its type and its own extension; anything else is
+              <code>application/octet-stream</code>
+            </td>
           </tr>
           <tr>
             <th scope="row"><code>size</code></th>
@@ -383,7 +391,7 @@
     The requests for every namespace, at <code>/e/&lt;id&gt;</code>, plus
     these. Each item in the queue has <code>kind: "sealed"</code> and
     <code>metadata</code>, the <code>X-Sealed-Metadata</code> it was sent
-    with; its contents (<code>contentUrl</code>) are the sealed body.
+    with; its contents are the sealed body.
     <code>&lt;item&gt;</code> is a position or an ID only: the server
     cannot read names, so a client looks them up in the decrypted queue.
     A <code>shareUrl</code> or <code>/s</code> link needs <code>#</code>
@@ -474,7 +482,7 @@
         </tr>
         <tr>
           <td><code>node k.mjs -d &quot;text&quot; &lt;link&gt;/new</code></td>
-          <td>sends a text; <code>-d&nbsp;@file</code> and <code>-d&nbsp;@-</code> (standard input) too</td>
+          <td>sends a text; <code>-d&nbsp;@file</code> and <code>-d&nbsp;@-</code> (standard input) too, without line breaks as in curl; <code>--data-binary&nbsp;@file</code> keeps them</td>
         </tr>
         <tr>
           <td><code>node k.mjs -T photo.jpg &lt;link&gt;/</code></td>
@@ -502,7 +510,7 @@
         </tr>
         <tr>
           <td><code>node k.mjs -O &lt;link&gt;</code></td>
-          <td>saves every item here: files under their names, texts as <code>text-&lt;id&gt;.txt</code></td>
+          <td>saves every item here, under its name (a text's with <code>.txt</code>)</td>
         </tr>
         <tr>
           <td><code>node k.mjs https://&lt;site&gt;/i/&lt;token&gt;#&lt;key&gt;</code></td>

@@ -243,7 +243,7 @@ describe("files in R2", () => {
       .objects;
     const object = defined(stored, "the stored file");
     expect(object?.httpMetadata?.contentType).toBe("image/png");
-    const download = await call(image.downloadUrl);
+    const download = await call(`/${ns}/${image.id}/d`);
     expect(download.headers.get("content-length")).toBe(String(png.byteLength));
     expect(new Uint8Array(await download.arrayBuffer())).toEqual(png);
   });
@@ -373,7 +373,7 @@ describe("site", () => {
     await sendText(ns, "just once", { burn: "1" });
     await call(`/${ns}/new`, { method: "POST", body: "a file" });
     const burn = (await json<Item[]>(`/${ns}/ls`)).find((item) => item.burn);
-    await call(defined(burn, "the burn-after-reading item").contentUrl);
+    await call(`/${ns}/${defined(burn, "the burn-after-reading item").id}`);
 
     const after = await stats();
     expect(after.sentToday - before.sentToday).toBe(2);

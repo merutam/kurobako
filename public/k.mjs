@@ -239,22 +239,15 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs <site>/e#<name>/1/s              a link to share it, with its key
   node k.mjs <site>/i/<token>#<key>           a shared item
 
-Options: -d, -T, -X, -H, -o <file>, -O, -J (and -s, -S, -L, -f, -p, ignored);
+Options: -d, -T, -X, -H, -o <file>, -O, -J (and -s, -S, -L, -f, -p, ignored).
+As with curl, -d @file drops line breaks; --data-binary @file keeps them.
 -h or --help shows this.
 Plain links (<site>/<namespace>/...) work too, passed through as they are.`;
 
-/** The types the page previews; anything else is a download. */
-const MIME_TYPES = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  avif: "image/avif",
-  heic: "image/heic",
-  pdf: "application/pdf",
-  txt: "text/plain",
-};
+/** What the plain API says a text is. */
+const TEXT_MIME = "text/plain; charset=utf-8";
+/** Texts in lists are cut to this many characters with ?summary, as on the server. */
+export const TEXT_PREVIEW_CHARS = 280;
 /** An item: its position (1 is the newest) or its six-letter ID. */
 const ITEM_PATTERN = /^(?:[1-9][0-9]{0,3}|[a-z]{6})$/;
 const BURN_VALUES = new Set(["1", "true", "yes"]);
@@ -280,8 +273,8 @@ const VALUE_OPTIONS = {
   H: "header",
   o: "output",
   "--data": "data",
-  "--data-raw": "data",
-  "--data-binary": "data",
+  "--data-raw": "dataRaw",
+  "--data-binary": "dataBinary",
   "--upload-file": "upload",
   "--request": "method",
   "--header": "header",
@@ -310,6 +303,8 @@ const IGNORED = new Set([
 const parseArgs = (args) => {
   const options = {
     data: null,
+    /** How curl reads it: "data" (-d), "dataBinary" or "dataRaw". */
+    dataMode: "data",
     upload: null,
     method: null,
     headers: [],
@@ -319,7 +314,10 @@ const parseArgs = (args) => {
   };
   const set = (key, value) => {
     if (key === "header") options.headers.push(value);
-    else options[key] = value;
+    else if (key.startsWith("data")) {
+      options.data = value;
+      options.dataMode = key;
+    } else options[key] = value;
   };
   let link = null;
   for (let index = 0; index < args.length; index += 1) {
@@ -483,8 +481,16 @@ const readInput = async (source) => {
 };
 
 /** -d's value: the text itself, @file or @- (standard input). */
-const dataBytes = (data) =>
-  data.startsWith("@") ? readInput(data.slice(1)) : encoder.encode(data);
+/**
+ * What -d sends, read as curl reads it: @file (or @- for standard input)
+ * without its line breaks, which --data-binary keeps; --data-raw takes even
+ * a leading @ as it is.
+ */
+const dataBytes = async ({ data, dataMode }) => {
+  if (dataMode === "dataRaw" || !data.startsWith("@")) return encoder.encode(data);
+  const bytes = await readInput(data.slice(1));
+  return dataMode === "dataBinary" ? bytes : bytes.filter((byte) => byte !== 0x0a && byte !== 0x0d);
+};
 
 const writeStdout = (bytes) =>
   new Promise((resolve, reject) =>
@@ -525,6 +531,61 @@ const deliver = async ({ options, isText, ownName, urlName, load }) => {
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 /** A file name that is safe to write anywhere: no directories, odd characters or reserved names. */
+/**
+ * The image a file is, from its first bytes, as the server tells for plain
+ * files: { mime, extension }, or null for anything else.
+ */
+export const detectImage = (bytes) => {
+  const ascii = (start, length) => String.fromCharCode(...bytes.subarray(start, start + length));
+  const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length >= 8 && PNG.every((byte, index) => bytes[index] === byte)) {
+    return { mime: "image/png", extension: "png" };
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return { mime: "image/jpeg", extension: "jpg" };
+  }
+  if (bytes.length >= 6 && (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a")) {
+    return { mime: "image/gif", extension: "gif" };
+  }
+  if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+    return { mime: "image/webp", extension: "webp" };
+  }
+  if (bytes.length >= 12 && ascii(4, 4) === "ftyp") {
+    const brand = ascii(8, 4);
+    if (brand === "avif" || brand === "avis") return { mime: "image/avif", extension: "avif" };
+    if (["heic", "heix", "hevc", "hevx", "mif1", "msf1"].includes(brand)) {
+      return { mime: "image/heic", extension: "heic" };
+    }
+  }
+  return null;
+};
+
+/**
+ * A file's metadata, by the rules the server applies to plain files: an
+ * image is told by its bytes and named with its own extension; anything else
+ * is application/octet-stream under its own (safe) name.
+ */
+export const fileMetadata = (bytes, name) => {
+  const image = detectImage(bytes);
+  // A file sent without a name is called "file", as on the server.
+  const filename = image
+    ? `${safeName(
+        String(name || "file")
+          .split(/[\\/]/)
+          .pop()
+          .replace(/\.[^.]+$/, ""),
+        "image",
+      )}.${image.extension}`
+    : safeName(name, "file");
+  return {
+    kind: "file",
+    title: filename,
+    filename,
+    mime: image?.mime ?? "application/octet-stream",
+    size: bytes.byteLength,
+  };
+};
+
 export const safeName = (name, fallback) => {
   const last = String(name || "")
     .split(/[\\/]/)
@@ -559,8 +620,8 @@ const openList = async (space, site) => {
         number: index + 1,
         item,
         opened,
-        // The server's paths start at the domain's root, base path included.
-        contentUrl: new URL(item.contentUrl, site).href,
+        // Its contents are at <namespace>/<id>, still sealed.
+        contentUrl: `${site}/e/${space.id}/${item.id}`,
       };
     }),
   );
@@ -594,8 +655,7 @@ const findEntry = async (space, site, selector) => {
 
 /**
  * An item as the plain API's JSON shows it, with the encrypted fields opened:
- * a text's name, a file's name and type. `contentUrl` is where its contents
- * are, still sealed.
+ * a text's name, a file's name and type.
  */
 const itemJson = (item, metadata) => {
   const isImage = metadata?.mime?.startsWith("image/");
@@ -605,19 +665,40 @@ const itemJson = (item, metadata) => {
     expiresAt: item.expiresAt,
     ...(item.burn ? { burn: true } : {}),
     kind: !metadata ? "unreadable" : metadata.kind === "text" ? "text" : isImage ? "image" : "file",
+    ...(metadata?.kind === "text" ? { mime: TEXT_MIME } : {}),
     // Burn-after-reading texts have no name, as in the plain API.
     ...(metadata?.kind === "text" && !item.burn ? { name: metadata.title } : {}),
     ...(metadata?.kind === "file" ? { mime: metadata.mime, filename: metadata.filename } : {}),
     size: metadata?.size ?? item.size,
-    contentUrl: item.contentUrl,
   };
 };
 
-/** What -O and -J call an item: its file name, or text-<id>.txt for a text. */
-const ownName = (entry) =>
-  entry.opened.metadata.kind === "text"
-    ? `text-${entry.item.id ?? "shared"}.txt`
-    : safeName(entry.opened.metadata.filename, "file");
+/**
+ * A text's own field, as the plain API gives it: the text, or a preview of
+ * its first characters when it is too long to keep inline on the server (or,
+ * with ?summary, longer than a preview). Burn-after-reading texts show none.
+ */
+const textJson = (text, size, { burn = false, summary = false, inlineLimit = Infinity } = {}) => {
+  if (burn || text === null) return {};
+  if (size > inlineLimit || (summary && text.length > TEXT_PREVIEW_CHARS)) {
+    return { preview: text.slice(0, TEXT_PREVIEW_CHARS) };
+  }
+  return { text };
+};
+
+/** The server's limit for texts kept inline, from its description. */
+const inlineLimitOf = async (url) => (await kurobakoConfig(url))?.inlineTextBytes ?? Infinity;
+
+/**
+ * What -O and -J call an item, as the server names plain downloads: its file
+ * name, a text's name with .txt, or text-<id>.txt for a text without one.
+ */
+const ownName = (entry) => {
+  const { kind, title, filename } = entry.opened.metadata;
+  const fallback = `text-${entry.item.id ?? "shared"}.txt`;
+  if (kind !== "text") return safeName(filename, "file");
+  return title ? safeName(`${title}.txt`, fallback) : fallback;
+};
 
 const contentsOf = async (entry) => entry.opened.open(await fetchBytes(entry.contentUrl));
 
@@ -720,17 +801,9 @@ const send = async (space, site, options, filename) => {
   let metadata;
   if (options.upload !== null) {
     contents = await readInput(options.upload);
-    const name = safeName(filename || (options.upload === "-" ? "" : options.upload), "file");
-    const extension = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
-    metadata = {
-      kind: "file",
-      title: name,
-      filename: name,
-      mime: MIME_TYPES[extension] ?? "application/octet-stream",
-      size: contents.byteLength,
-    };
+    metadata = fileMetadata(contents, filename || (options.upload === "-" ? "" : options.upload));
   } else {
-    contents = await dataBytes(options.data);
+    contents = await dataBytes(options);
     // A burn-after-reading text shows no preview anywhere.
     const title = options.burn ? "" : defaultTextName(decoder.decode(contents));
     metadata = { kind: "text", title, size: contents.byteLength };
@@ -748,8 +821,25 @@ const send = async (space, site, options, filename) => {
     })
   ).json();
   // As in the plain API, a text comes back with its text, unless it burns.
-  const text = metadata.kind === "text" && !options.burn ? { text: decoder.decode(contents) } : {};
+  const text =
+    metadata.kind === "text"
+      ? textJson(decoder.decode(contents), metadata.size, {
+          burn: options.burn,
+          inlineLimit: await inlineLimitOf(`${base}/new`),
+        })
+      : {};
   printJson({ ...itemJson(item, metadata), ...text });
+};
+
+/**
+ * An entry's text or preview (see textJson). Reading one consumes nothing:
+ * burn-after-reading texts are never read here.
+ */
+const entryText = async (entry, options = {}) => {
+  const metadata = entry.opened?.metadata;
+  if (metadata?.kind !== "text" || entry.item.burn) return {};
+  const text = decoder.decode(await contentsOf(entry));
+  return textJson(text, metadata.size, options);
 };
 
 /**
@@ -758,11 +848,9 @@ const send = async (space, site, options, filename) => {
  */
 const describeEntry = async (entry, base) => {
   const described = await (await call(`${base}/${entry.item.id}.json`)).json();
-  const json = itemJson(entry.item, entry.opened.metadata);
-  const readable = json.kind === "text" && !entry.item.burn;
   return {
-    ...json,
-    ...(readable ? { text: decoder.decode(await contentsOf(entry)) } : {}),
+    ...itemJson(entry.item, entry.opened.metadata),
+    ...(await entryText(entry, { inlineLimit: await inlineLimitOf(`${base}/ls`) })),
     position: described.position,
     shareUrl: `${described.shareUrl}#${entry.opened.keyText}`,
   };
@@ -790,11 +878,21 @@ const rename = async (space, site, selector, given) => {
       headers: { "X-Sealed-Metadata": header },
     })
   ).json();
-  printJson(itemJson(item, { ...entry.opened.metadata, ...changes }));
+  const renamed = {
+    ...entry,
+    item,
+    opened: { ...entry.opened, metadata: { ...entry.opened.metadata, ...changes } },
+  };
+  printJson({
+    ...itemJson(item, renamed.opened.metadata),
+    ...(await entryText(renamed, { inlineLimit: await inlineLimitOf(`${site}/e/${space.id}/ls`) })),
+  });
 };
 
 /** The encrypted namespace, path by path, as the plain API answers it. */
-const sealedRequest = async ({ site, name, path }, options) => {
+const sealedRequest = async ({ site, name, path: fullPath }, options) => {
+  // A query goes after the path, as in a URL: <link>/ls?summary.
+  const [path = "", query = ""] = fullPath.split("?", 2);
   const space = await openSealedSpace(name);
   const base = `${site}/e/${space.id}`;
   const { method } = options;
@@ -808,7 +906,7 @@ const sealedRequest = async ({ site, name, path }, options) => {
     if (options.data !== null && path === "new" && method === "POST")
       return send(space, site, options);
     if (options.data !== null && second === "n" && !FIXED.has(first) && !extra.length) {
-      return rename(space, site, first, decoder.decode(await dataBytes(options.data)));
+      return rename(space, site, first, decoder.decode(await dataBytes(options)));
     }
     if (
       options.upload !== null &&
@@ -828,13 +926,15 @@ const sealedRequest = async ({ site, name, path }, options) => {
   }
   if (path === "ls" && method === "GET") {
     const entries = await openList(space, site);
+    const options = {
+      summary: new URLSearchParams(query).has("summary"),
+      inlineLimit: await inlineLimitOf(`${base}/ls`),
+    };
     const items = await Promise.all(
-      entries.map(async (entry) => {
-        const json = itemJson(entry.item, entry.opened?.metadata);
-        // As in the plain API: texts carry their text, except burn-after-reading ones.
-        if (entry.opened?.metadata.kind !== "text" || entry.item.burn) return json;
-        return { ...json, text: decoder.decode(await contentsOf(entry)) };
-      }),
+      entries.map(async (entry) => ({
+        ...itemJson(entry.item, entry.opened?.metadata),
+        ...(await entryText(entry, options)),
+      })),
     );
     return printJson(items);
   }
@@ -936,7 +1036,7 @@ const plainRequest = async ({ url }, options) => {
   let body;
   let target = url;
   if (options.data !== null) {
-    body = await dataBytes(options.data);
+    body = await dataBytes(options);
     headers["Content-Type"] ??= "application/x-www-form-urlencoded";
   } else if (options.upload !== null) {
     body = await readInput(options.upload);

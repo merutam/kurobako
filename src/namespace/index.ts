@@ -155,7 +155,7 @@ export class NamespaceCore {
     const ref = this.ref();
     if (!ref) return;
     const items = this.queue.all();
-    const message = this.snapshot(ref, items);
+    const message = this.snapshot(items);
     for (const socket of this.host.sockets()) {
       try {
         socket.send(message);
@@ -386,10 +386,10 @@ export class NamespaceCore {
   // --- Live updates -----------------------------------------------------
 
   /** The message every viewer gets: { type: "items", items }. */
-  private snapshot(ref: NamespaceRef, items: StoredItem[]): string {
+  private snapshot(items: StoredItem[]): string {
     return JSON.stringify({
       type: "items",
-      items: items.map((item) => summaryItem(item, ref, this.config.basePath)),
+      items: items.map((item) => summaryItem(item)),
     });
   }
 
@@ -402,8 +402,8 @@ export class NamespaceCore {
    * device can wait on a namespace that does not exist yet and get its first
    * item the moment another device sends it.
    */
-  async watch(ref: NamespaceRef, visit?: AccessEvent): Promise<string> {
-    return this.snapshot(ref, await this.list(visit));
+  async watch(visit?: AccessEvent): Promise<string> {
+    return this.snapshot(await this.list(visit));
   }
 
   /** Call after a socket was added or closed (pass it as `closing`). */

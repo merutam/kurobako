@@ -174,10 +174,10 @@ const describePlainFile = (upload: Upload, filename: string | null): ObjectInput
 };
 
 /** A send's answer: 201 for a new item, 200 for contents already there, now on top. */
-const sentResponse = (c: AppContext, ref: NamespaceRef, saved: Saved, site: string) =>
+const sentResponse = (c: AppContext, saved: Saved) =>
   saved.existing
-    ? c.json({ ...publicItem(saved.item, ref, site), existing: true }, 200)
-    : c.json(publicItem(saved.item, ref, site), 201);
+    ? c.json({ ...publicItem(saved.item), existing: true }, 200)
+    : c.json(publicItem(saved.item), 201);
 
 export const createUploads = (api: Api) => {
   const { config, namespace, platformOf, later, record, visit } = api;
@@ -236,7 +236,7 @@ export const createUploads = (api: Api) => {
     if (upload instanceof Response) return upload;
     const saved = await saveObject(c, ref, upload, describePlainFile(upload, filename));
     record(c, "sentFile");
-    return sentResponse(c, ref, saved, config.basePath);
+    return sentResponse(c, saved);
   };
 
   const uploadPlain = async (c: AppContext, ref: NamespaceRef) => {
@@ -256,7 +256,7 @@ export const createUploads = (api: Api) => {
       try {
         const saved = await saveObject(c, ref, external.upload, external.input, external.validate);
         record(c, "sentText");
-        return sentResponse(c, ref, saved, config.basePath);
+        return sentResponse(c, saved);
       } catch (error) {
         if (error instanceof InvalidUtf8Error) {
           return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
@@ -295,7 +295,7 @@ export const createUploads = (api: Api) => {
       )) as Saved;
     }
     record(c, "sentText");
-    return sentResponse(c, ref, saved, config.basePath);
+    return sentResponse(c, saved);
   };
 
   const uploadSealed = async (c: AppContext, ref: NamespaceRef) => {
@@ -308,7 +308,7 @@ export const createUploads = (api: Api) => {
     if (upload instanceof Response) return upload;
     const saved = await saveObject(c, ref, upload, { kind: "sealed", metadata });
     record(c, "sentEncrypted");
-    return sentResponse(c, ref, saved, config.basePath);
+    return sentResponse(c, saved);
   };
 
   return { uploadFile, uploadPlain, uploadSealed };

@@ -9,7 +9,6 @@ export type Item = {
   size: number;
   createdAt: string;
   expiresAt: string | null;
-  contentUrl: string;
   burn?: true;
   text?: string;
   preview?: string;
@@ -17,12 +16,12 @@ export type Item = {
   mime?: string;
   metadata?: string;
 };
-/** A file or image: these always have a download link and a name. */
-export type FileItem = Item & { downloadUrl: string; filename: string; mime: string };
+/** A file or image: these always have a name and a type. */
+export type FileItem = Item & { filename: string; mime: string };
 /** What a live connection receives. */
 export type LiveMessage = { type: "items"; items: Item[] };
 /** A shared item: the same, minus its ID. */
-export type SharedItem = Omit<Item, "id"> & { downloadUrl?: string };
+export type SharedItem = Omit<Item, "id">;
 
 /** The value, or a failed test saying what was missing. */
 export const defined = <T>(value: T | null | undefined, what: string): T => {
