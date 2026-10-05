@@ -306,7 +306,8 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs <site>/e#<name>/1/s              a link to share it, with its key
   node k.mjs <site>/i/<token>#<key>           a shared item
 
-Options: -d, -T, -X, -H, -o <file>, -O, -J (and -s, -S, -L, -f, -p, ignored).
+Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J
+(and -s, -S, -L, -f, -p, ignored).
 As with curl, -d @file drops line breaks; --data-binary @file keeps them.
 -h or --help shows this.
 Plain links (<site>/<namespace>/...) work too, passed through as they are.`;
@@ -567,14 +568,18 @@ const writeStdout = (bytes) =>
 /**
  * Contents go where curl would put them: -o <file>, -O (named after the URL,
  * or with -J after the item itself, never overwriting), or standard output,
- * which refuses binary data in a terminal. `isText` is known before fetching,
- * so a refused item is never consumed.
+ * which refuses binary data in a terminal unless asked with -o -. `isText` is
+ * known before fetching, so a refused item is never consumed.
  */
 const deliver = async ({ options, isText, ownName, urlName, load }) => {
-  const toFile =
-    options.output ?? (options.remoteName ? (options.headerName ? ownName : urlName) : null);
-  if (!toFile && !isText && process.stdout.isTTY) {
-    throw new Error("Binary output can mess up your terminal: use -o <file>, -OJ, or > file.");
+  const forced = options.output === "-";
+  const toFile = forced
+    ? null
+    : (options.output ?? (options.remoteName ? (options.headerName ? ownName : urlName) : null));
+  if (!toFile && !forced && !isText && process.stdout.isTTY) {
+    throw new Error(
+      "Binary output can mess up your terminal: use -o <file>, -OJ, > file, or -o - to print it anyway.",
+    );
   }
   const bytes = await load();
   if (!toFile) {

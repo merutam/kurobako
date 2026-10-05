@@ -327,6 +327,12 @@ describe("bun server", () => {
 
     // Texts under their name, as the server names plain downloads.
     expect(readdirSync(all).sort()).toEqual(["first text.txt", "picture.png"]);
+
+    // -o - is standard output, as in curl, never a file named "-".
+    const printed = await run(["-o", "-", `${link}/picture`]);
+    expect(printed.code).toBe(0);
+    expect(printed.out.slice(0, 4)).toEqual(png.slice(0, 4));
+    expect(existsSync(join(workDir, "-"))).toBe(false);
     expect(JSON.parse(await k("-X", "DELETE", `${link}/1`))).toEqual({ ok: true });
     expect(JSON.parse(await k(`${link}/ls`))).toHaveLength(1);
 
