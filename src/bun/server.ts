@@ -9,8 +9,9 @@ import { join } from "node:path";
 import { S3Client, type Server } from "bun";
 import { createApp } from "../app";
 import { type AppConfig, loadConfig } from "../config";
-import { ICON_FILES, loadAssets, STATIC_FILES } from "../pages";
+import { ICON_FILES, isPublicFile, loadAssets } from "../pages";
 import type { BlobStore } from "../platform";
+import { sitePath } from "../routing";
 import { logRequestLine, printJsonLines } from "./log";
 import { type BunEnv, createBunPlatform } from "./platform";
 import { s3Store } from "./s3";
@@ -88,9 +89,10 @@ export const startServer = async (options: ServerOptions) => {
    * Icons are requested at fixed URLs, so they are cached for a day.
    */
   const staticFile = (url: URL) => {
-    const path = url.pathname.slice(1);
+    const inside = sitePath(options.config.basePath, url.pathname);
+    if (!inside || !isPublicFile(inside)) return null;
+    const path = inside.slice(1);
     const isIcon = ICON_FILES.includes(path);
-    if (!isIcon && !STATIC_FILES.includes(path)) return null;
     const cacheControl = isIcon
       ? `public, max-age=${ONE_DAY_SECONDS}`
       : url.searchParams.has("v")

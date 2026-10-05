@@ -6,8 +6,8 @@
 // short, fixed suffixes, so everything can be typed by hand.
 import type { Next } from "hono";
 import {
-  basePath,
   type NamespaceRef,
+  namespacePath,
   plainName,
   publicItem,
   type SpaceKind,
@@ -63,7 +63,19 @@ export const mountNamespaces = (
   api: Api,
   { uploadFile, uploadPlain, uploadSealed }: ReturnType<typeof createUploads>,
 ) => {
-  const { namespace, visit, page, pageView, pages, build, assets, platformOf, sendAllowed } = api;
+  const {
+    namespace,
+    visit,
+    page,
+    pageView,
+    pages,
+    build,
+    assets,
+    platformOf,
+    sendAllowed,
+    config,
+  } = api;
+  const site = config.basePath;
 
   for (const space of SPACES) {
     const { prefix } = space;
@@ -82,7 +94,7 @@ export const mountNamespaces = (
         const items = (await namespace(c, ref).list(visit(c))) as StoredItem[];
         // ?summary is what the page uses: long texts as previews.
         const shape = c.req.query("summary") === undefined ? publicItem : summaryItem;
-        return c.json(items.map((item) => shape(item, ref)));
+        return c.json(items.map((item) => shape(item, ref, site)));
       }),
     );
 
@@ -105,8 +117,8 @@ export const mountNamespaces = (
               space.kind === "sealed" ? "encrypted namespace" : `/${ref.name}`,
               // The way back to an encrypted page needs the secret name; the
               // browser's history has it.
-              space.kind === "sealed" ? null : basePath(ref),
-              `${basePath(ref)}/log.json`,
+              space.kind === "sealed" ? null : namespacePath("", ref),
+              `${namespacePath("", ref)}/log.json`,
               await namespace(c, ref).accessLog(visit(c)),
             ),
           ),

@@ -57,15 +57,24 @@
   // Scripts, styles and icons are served straight from Workers Static Assets, which
   // costs no Worker request or CPU. Everything else, pages included, goes to
   // the Worker; it also reads public/ through ASSETS to assemble the pages.
+  // The files are named one by one (the STATIC_FILES and ICON_FILES of
+  // src/pages.ts): a pattern such as "!/*.js" would also catch /k/common.js,
+  // which under BASE_PATH=/k only the Worker can serve.
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
     "run_worker_first": [
       "/*",
-      "!/*.js",
-      "!/*.mjs",
-      "!/*.css",
-      "!/vendor/*",
+      "!/namespace.js",
+      "!/home.js",
+      "!/item.js",
+      "!/common.js",
+      "!/admin.js",
+      "!/k.mjs",
+      "!/status.js",
+      "!/theme.js",
+      "!/styles.css",
+      "!/vendor/uqr.js",
       "!/favicon.ico",
       "!/apple-touch-icon.png",
       "!/logo.png"

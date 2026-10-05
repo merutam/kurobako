@@ -387,7 +387,10 @@ export class NamespaceCore {
 
   /** The message every viewer gets: { type: "items", items }. */
   private snapshot(ref: NamespaceRef, items: StoredItem[]): string {
-    return JSON.stringify({ type: "items", items: items.map((item) => summaryItem(item, ref)) });
+    return JSON.stringify({
+      type: "items",
+      items: items.map((item) => summaryItem(item, ref, this.config.basePath)),
+    });
   }
 
   canWatch(): boolean {

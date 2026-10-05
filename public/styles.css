@@ -131,16 +131,9 @@ label {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 16px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
   font-size: 0.875rem;
 }
-.appearance legend {
-  float: left;
-  margin-right: 4px;
-  padding: 0;
+.appearance-label {
   font-weight: bold;
 }
 .appearance label {

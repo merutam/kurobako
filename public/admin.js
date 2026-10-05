@@ -3,8 +3,8 @@
 
 // The admin dashboard: storage and activity numbers, the namespace list, and
 // a link to the request logs where the platform keeps them.
-import { element, formatBytes, formatDuration } from "/common.js";
-import { createStatus } from "/status.js";
+import { element, formatBytes, formatDuration, SITE } from "./common.js";
+import { createStatus } from "./status.js";
 
 const status = createStatus(element("#status"));
 const summary = element("#summary");
@@ -46,7 +46,7 @@ let server = new URLSearchParams(location.search).get("server") ?? "";
 let servers = 0;
 
 const api = async (path, options) => {
-  const url = new URL(`/a/${path}`, location.origin);
+  const url = new URL(`${SITE}/a/${path}`, location.origin);
   if (server) url.searchParams.set("server", server);
   const response = await fetch(url, { cache: "no-store", ...options });
   if (response.status === 401) throw new Unauthorized();
@@ -116,9 +116,9 @@ const renderNamespaces = (namespaces) => {
             el(
               "span",
               { className: "links" },
-              el("a", { href: `/${encodeURIComponent(name)}` }, "Open"),
+              el("a", { href: `${SITE}/${encodeURIComponent(name)}` }, "Open"),
               " · ",
-              el("a", { href: `/${encodeURIComponent(name)}/log` }, "Access log"),
+              el("a", { href: `${SITE}/${encodeURIComponent(name)}/log` }, "Access log"),
             ),
           ),
         )

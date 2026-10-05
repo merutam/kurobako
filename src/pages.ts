@@ -47,6 +47,10 @@ export const STATIC_FILES = [
 /** Binary files served as they are at /<path>: the icons browsers and iOS ask for. */
 export const ICON_FILES = ["favicon.ico", "apple-touch-icon.png", "logo.png"];
 
+/** Whether a path inside the site (/common.js) is one of the files above. */
+export const isPublicFile = (path: string) =>
+  STATIC_FILES.includes(path.slice(1)) || ICON_FILES.includes(path.slice(1));
+
 const LAYOUT = "layout.html";
 
 /**

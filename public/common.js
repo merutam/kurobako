@@ -9,6 +9,12 @@ export const element = (selector) => {
   return found;
 };
 
+/**
+ * The site's own path under its domain: "" at the root, or e.g. "/k". This
+ * file is served at the site's root, so its own address tells.
+ */
+export const SITE = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
+
 /** The public config the server embeds in each page (no request needed). */
 export const readConfig = () => JSON.parse(element("#config").textContent);
 

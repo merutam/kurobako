@@ -822,13 +822,14 @@ export const sharedTests = (harness: Harness) => {
         /<script type="application\/json" id="config">(.*?)<\/script>/s,
       )?.[1];
       expect(JSON.parse(defined(embedded, "the embedded config"))).toEqual(
-        await json("/config.json"),
+        await json("/.well-known/kurobako"),
       );
     });
 
     test("exposes the public config the client needs", async () => {
-      const body = await json<PublicConfig>("/config.json");
+      const body = await json<PublicConfig>("/.well-known/kurobako");
       expect(body).toMatchObject({
+        base: "",
         version: expect.any(String),
         maxItems: config.maxItems,
         inlineTextBytes: config.inlineTextBytes,

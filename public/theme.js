@@ -31,11 +31,17 @@
     const container = document.querySelector("#appearance");
     if (!container) return;
 
-    const fieldset = document.createElement("fieldset");
-    fieldset.className = "appearance";
-    const legend = document.createElement("legend");
-    legend.textContent = "Color";
-    fieldset.append(legend);
+    // A plain group rather than a fieldset: browsers draw a <legend> on the
+    // fieldset's border, which no flex layout can line up with the options.
+    const group = document.createElement("div");
+    group.className = "appearance";
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-labelledby", "appearance-label");
+    const title = document.createElement("span");
+    title.id = "appearance-label";
+    title.className = "appearance-label";
+    title.textContent = "Theme";
+    group.append(title);
 
     const current = readTheme();
     for (const theme of themes) {
@@ -54,9 +60,9 @@
         }
       });
       label.append(input, ` ${theme.label}`);
-      fieldset.append(label);
+      group.append(label);
     }
-    container.replaceChildren(fieldset);
+    container.replaceChildren(group);
   };
 
   if (document.readyState === "loading") {

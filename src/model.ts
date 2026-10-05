@@ -135,8 +135,9 @@ export const plainName = (raw: string): string | null => {
 export const sealedName = (raw: string): string | null =>
   SEALED_ID_PATTERN.test(raw) ? raw : null;
 
-export const basePath = ({ space, name }: NamespaceRef) =>
-  space === "sealed" ? `/e/${name}` : `/${encodeURIComponent(name)}`;
+/** A namespace's path; `site` is the site's own (AppConfig.basePath), "" at the root. */
+export const namespacePath = (site: string, { space, name }: NamespaceRef) =>
+  space === "sealed" ? `${site}/e/${name}` : `${site}/${encodeURIComponent(name)}`;
 
 /** A unique key for a namespace; the two spaces never collide. */
 export const objectName = ({ space, name }: NamespaceRef) => `${space}:${name}`;
@@ -182,11 +183,12 @@ const exposeItem = (item: StoredItem, contentUrl: string, downloadUrl: string) =
   return { ...metadata, contentUrl, downloadUrl };
 };
 
-const itemPath = (item: StoredItem, ref: NamespaceRef) => `${basePath(ref)}/${item.id}`;
+const itemPath = (item: StoredItem, ref: NamespaceRef, site: string) =>
+  `${namespacePath(site, ref)}/${item.id}`;
 
 /** What the namespace's JSON and live updates show for an item. */
-export const publicItem = (item: StoredItem, ref: NamespaceRef) =>
-  exposeItem(item, itemPath(item, ref), `${itemPath(item, ref)}/d`);
+export const publicItem = (item: StoredItem, ref: NamespaceRef, site: string) =>
+  exposeItem(item, itemPath(item, ref, site), `${itemPath(item, ref, site)}/d`);
 
 /** Texts longer than this go out as a preview in lists; the rest is fetched on demand. */
 export const TEXT_PREVIEW_CHARS = 280;
@@ -196,8 +198,8 @@ export const TEXT_PREVIEW_CHARS = 280;
  * a preview. Every change sends the queue to every viewer, so this keeps
  * those messages small even with large texts.
  */
-export const summaryItem = (item: StoredItem, ref: NamespaceRef) => {
-  const shown = publicItem(item, ref);
+export const summaryItem = (item: StoredItem, ref: NamespaceRef, site: string) => {
+  const shown = publicItem(item, ref, site);
   if (
     item.kind !== "text" ||
     item.burn ||
@@ -211,7 +213,7 @@ export const summaryItem = (item: StoredItem, ref: NamespaceRef) => {
 };
 
 /** A shared item: only its own links, nothing that leads back to the namespace. */
-export const sharedItem = (item: StoredItem, token: string) => {
-  const { id: _id, ...rest } = exposeItem(item, `/i/${token}/c`, `/i/${token}/d`);
+export const sharedItem = (item: StoredItem, token: string, site: string) => {
+  const { id: _id, ...rest } = exposeItem(item, `${site}/i/${token}/c`, `${site}/i/${token}/d`);
   return rest;
 };

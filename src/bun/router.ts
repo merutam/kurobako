@@ -12,8 +12,9 @@
 // own limits.
 
 import type { Server, ServerWebSocket } from "bun";
+import { loadConfig } from "../config";
 import { logError } from "../log";
-import { routeOf, slotOfKey, slotOwners } from "../routing";
+import { routeOf, sitePath, slotOfKey, slotOwners } from "../routing";
 import { printJsonLines } from "./log";
 
 export type RouterOptions = {
@@ -23,6 +24,8 @@ export type RouterOptions = {
   hostname?: string;
   /** Set only behind a reverse proxy: the header holding the client's address. */
   clientIpHeader?: string | null;
+  /** The servers' BASE_PATH, if they have one. */
+  basePath?: string;
 };
 
 /** Hop-by-hop headers, and those the router sets itself. */
@@ -46,7 +49,8 @@ const DROPPED_HEADERS = [
 /** Where the client is, as servers behind a proxy read it; trusted only from a proxy. */
 const LOCATION_HEADERS = ["cf-ipcountry", "cf-region", "cf-ipcity"];
 const STATS_TTL_MS = 30_000;
-const isAdmin = (url: URL) => url.pathname === "/a" || url.pathname.startsWith("/a/");
+/** `path` is a request's path inside the site (see sitePath). */
+const isAdmin = (path: string) => path === "/a" || path.startsWith("/a/");
 const STATS_TIMEOUT_MS = 5_000;
 
 type Relay = {
@@ -114,16 +118,16 @@ export const startRouter = (options: RouterOptions) => {
     return ip || "unknown";
   };
 
-  const serverFor = (url: URL, ip: string) => {
-    const slot = routeOf(url.pathname);
+  const serverFor = (url: URL, path: string, ip: string) => {
+    const slot = routeOf(path);
     if (slot !== null) return owners[slot] as string;
-    if (isAdmin(url)) return servers[adminServer(url) - 1] as string;
+    if (isAdmin(path)) return servers[adminServer(url, path) - 1] as string;
     return owners[slotOfKey(ip)] as string;
   };
 
   /** The server the dashboard is looking at, from 1; the first one for logins. */
-  const adminServer = (url: URL) => {
-    if (url.pathname === "/a/login") return 1;
+  const adminServer = (url: URL, path: string) => {
+    if (path === "/a/login") return 1;
     const server = Number(url.searchParams.get("server"));
     return Number.isSafeInteger(server) && server >= 1 && server <= servers.length ? server : 1;
   };
@@ -173,7 +177,9 @@ export const startRouter = (options: RouterOptions) => {
     async fetch(request, server) {
       const url = new URL(request.url);
       const ip = clientIp(request, server);
-      if (url.pathname === "/stats.json" && request.method === "GET") {
+      // Outside the base path, any server answers (with a 404).
+      const path = sitePath(options.basePath ?? "", url.pathname) ?? "";
+      if (path === "/stats.json" && request.method === "GET") {
         try {
           return Response.json(await stats(), {
             headers: { "Cache-Control": `public, max-age=${STATS_TTL_MS / 1000}` },
@@ -184,7 +190,7 @@ export const startRouter = (options: RouterOptions) => {
         }
       }
 
-      const target = new URL(`${url.pathname}${url.search}`, serverFor(url, ip));
+      const target = new URL(`${url.pathname}${url.search}`, serverFor(url, path, ip));
       const headers = forwardedHeaders(request, url, ip);
       if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
         target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
@@ -204,8 +210,8 @@ export const startRouter = (options: RouterOptions) => {
         const relayed = new Response(response.body, response);
         // Which server answered, and how many there are, for the dashboard's
         // server picker. Only on answers it got by being logged in.
-        if (isAdmin(url) && url.pathname !== "/a/login" && response.ok) {
-          relayed.headers.set("X-Kurobako-Server", String(adminServer(url)));
+        if (isAdmin(path) && path !== "/a/login" && response.ok) {
+          relayed.headers.set("X-Kurobako-Server", String(adminServer(url, path)));
           relayed.headers.set("X-Kurobako-Servers", String(servers.length));
         }
         return relayed;
@@ -254,6 +260,7 @@ if (import.meta.main) {
     port: Number(env.PORT || 3000),
     hostname: env.HOST || "0.0.0.0",
     clientIpHeader: env.CLIENT_IP_HEADER?.toLowerCase() || null,
+    basePath: loadConfig(env).basePath,
   });
   console.info(`Routing ${router.url} to ${servers.join(", ")}`);
 }

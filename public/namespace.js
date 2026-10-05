@@ -13,16 +13,17 @@ import {
   HIDDEN_TITLE,
   readConfig,
   request,
-} from "/common.js";
+  SITE,
+} from "./common.js";
 import {
   defaultTextName,
   openSealedSpace,
   SEALED_OVERHEAD_BYTES,
   secretNameProblem,
   splitFragment,
-} from "/k.mjs";
-import { createStatus } from "/status.js";
-import { renderSVG } from "/vendor/uqr.js";
+} from "./k.mjs";
+import { createStatus } from "./status.js";
+import { renderSVG } from "./vendor/uqr.js";
 
 const itemsList = element("#items");
 const emptyMessage = element("#empty");
@@ -68,7 +69,7 @@ const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
  * of a burn-after-reading item deletes it on the server.
  */
 const plainMode = (namespace) => {
-  const basePath = `/${encodeURIComponent(namespace)}`;
+  const basePath = `${SITE}/${encodeURIComponent(namespace)}`;
   return {
     basePath,
     title: `/${namespace}`,
@@ -129,7 +130,7 @@ const plainMode = (namespace) => {
 
 const sealedMode = async (secretName) => {
   const space = await openSealedSpace(secretName);
-  const basePath = `/e/${space.id}`;
+  const basePath = `${SITE}/e/${space.id}`;
   /**
    * Metadata header → its unwrapped key and metadata (a promise; null if
    * unreadable). Keyed on the header, which a rename changes.
@@ -167,7 +168,7 @@ const sealedMode = async (secretName) => {
     title: `/e#${secretName}`,
     label: "Encrypted",
     fileOverheadBytes: SEALED_OVERHEAD_BYTES,
-    shareUrl: `${window.location.origin}/e#${encodeURIComponent(secretName)}`,
+    shareUrl: `${window.location.origin}${SITE}/e#${encodeURIComponent(secretName)}`,
     describe: async (item) => {
       const opened = await openItem(item);
       if (!opened) return { kind: "unreadable", title: "(could not decrypt)", size: item.size };
@@ -766,7 +767,9 @@ try {
   config = readConfig();
   applyConfig();
 
-  if (window.location.pathname === "/e") {
+  // The path inside the site: /e, or /<namespace>.
+  const path = window.location.pathname.slice(SITE.length);
+  if (path === "/e") {
     // Anything after a "/" is a path for the command-line client (#name/ls).
     const { name: secretName } = splitFragment(window.location.hash.slice(1));
     if (!secretName) {
@@ -778,7 +781,7 @@ try {
     mode = await sealedMode(secretName);
     status.clear();
   } else {
-    mode = plainMode(decodeURIComponent(window.location.pathname.split("/")[1] || ""));
+    mode = plainMode(decodeURIComponent(path.split("/")[1] || ""));
   }
 
   showPage();

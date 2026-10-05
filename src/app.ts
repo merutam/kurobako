@@ -31,8 +31,12 @@ import type { AppConfig } from "./config";
 import { logError } from "./log";
 import type { WebAssets } from "./pages";
 import type { Platform } from "./platform";
+import { sitePath } from "./routing";
 
 export type { AppEnv };
+
+/** A path no route matches, for requests outside the base path. */
+const OUTSIDE = "/\0";
 
 const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
@@ -49,8 +53,11 @@ export const createApp = (
   assets: WebAssets,
   platformOf: (c: AppContext) => Platform,
 ) => {
-  // A trailing slash changes nothing: /aa/ is /aa, /aa/ls/ is /aa/ls.
-  const app = new Hono<AppEnv>({ strict: false });
+  // Routes are written from the site's root; under a base path (/k), /k/aa
+  // is /aa. A trailing slash changes nothing: /aa/ is /aa, /aa/ls/ is /aa/ls.
+  const app = new Hono<AppEnv>({
+    getPath: (request) => sitePath(config.basePath, new URL(request.url).pathname) ?? OUTSIDE,
+  });
   const api = createContext(config, assets, platformOf);
   const contents = createContents(api);
 
