@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Kurobako contributors
+
+// Shared items: /i/<token>. A token stands for one item. Its pages and links
+// never mention the namespace; visits still show in that namespace's access log.
+import { type NamespaceRef, SHARE_TOKEN_PATTERN, type StoredItem, sharedItem } from "../model";
+import type { createContents } from "./contents";
+import { type Api, type App, type AppContext, jsonError } from "./context";
+
+/**
+ * A token always points at the same item, so this instance remembers where
+ * for a minute: reloading a shared page or loading its image skips the hub.
+ * Whether the item still exists is always the namespace's answer.
+ */
+const SHARE_CACHE_MS = 60_000;
+const SHARE_CACHE_MAX = 1_000;
+const SHARE_GONE = "This shared item is gone.";
+
+export const mountShares = (
+  app: App,
+  api: Api,
+  { serveItem }: ReturnType<typeof createContents>,
+) => {
+  const { hub, namespace, later, visit, countVisitor, pages } = api;
+  const shareCache = new Map<string, { expires: number; ref: NamespaceRef; itemId: string }>();
+
+  const resolveShare = async (c: AppContext, token: string) => {
+    if (!SHARE_TOKEN_PATTERN.test(token)) return null;
+    const cached = shareCache.get(token);
+    if (cached && cached.expires > Date.now()) {
+      return { token, ref: cached.ref, itemId: cached.itemId };
+    }
+    const share = (await hub(c).resolveShare(token)) as {
+      ref: NamespaceRef;
+      itemId: string;
+    } | null;
+    if (!share) return null;
+    if (shareCache.size >= SHARE_CACHE_MAX) shareCache.clear();
+    shareCache.set(token, {
+      expires: Date.now() + SHARE_CACHE_MS,
+      ref: share.ref,
+      itemId: share.itemId,
+    });
+    return { token, ...share };
+  };
+  const forgetShare = (c: AppContext, token: string) => {
+    shareCache.delete(token);
+    later(c, hub(c).forgetShare(token));
+  };
+
+  /** The shared item, or null once it is gone. Reading it consumes nothing. */
+  const peekShared = async (c: AppContext, token: string) => {
+    const share = await resolveShare(c, token);
+    if (!share) return null;
+    const item = (await namespace(c, share.ref).peek(share.itemId, visit(c))) as StoredItem | null;
+    if (!item) {
+      forgetShare(c, token);
+      return null;
+    }
+    return sharedItem(item, token);
+  };
+
+  // /i/<token> is the page, with the item embedded so it needs no request
+  // for it; /i/<token>.json is the item alone.
+  app.get("/i/:token", async (c) => {
+    const param = c.req.param("token");
+    const asJson = param.endsWith(".json");
+    const token = asJson ? param.slice(0, -".json".length) : param;
+    // Per request (the item can expire or be read once), so never cached.
+    c.header("Cache-Control", "no-store");
+    const item = await peekShared(c, token);
+    if (asJson) return item ? c.json(item) : jsonError(c, 404, SHARE_GONE);
+    countVisitor(c);
+    return c.html(
+      // A function, so "$&" and the like in the item stay literal.
+      pages.item.replace('"%ITEM%"', () => JSON.stringify(item).replaceAll("<", "\\u003c")),
+      item ? 200 : 404,
+    );
+  });
+
+  for (const [suffix, inline] of [
+    ["c", true],
+    ["d", false],
+  ] as const) {
+    app.get(`/i/:token/${suffix}`, async (c) => {
+      const share = await resolveShare(c, c.req.param("token"));
+      if (!share) return jsonError(c, 404, SHARE_GONE);
+      // Named after the token, which the URL already shows, never the item's ID.
+      const response = await serveItem(
+        c,
+        share.ref,
+        share.itemId,
+        inline,
+        () => `text-${share.token}.txt`,
+      );
+      if (response) return response;
+      forgetShare(c, share.token);
+      return jsonError(c, 404, SHARE_GONE);
+    });
+  }
+};

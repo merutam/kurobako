@@ -1,0 +1,9 @@
+# Single-node Garage (S3-compatible storage) that sets itself up on first start.
+FROM docker.io/dxflrs/garage:v2.1.0 AS garage
+
+FROM docker.io/library/alpine:3.22
+COPY --from=garage /garage /usr/local/bin/garage
+COPY garage.toml /etc/garage.toml
+COPY start.sh /usr/local/bin/start-garage
+VOLUME /var/lib/garage
+ENTRYPOINT ["start-garage"]
