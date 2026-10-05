@@ -9,6 +9,7 @@ if [ -e "$target" ]; then
   echo "$target already exists; not touching it." >&2
   exit 1
 fi
+# $1 random bytes, as twice as many hex characters: hex 32 gives 64.
 hex() { od -An -vtx1 -N"$1" /dev/urandom | tr -d ' \n'; }
 umask 077
 cat >"$target" <<ENV
