@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import type { AppConfig } from "./config";
+import { logError } from "./log";
 import { type NamespaceRef, objectName, SHARE_TOKEN_BYTES } from "./model";
 import type { Sql, SqlValue } from "./platform";
 
@@ -180,11 +181,7 @@ export class HubCore {
       try {
         await this.host.cleanUpNamespace(ref);
       } catch (error) {
-        console.error({
-          message: "Namespace cleanup failed",
-          namespace: objectName(ref),
-          error: String(error),
-        });
+        logError("Namespace cleanup failed", error, { namespace: objectName(ref) });
       }
     }
 

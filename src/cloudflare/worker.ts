@@ -5,6 +5,7 @@
 // Static Assets before the Worker runs (see run_worker_first in wrangler.jsonc).
 import { createApp } from "../app";
 import { loadConfig } from "../config";
+import { logError } from "../log";
 import { objectName } from "../model";
 import { loadAssets } from "../pages";
 import type { NamespaceApi, Platform } from "../platform";
@@ -34,11 +35,7 @@ const platformFor = (env: Env, ctx: ExecutionContext): Platform => ({
   },
   allowSend: async (_c, ip) => (await env.UPLOAD_LIMITER.limit({ key: ip })).success,
   later: (_c, work) =>
-    ctx.waitUntil(
-      work.catch((error: unknown) =>
-        console.error({ message: "Background work failed", error: String(error) }),
-      ),
-    ),
+    ctx.waitUntil(work.catch((error: unknown) => logError("Background work failed", error))),
   client(c) {
     // `request.cf` has the location; the headers are the fallback (tests send them).
     const cf = (c.req.raw as { cf?: Record<string, unknown> }).cf ?? {};

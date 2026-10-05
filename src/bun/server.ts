@@ -11,6 +11,7 @@ import { createApp } from "../app";
 import { type AppConfig, loadConfig } from "../config";
 import { ICON_FILES, loadAssets, STATIC_FILES } from "../pages";
 import type { BlobStore } from "../platform";
+import { printJsonLines } from "./log";
 import { type BunEnv, createBunPlatform } from "./platform";
 import { s3Store } from "./s3";
 
@@ -59,17 +60,20 @@ export const startServer = async (options: ServerOptions) => {
    * One JSON line per request (static files aside), as Workers Logs records
    * on Cloudflare: method, path, status, duration and the client's address.
    */
+  const clientIp = (request: Request, server: Server<unknown>) => {
+    const header = options.clientIpHeader;
+    return header
+      ? request.headers.get(header)?.split(",")[0]?.trim()
+      : server.requestIP(request)?.address;
+  };
+
   const logRequest = (
     request: Request,
     url: URL,
     response: Response,
     started: number,
-    server: Server<unknown>,
+    ip: string | undefined,
   ) => {
-    const header = options.clientIpHeader;
-    const ip = header
-      ? request.headers.get(header)?.split(",")[0]?.trim()
-      : server.requestIP(request)?.address;
     console.info({
       message: "request",
       method: request.method,
@@ -117,8 +121,10 @@ export const startServer = async (options: ServerOptions) => {
         if (file) return file;
       }
       const started = performance.now();
+      // Read now: once a WebSocket upgrade takes the connection, it is gone.
+      const ip = clientIp(request, server);
       const response = await app.fetch(request, { server } satisfies BunEnv);
-      if (options.logRequests !== false) logRequest(request, url, response, started, server);
+      if (options.logRequests !== false) logRequest(request, url, response, started, ip);
       return response;
     },
     websocket,
@@ -153,6 +159,7 @@ const positiveInteger = (name: string, fallback: number) => {
 };
 
 if (import.meta.main) {
+  printJsonLines();
   const env = process.env;
   const blobs = s3Store(
     new S3Client({
