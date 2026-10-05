@@ -11,7 +11,7 @@ import { createApp } from "../app";
 import { type AppConfig, loadConfig } from "../config";
 import { ICON_FILES, loadAssets, STATIC_FILES } from "../pages";
 import type { BlobStore } from "../platform";
-import { printJsonLines } from "./log";
+import { logRequestLine, printJsonLines } from "./log";
 import { type BunEnv, createBunPlatform } from "./platform";
 import { s3Store } from "./s3";
 
@@ -74,8 +74,7 @@ export const startServer = async (options: ServerOptions) => {
     started: number,
     ip: string | undefined,
   ) => {
-    console.info({
-      message: "request",
+    logRequestLine({
       method: request.method,
       path: url.pathname,
       status: response.status,
@@ -159,7 +158,9 @@ const positiveInteger = (name: string, fallback: number) => {
 };
 
 if (import.meta.main) {
-  printJsonLines();
+  // In a terminal, Bun's own output, in color; anywhere else, lines a log
+  // collector can read.
+  if (!process.stdout.isTTY) printJsonLines();
   const env = process.env;
   const blobs = s3Store(
     new S3Client({
@@ -182,5 +183,5 @@ if (import.meta.main) {
     maxOpenDatabases: positiveInteger("SQLITE_MAX_OPEN", 100),
     databaseIdleMs: positiveInteger("SQLITE_IDLE_SECONDS", 60) * 1000,
   });
-  console.info({ message: `Listening on ${server.url}` });
+  console.info(`Listening on ${server.url}`);
 }

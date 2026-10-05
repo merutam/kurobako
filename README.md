@@ -107,8 +107,8 @@ Besides the settings above it takes `S3_ENDPOINT`, `S3_BUCKET`,
 `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `DATA_DIR`, `PORT`,
 `HOST`, `SENDS_PER_MINUTE`, `SQLITE_MAX_OPEN`, `SQLITE_IDLE_SECONDS`,
 `PUBLIC_URL` and, behind a proxy,
-`CLIENT_IP_HEADER` (e.g. `x-forwarded-for`). It logs one JSON line per
-request, and its errors, to standard output: `podman compose logs -f kurobako`.
+`CLIENT_IP_HEADER` (e.g. `x-forwarded-for`). It logs each request and
+error, as one JSON line when not in a terminal: `podman compose logs -f kurobako`.
 
 ## Development
 

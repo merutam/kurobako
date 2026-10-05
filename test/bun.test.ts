@@ -176,9 +176,12 @@ describe("bun server", () => {
     expect((await call("/apple-touch-icon.png")).status).toBe(200);
   });
 
-  test("logs one JSON line per request, and says where to read them", async () => {
-    const lines: unknown[] = [];
-    const info = spyOn(console, "info").mockImplementation((line: unknown) => lines.push(line));
+  test("logs one line per request", async () => {
+    const lines: string[] = [];
+    const info = spyOn(console, "info").mockImplementation((line: unknown) =>
+      // Without its colors.
+      lines.push(String(line).replace(/\x1b\[\d+m/g, "")),
+    );
     await running.stop();
     logRequests = true;
     await start();
@@ -186,16 +189,9 @@ describe("bun server", () => {
       const ns = fresh();
       await call(`/${ns}/ls`);
       await call("/styles.css");
-      expect(lines).toContainEqual(
-        expect.objectContaining({
-          message: "request",
-          method: "GET",
-          path: `/${ns}/ls`,
-          status: 200,
-        }),
-      );
+      expect(lines.some((line) => line.includes(`GET /${ns}/ls 200 `))).toBe(true);
       // Static files are left out, as on Cloudflare.
-      expect(lines).not.toContainEqual(expect.objectContaining({ path: "/styles.css" }));
+      expect(lines.some((line) => line.includes("/styles.css"))).toBe(false);
     } finally {
       info.mockRestore();
       await running.stop();
