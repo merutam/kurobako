@@ -452,7 +452,7 @@ const explainFailure = async (url, message) => {
     return `${origin} does not look like a Kurobako server: it has no ${WELL_KNOWN_PATH}.`;
   }
   if (config.version && config.version !== VERSION) {
-    return `${message}\nThis k.mjs is ${VERSION} and the server is ${config.version}; its own matches it: curl -O ${origin}${config.base ?? ""}/k.mjs`;
+    return `${message}\nThis k.mjs is ${VERSION} and the server is ${config.version}; its own matches it: curl -O ${origin}${config.clientUrl ?? `${config.base ?? ""}/k.mjs`}`;
   }
   return message;
 };

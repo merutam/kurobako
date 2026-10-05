@@ -16,7 +16,7 @@ export type WebAssets = {
   adminHtml: string;
   /** The page for one shared item, /i/<token>. */
   itemHtml: string;
-  /** The encryption spec, /k/protocol. */
+  /** The protocol, plain and encrypted, /k/protocol. */
   protocolHtml: string;
   /** Static files served from the site root, keyed by path. */
   files: Record<string, string>;

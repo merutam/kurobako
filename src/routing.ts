@@ -12,6 +12,10 @@ import { type NamespaceRef, objectName, plainName, SHARE_TOKEN_PATTERN, sealedNa
 
 /** Where any Kurobako server describes itself, whatever its base path. */
 export const WELL_KNOWN_PATH = "/.well-known/kurobako";
+/** The encryption protocol's page, inside the site. */
+export const PROTOCOL_PATH = "/k/protocol";
+/** The client for encrypted namespaces, served from public/. */
+export const CLIENT_PATH = "/k.mjs";
 
 /**
  * A request's path inside the site at `base` ("" for the root, or e.g. "/k"),

@@ -3,28 +3,186 @@
   Copyright (C) 2026 Kurobako contributors
 -->
 <head>
-  <title>Encryption · Kurobako</title>
+  <title>Protocol · Kurobako</title>
 </head>
 <main class="prose">
-  <h1>Encryption</h1>
+  <h1>Protocol</h1>
   <p class="lead">
-    Everything needed to read or write encrypted namespaces with your own
-    code.
+    This page is the complete protocol of a Kurobako server, for plain and
+    encrypted namespaces. With what is below, and nothing else, a client can
+    read, write, rename, delete, download and share items.
+    <a href="/k.mjs"><code>k.mjs</code></a> is one such client; nothing in
+    it is needed to interoperate.
   </p>
 
   <h2>Overview</h2>
   <p>
-    Everything is encrypted in the client. The secret name stays on the
-    device, where it derives a <strong>namespace ID</strong>, which the
-    server uses to find the namespace, and a <strong>namespace key</strong>. Each item has its own
-    random <strong>item key</strong>, which encrypts its contents and
-    metadata and is wrapped with the namespace key. A share link carries
-    one item key and opens that one item. All encryption is AES-128-GCM,
-    and binary values in text form are base64url without padding
+    A namespace is a short queue of items (texts and files), newest first,
+    that every device opening it shares. A <strong>plain</strong> namespace,
+    <code>/&lt;name&gt;</code>, is stored as sent and works with
+    <code>curl</code> alone. An <strong>encrypted</strong> one,
+    <code>/e#&lt;secret name&gt;</code>, is encrypted in the client: the
+    secret name never reaches the server, which only sees
+    <code>/e/&lt;id&gt;</code>. Both answer the same requests; what differs
+    is what goes in and comes out. Binary values in text form are base64url
+    without padding
     (<a href="https://www.rfc-editor.org/rfc/rfc4648#section-5">RFC 4648 §5</a>).
   </p>
 
-  <h2>Namespace ID and key</h2>
+  <h2>Server and limits</h2>
+  <p>
+    <code>GET /.well-known/kurobako</code> describes the server as JSON:
+    <code>base</code>, the path the site lives under (<code>""</code> at the
+    domain's root, or e.g. <code>"/k"</code>; every path on this page goes
+    after it), <code>version</code>, <code>protocolUrl</code> (this
+    page), <code>clientUrl</code> (<code>k.mjs</code>), and its limits:
+    <code>maxFileBytes</code>, <code>maxTextBytes</code>,
+    <code>maxItems</code> (older items fall off the queue),
+    <code>itemTtlSeconds</code> (<code>0</code>: no expiry),
+    <code>sendsPerMinute</code> per client address and
+    <code>sealed.maxNameLength</code>. A send beyond the limit gets
+    <code>429</code>; wait for the minute to pass. Every error is JSON:
+    <code>{"error": "…"}</code>.
+  </p>
+
+  <h2>Every namespace</h2>
+  <p>
+    Below, <code>&lt;ns&gt;</code> is <code>/&lt;name&gt;</code> or
+    <code>/e/&lt;id&gt;</code>. A namespace exists once something is sent
+    to it; it keeps the <code>maxItems</code> newest items, each for
+    <code>itemTtlSeconds</code>. <code>&lt;item&gt;</code> is an item's
+    position (<code>1</code> is the newest) or its six-letter ID, which
+    never changes; plain namespaces also take its name (below).
+  </p>
+  <div class="table-scroll">
+    <table class="wikitable">
+      <thead>
+        <tr>
+          <th>Request</th>
+          <th>Answer</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>GET &lt;ns&gt;/ls</code></td>
+          <td>the queue as JSON, newest first; <code>?summary</code> cuts long texts to a <code>preview</code></td>
+        </tr>
+        <tr>
+          <td><code>GET &lt;ns&gt;/&lt;item&gt;</code></td>
+          <td>its contents; <code>/d</code> as a download (under its name, in a plain namespace)</td>
+        </tr>
+        <tr>
+          <td><code>GET &lt;ns&gt;/&lt;item&gt;.json</code></td>
+          <td>the item, its <code>position</code> and a <code>shareUrl</code></td>
+        </tr>
+        <tr>
+          <td><code>GET &lt;ns&gt;/&lt;item&gt;/s</code></td>
+          <td>the share link alone, as text (<code>POST</code> works too); one per item, always the same</td>
+        </tr>
+        <tr>
+          <td><code>DELETE &lt;ns&gt;/&lt;item&gt;</code></td>
+          <td><code>{"ok": true}</code></td>
+        </tr>
+        <tr>
+          <td><code>GET &lt;ns&gt;/log</code></td>
+          <td>who opened the namespace, as a page; <code>log.json</code> as JSON</td>
+        </tr>
+        <tr>
+          <td><code>GET &lt;ns&gt;/live</code></td>
+          <td>
+            a WebSocket: the queue (as <code>?summary</code>) on connecting
+            and after every change, as <code>{"type": "items", "items": […]}</code>;
+            send <code>ping</code> and get <code>pong</code>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Each item has <code>id</code>, <code>kind</code>, <code>size</code>
+    (bytes), <code>createdAt</code>, <code>expiresAt</code>
+    (<code>null</code> without expiry) and <code>contentUrl</code>;
+    <code>burn: true</code> marks one deleted by its first read. Sending
+    with the header <code>Burn: 1</code> makes one; reading its contents
+    consumes it, while <code>ls</code>, <code>.json</code> and
+    <code>/s</code> read nothing.
+  </p>
+
+  <h2>Plain namespaces</h2>
+  <p>
+    A name is 1-64 characters of <code>a-z</code>, <code>0-9</code>,
+    <code>-</code> and <code>_</code>, starting and ending with a letter or
+    digit; <code>a</code>, <code>e</code>, <code>i</code> and
+    <code>k</code> are taken.
+  </p>
+  <div class="table-scroll">
+    <table class="wikitable">
+      <thead>
+        <tr>
+          <th>Request</th>
+          <th>Does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>POST /&lt;name&gt;/new</code></td>
+          <td>
+            sends an item. <code>Content-Type: text/plain</code> or
+            <code>application/x-www-form-urlencoded</code> (what
+            <code>curl -d</code> sends) makes a UTF-8 text; any other
+            type, a file, named by <code>X-Filename</code>
+            (percent-encoded). <code>201</code> with the item.
+          </td>
+        </tr>
+        <tr>
+          <td><code>PUT /&lt;name&gt;/&lt;filename&gt;</code></td>
+          <td>sends a file under that name (<code>curl -T file /&lt;name&gt;/</code>)</td>
+        </tr>
+        <tr>
+          <td><code>POST /&lt;name&gt;/&lt;item&gt;/n</code></td>
+          <td>renames it: the body is the new name; an empty one gives a text back its default</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>
+      <strong>Items</strong>: <code>kind</code> is <code>text</code>,
+      <code>image</code> or <code>file</code>. A text has
+      <code>name</code> and, unless it is long, <code>text</code>; a file or
+      image has <code>filename</code>, <code>mime</code> and
+      <code>downloadUrl</code>.
+    </li>
+    <li>
+      <strong>Types come from the bytes</strong>: PNG, JPEG, GIF, WebP, AVIF
+      and HEIC are images, served inline; anything else is served as
+      <code>application/octet-stream</code>.
+    </li>
+    <li>
+      <strong>Names</strong>: a text is named by its first words until
+      renamed (burn-after-reading texts have none). An
+      <code>&lt;item&gt;</code> may also be a name, exact or the start of
+      one, ignoring case; the newest match wins
+      (<code>/notes/report</code> finds <code>Report 2024.pdf</code>).
+    </li>
+    <li>
+      <strong>No copies</strong>: sending contents already in the queue
+      moves that item to the top instead, renamed if the send gives a
+      name: <code>200</code> with <code>"existing": true</code>.
+    </li>
+  </ul>
+
+  <h2>Encrypted namespaces</h2>
+  <p>
+    The secret name stays on the device, where it derives a
+    <strong>namespace ID</strong>, which the server uses to find the
+    namespace, and a <strong>namespace key</strong>. Each item has its own
+    random <strong>item key</strong>, which encrypts its contents and
+    metadata and is wrapped with the namespace key. A share link carries
+    one item key and opens that one item. All encryption is AES-128-GCM.
+  </p>
+
+  <h3>Namespace ID and key</h3>
   <ol>
     <li>
       Normalize the name: Unicode NFC, then trim surrounding whitespace.
@@ -69,7 +227,7 @@
     </li>
   </ol>
 
-  <h2>How strong a name is</h2>
+  <h3>How strong a name is</h3>
   <p>
     An encrypted namespace is as safe as its name is hard to guess. The
     server stores each namespace under its ID, so anyone holding a copy
@@ -115,7 +273,7 @@
     since names people pick follow patterns: words, dates, names.
   </p>
 
-  <h2>Sealing</h2>
+  <h3>Sealing</h3>
   <p>
     <em>Seal(key, plaintext)</em> = a random 12-byte IV, then the AES-GCM
     ciphertext with its 16-byte authentication tag at the end (exactly what
@@ -124,7 +282,7 @@
     changed.
   </p>
 
-  <h2>Items</h2>
+  <h3>Items</h3>
   <ol>
     <li>Pick a random 16-byte item key (AES-128-GCM).</li>
     <li>
@@ -163,70 +321,108 @@
     </li>
   </ol>
 
-  <h2>API</h2>
+  <h3>Test vectors</h3>
+  <p>
+    To check an implementation. The derivation is deterministic; the seals
+    use fixed IVs here, where a client must pick random ones. Bytes are hex
+    unless marked base64url.
+  </p>
+  <div class="table-scroll">
+    <table class="wikitable">
+      <tbody>
+        <tr>
+          <th scope="row">Name as typed</th>
+          <td><code>"  cafe\u0301 horse battery  "</code> (JavaScript string: two spaces, a decomposed é, two spaces)</td>
+        </tr>
+        <tr>
+          <th scope="row">Normalized, UTF-8</th>
+          <td><code data-vector="name">636166c3a920686f7273652062617474657279</code> (<code>café horse battery</code>)</td>
+        </tr>
+        <tr>
+          <th scope="row">PBKDF2 output</th>
+          <td><code data-vector="pbkdf2">2c2eee2ccd2fc9b6ca71af7e1c438d391cfacc023056bba3b0ec3d14d619832b</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Namespace ID</th>
+          <td><code data-vector="id">2c2eee2ccd2fc9b6ca71af7e1c438d39</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Namespace key</th>
+          <td><code data-vector="namespace-key">1cfacc023056bba3b0ec3d14d619832b</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Item key</th>
+          <td><code data-vector="item-key">101112131415161718191a1b1c1d1e1f</code>; in a share link, <code data-vector="item-key-text">EBESExQVFhcYGRobHB0eHw</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Metadata JSON</th>
+          <td><code data-vector="metadata">{"kind":"text","title":"hello","size":5}</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Wrapped item key</th>
+          <td>IV <code>000102030405060708090a0b</code>, base64url: <code data-vector="wrapped">AAECAwQFBgcICQoL-ZWuRzVczqJTB6MVu_9K6nLwp31n7fPLjwnRxbBuQCE</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Sealed metadata</th>
+          <td>IV <code>202122232425262728292a2b</code>, base64url: <code data-vector="sealed-metadata">ICEiIyQlJicoKSor7_buzv9MYDDUdf2V1suY4MVlFTdYD78uA0kw_SD9RdRrzbD1Eql8VL2iAx8K3dyzS8GxJr_I9vg</code></td>
+        </tr>
+        <tr>
+          <th scope="row"><code>X-Sealed-Metadata</code></th>
+          <td>the two above, joined by <code>.</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Body for <code>hello</code></th>
+          <td>IV <code>303132333435363738393a3b</code>, base64url: <code data-vector="body">MDEyMzQ1Njc4OTo7-z6BejLwIyd7bnWjdKoK_z8ruLwp</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Requests</h3>
+  <p>
+    The requests for every namespace, at <code>/e/&lt;id&gt;</code>, plus
+    these. Each item in the queue has <code>kind: "sealed"</code> and
+    <code>metadata</code>, the <code>X-Sealed-Metadata</code> it was sent
+    with; its contents (<code>contentUrl</code>) are the sealed body.
+    <code>&lt;item&gt;</code> is a position or an ID only: the server
+    cannot read names, so a client looks them up in the decrypted queue.
+    A <code>shareUrl</code> or <code>/s</code> link needs <code>#</code>
+    and the item key added.
+  </p>
   <table class="wikitable">
     <thead>
       <tr>
         <th>Request</th>
-        <th>Use</th>
+        <th>Does</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td><code>GET /e/&lt;id&gt;/ls</code></td>
-        <td>
-          the queue: each item has <code>metadata</code> (the header above)
-          and <code>contentUrl</code>
-        </td>
-      </tr>
-      <tr>
-        <td><code>GET &lt;contentUrl&gt;</code></td>
-        <td>
-          the sealed body; reading it consumes a burn-after-reading item
-        </td>
-      </tr>
-      <tr>
         <td><code>POST /e/&lt;id&gt;/new</code></td>
         <td>
-          adds an item: sealed body, <code>X-Sealed-Metadata</code> and
-          <code>Content-Length</code>; optionally
-          <code>Burn: 1</code>
-        </td>
-      </tr>
-      <tr>
-        <td><code>GET /e/&lt;id&gt;/&lt;item&gt;.json</code></td>
-        <td>
-          one item: <code>metadata</code>, its <code>position</code> and a
-          <code>shareUrl</code> (add <code>#</code> and the item key)
+          sends an item: the sealed body, with
+          <code>X-Sealed-Metadata</code> and <code>Content-Length</code>;
+          <code>201</code> with the item
         </td>
       </tr>
       <tr>
         <td><code>POST /e/&lt;id&gt;/&lt;item&gt;/n</code></td>
         <td>
-          renames an item: <code>X-Sealed-Metadata</code> with the same
-          wrapped key and the metadata sealed again with the item key
-        </td>
-      </tr>
-      <tr>
-        <td><code>DELETE /e/&lt;id&gt;/&lt;item&gt;</code></td>
-        <td>
-          deletes an item; <code>&lt;item&gt;</code> is its position in the
-          queue (1 is the newest) or its six-letter ID; the server
-          cannot look up encrypted names, which <code>k.mjs</code> does
-          on the decrypted list
-        </td>
-      </tr>
-      <tr>
-        <td><code>GET /e/&lt;id&gt;/&lt;item&gt;/s</code></td>
-        <td>
-          a link to share an item, as text (<code>POST</code> works too);
-          add <code>#</code> and the item key
+          renames it: <code>X-Sealed-Metadata</code> with the same wrapped
+          key and the metadata sealed again with the item key
         </td>
       </tr>
     </tbody>
   </table>
 
   <h2>Share links</h2>
+  <p>
+    <code>/i/&lt;token&gt;</code> opens one item without revealing its
+    namespace, and stops working when the item is gone.
+    <code>GET /i/&lt;token&gt;</code> is a page; <code>.json</code> gives
+    the item (without its ID), <code>/c</code> its contents and
+    <code>/d</code> a download.
+  </p>
   <p>
     A shared encrypted item is
     <code>/i/&lt;token&gt;#&lt;base64url(item key)&gt;</code>. The part

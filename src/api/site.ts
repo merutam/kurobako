@@ -3,7 +3,7 @@
 
 // The site's own pages and documents: home, encryption spec, health, the
 // well-known description, stats.
-import { WELL_KNOWN_PATH } from "../routing";
+import { PROTOCOL_PATH, WELL_KNOWN_PATH } from "../routing";
 import type { Api, App } from "./context";
 
 /** The home page's stats, shared by every request to this instance for a little while. */
@@ -14,7 +14,7 @@ export const mountSite = (app: App, api: Api) => {
   let statsCache: { expires: number; body: Promise<Record<string, unknown>> } | null = null;
 
   app.get("/", (c) => pageView(c, pages.home));
-  app.get("/k/protocol", (c) => page(c, pages.protocol));
+  app.get(PROTOCOL_PATH, (c) => page(c, pages.protocol));
   // The secret name lives in the URL fragment, which never reaches the server.
   app.get("/e", (c) => pageView(c, pages.namespace));
 
