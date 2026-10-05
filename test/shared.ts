@@ -786,7 +786,7 @@ export const sharedTests = (harness: Harness) => {
         live: { ping: "ping" },
       });
       expect(new RegExp(body.namespace.pattern).test("alpha")).toBe(true);
-      expect(body.namespace.reserved).toEqual(expect.arrayContaining(["a", "e", "i"]));
+      expect(body.namespace.reserved).toEqual(["a", "e", "i", "k"]);
     });
   });
 

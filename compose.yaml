@@ -29,7 +29,7 @@ services:
     volumes:
       - kurobako-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/healthz"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/k/healthz"]
       interval: 30s
     depends_on:
       garage:

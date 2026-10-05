@@ -88,10 +88,10 @@ export type NamespaceRef = { space: SpaceKind; name: string };
 export const NAMESPACE_MAX_LENGTH = 64;
 /**
  * Top-level paths that are not namespaces: the admin dashboard (/a),
- * encrypted namespaces (/e), shared items (/i) and the encryption spec.
+ * encrypted namespaces (/e), shared items (/i) and system routes (/k).
  * Static files and JSON documents have a dot, which names never do.
  */
-export const RESERVED_NAMESPACES = new Set(["a", "e", "i", "healthz", "protocol"]);
+export const RESERVED_NAMESPACES = new Set(["a", "e", "i", "k"]);
 
 /**
  * Share tokens: 72 random bits, 12 base64url characters. Far beyond guessing

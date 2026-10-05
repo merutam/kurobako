@@ -43,6 +43,17 @@ const SECURITY_HEADERS: Record<string, string> = {
     "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 
+const ERROR_FIELDS = new Set(["name", "message", "stack", "cause"]);
+
+/** Keeps runtime-specific fields such as Bun's S3 error code in structured logs. */
+const errorFields = (error: Error) => {
+  const fields: Record<string, unknown> = {};
+  for (const name of Object.getOwnPropertyNames(error)) {
+    if (!ERROR_FIELDS.has(name)) fields[name] = Reflect.get(error, name);
+  }
+  return fields;
+};
+
 export const createApp = (
   config: AppConfig,
   assets: WebAssets,
@@ -76,9 +87,14 @@ export const createApp = (
   app.onError((error, c) => {
     console.error({
       message: error.message,
+      name: error.name,
+      ...errorFields(error),
       method: c.req.method,
       path: c.req.path,
       stack: error.stack ?? "",
+      ...(error.cause === undefined ? {} : { cause: error.cause }),
+      ...(error.stack ? { stack: error.stack } : {}),
+      error,
     });
     return jsonError(c, 500, "Internal error.");
   });

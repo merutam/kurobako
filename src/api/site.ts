@@ -12,11 +12,11 @@ export const mountSite = (app: App, api: Api) => {
   let statsCache: { expires: number; body: Promise<Record<string, unknown>> } | null = null;
 
   app.get("/", (c) => pageView(c, pages.home));
-  app.get("/protocol", (c) => page(c, pages.protocol));
+  app.get("/k/protocol", (c) => page(c, pages.protocol));
   // The secret name lives in the URL fragment, which never reaches the server.
   app.get("/e", (c) => pageView(c, pages.namespace));
 
-  app.get("/healthz", (c) => c.json({ ok: true }));
+  app.get("/k/healthz", (c) => c.json({ ok: true }));
   app.get("/config.json", (c) => {
     c.header("Cache-Control", "no-store");
     return c.json(publicConfig());

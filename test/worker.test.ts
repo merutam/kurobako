@@ -339,8 +339,8 @@ describe("site", () => {
     }
   });
 
-  test("serves the encryption spec, and keeps its name from becoming a namespace", async () => {
-    const page = await (await call("/protocol")).text();
+  test("serves system routes under /k and keeps that name from becoming a namespace", async () => {
+    const page = await (await call("/k/protocol")).text();
     // The spec must match the code browsers run.
     const sealed = await (await env.ASSETS.fetch("https://assets.invalid/k.mjs")).text();
     const salt = sealed.match(/PROTOCOL_SALT = "([^"]+)"/)?.[1];
@@ -350,8 +350,16 @@ describe("site", () => {
     expect(page).toContain(defined(salt, "the salt in k.mjs"));
     expect(page).toContain(iterations.toLocaleString("en-US"));
     expect(page).not.toContain("%APP_VERSION%");
-    expect((await call("/protocol/ls")).status).toBe(404);
-    expect((await json<PublicConfig>("/config.json")).namespace.reserved).toContain("protocol");
+    expect(await json("/k/healthz")).toEqual({ ok: true });
+    expect((await call("/k/ls")).status).toBe(404);
+    expect((await json<PublicConfig>("/config.json")).namespace.reserved).toEqual([
+      "a",
+      "e",
+      "i",
+      "k",
+    ]);
+    expect((await call("/protocol")).status).toBe(200);
+    expect((await call("/healthz")).status).toBe(200);
   });
 
   test("public stats count activity without naming namespaces or visitors", async () => {
