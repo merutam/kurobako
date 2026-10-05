@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 // The self-hosted server, end to end: a real Bun server on a free port, its
 // SQLite files in a temporary directory and file contents in memory.
+import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -180,7 +181,7 @@ describe("bun server", () => {
     const lines: string[] = [];
     const info = spyOn(console, "info").mockImplementation((line: unknown) =>
       // Without its colors.
-      lines.push(String(line).replace(/\x1b\[\d+m/g, "")),
+      lines.push(Bun.stripANSI(String(line))),
     );
     await running.stop();
     logRequests = true;
@@ -429,8 +430,7 @@ describe("bun server", () => {
     await running.stop();
     await start();
     const file = join(dataDir, "namespaces", "plain", `${ns}.sqlite`);
-    // Startup visits every namespace to restore its timers, but closes each
-    // connection again instead of retaining one per database.
+    // Startup restores timers from an index, without opening any database.
     expect(existsSync(`${file}-shm`)).toBe(false);
     expect(await (await call(`/${ns}/1`)).text()).toBe("kept");
     expect(existsSync(file)).toBe(true);
@@ -438,6 +438,32 @@ describe("bun server", () => {
     await Bun.sleep(config.emptyNamespaceTtlMs + 300);
     expect(existsSync(file)).toBe(false);
     expect(await json<Item[]>(`/${ns}/ls`)).toEqual([]);
+  });
+
+  test("restores timers after a restart without visiting each namespace", async () => {
+    const emptied = async () => {
+      const ns = fresh();
+      const item = await typed(ns, "gone soon");
+      await call(`/${ns}/${item.id}`, { method: "DELETE" });
+      return join(dataDir, "namespaces", "plain", `${ns}.sqlite`);
+    };
+    // Its cleanup is due while the server is down, and runs once it is back.
+    const file = await emptied();
+    await running.stop();
+    await Bun.sleep(config.emptyNamespaceTtlMs);
+    await start();
+    await Bun.sleep(300);
+    expect(existsSync(file)).toBe(false);
+
+    // Data from before the index: startup builds it from the files.
+    const older = await emptied();
+    await running.stop();
+    const hub = new Database(join(dataDir, "hub.sqlite"));
+    hub.exec("DROP TABLE namespace_alarms");
+    hub.close();
+    await start();
+    await Bun.sleep(config.emptyNamespaceTtlMs + 300);
+    expect(existsSync(older)).toBe(false);
   });
 
   test("limits sends per address", async () => {

@@ -125,6 +125,11 @@ export class HubCore {
     await this.ensureAlarm();
   }
 
+  /** After a restart, which drops every live connection. */
+  async resetConnections(): Promise<void> {
+    this.sql.exec("UPDATE namespaces SET connections = 0 WHERE connections > 0");
+  }
+
   /** A namespace that cleaned itself up: drop it from the listing and its share links. */
   async forgetNamespace(ref: NamespaceRef): Promise<void> {
     this.sql.exec("DELETE FROM namespaces WHERE space = ? AND name = ?", ref.space, ref.name);

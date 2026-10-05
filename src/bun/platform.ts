@@ -52,7 +52,7 @@ const header = (c: Context, name: string) => c.req.header(name) || null;
 
 export const createBunPlatform = (options: BunOptions) => {
   const { config, dataDir, blobs } = options;
-  const maxOpenDatabases = Math.max(1, options.maxOpenDatabases ?? 100);
+  const maxOpenDatabases = Math.max(1, options.maxOpenDatabases ?? 1000);
   const databaseIdleMs = Math.max(0, options.databaseIdleMs ?? 60_000);
   for (const space of SPACES)
     mkdirSync(join(dataDir, "namespaces", space.kind), { recursive: true });
@@ -68,6 +68,29 @@ export const createBunPlatform = (options: BunOptions) => {
     setAlarm: async (time) => hubAlarm.set(time),
     cleanUpNamespace: (ref) => namespaceOf(ref).core.cleanUpIfEmpty(ref),
   });
+
+  // Every namespace's next alarm, so a restart restores timers without opening
+  // each namespace's database. Kept next to the hub's tables, apart from them.
+  const indexed = hubDatabase
+    .query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'namespace_alarms'")
+    .get();
+  hubDatabase.exec(`CREATE TABLE IF NOT EXISTS namespace_alarms (
+    space TEXT NOT NULL,
+    name TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (space, name)
+  ) WITHOUT ROWID`);
+  const saveAlarm = (ref: NamespaceRef, time: number | null) => {
+    if (time === null) {
+      hubDatabase
+        .query("DELETE FROM namespace_alarms WHERE space = ? AND name = ?")
+        .run(ref.space, ref.name);
+    } else {
+      hubDatabase
+        .query("INSERT OR REPLACE INTO namespace_alarms (space, name, at) VALUES (?, ?, ?)")
+        .run(ref.space, ref.name, time);
+    }
+  };
 
   // --- Namespaces ---------------------------------------------------------
   type Entry = {
@@ -114,10 +137,14 @@ export const createBunPlatform = (options: BunOptions) => {
       },
       async deleteStorage() {
         alarm.set(null);
+        saveAlarm(ref, null);
         closeDatabase();
         for (const suffix of ["", "-wal", "-shm"]) rmSync(`${file}${suffix}`, { force: true });
       },
-      setAlarm: async (time) => alarm.set(time),
+      setAlarm: async (time) => {
+        alarm.set(time);
+        saveAlarm(ref, time);
+      },
       sockets: () => [...sockets],
       blobs,
       hub: () => hub as unknown as HubApi,
@@ -139,8 +166,22 @@ export const createBunPlatform = (options: BunOptions) => {
     }
   };
 
-  /** Timers do not survive a restart: rebuild them from what is on disk. */
+  /**
+   * Timers do not survive a restart: rebuild them from the alarm index. Those
+   * already due run right away. No one is connected anymore.
+   */
   const resume = async () => {
+    if (!indexed) await indexAlarms();
+    const alarms = hubDatabase
+      .query("SELECT space, name, at FROM namespace_alarms")
+      .all() as (NamespaceRef & { at: number })[];
+    for (const { at, ...ref } of alarms) namespaceOf(ref).alarm.set(at);
+    await hub.resetConnections();
+    hubAlarm.set(Date.now() + HUB_START_DELAY_MS);
+  };
+
+  /** Builds the alarm index for data from before it existed, opening each namespace once. */
+  const indexAlarms = async () => {
     for (const space of SPACES) {
       for (const file of readdirSync(join(dataDir, "namespaces", space.kind))) {
         const name = space.valid(file.replace(/\.sqlite$/, ""));
@@ -154,7 +195,6 @@ export const createBunPlatform = (options: BunOptions) => {
         }
       }
     }
-    hubAlarm.set(Date.now() + HUB_START_DELAY_MS);
   };
 
   // --- Sends per address ----------------------------------------------------

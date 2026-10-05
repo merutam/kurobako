@@ -8,6 +8,9 @@ import type { Sql, SqlValue } from "../platform";
 export const openDatabase = (path: string) => {
   const db = new Database(path, { create: true, strict: true });
   db.exec("PRAGMA journal_mode = WAL");
+  // With WAL, a commit waits for no fsync: a power cut can lose the last
+  // writes, never the database. Worth it for short-lived items.
+  db.exec("PRAGMA synchronous = NORMAL");
   return db;
 };
 

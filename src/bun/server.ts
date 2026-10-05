@@ -180,7 +180,7 @@ if (import.meta.main) {
     clientIpHeader: env.CLIENT_IP_HEADER?.toLowerCase() || null,
     sendsPerMinute: Number(env.SENDS_PER_MINUTE || 30),
     publicUrl: env.PUBLIC_URL ? new URL(env.PUBLIC_URL).origin : null,
-    maxOpenDatabases: positiveInteger("SQLITE_MAX_OPEN", 100),
+    maxOpenDatabases: positiveInteger("SQLITE_MAX_OPEN", 1000),
     databaseIdleMs: positiveInteger("SQLITE_IDLE_SECONDS", 60) * 1000,
   });
   console.info(`Listening on ${server.url}`);
