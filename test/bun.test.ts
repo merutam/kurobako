@@ -10,8 +10,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatBytes as pageFormatBytes } from "../public/common.js";
 import {
+  TEXT_PREVIEW_CHARS as CLI_TEXT_PREVIEW_CHARS,
+  detectImage as cliDetectImage,
   defaultTextName as clientDefaultName,
   formatBytes as cliFormatBytes,
+  fileMetadata,
   VERSION as K_VERSION,
   openSealedSpace,
   openSharedItem,
@@ -20,8 +23,8 @@ import {
 import { startRouter } from "../src/bun/router";
 import { startServer } from "../src/bun/server";
 import { type AppConfig, loadConfig } from "../src/config";
-import { safeFileName } from "../src/image";
-import { defaultTextName } from "../src/model";
+import { detectImage, safeFileName, safeImageName } from "../src/image";
+import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/model";
 import { ICON_FILES, STATIC_FILES } from "../src/pages";
 import type { BlobStore } from "../src/platform";
 import { routeOf, SLOT_COUNT, slotOf, slotOwners, slotPrefix, tokenSlot } from "../src/routing";
@@ -167,8 +170,8 @@ describe("bun server", () => {
 
     const image = await json<FileItem>(`/${ns}/photo.png`, { method: "PUT", body: png });
     expect(image).toMatchObject({ kind: "image", filename: "photo.png" });
-    expect(new Uint8Array(await (await call(image.contentUrl)).arrayBuffer())).toEqual(png);
-    expect((await call(image.downloadUrl)).headers.get("content-disposition")).toContain(
+    expect(new Uint8Array(await (await call(`/${ns}/${image.id}`)).arrayBuffer())).toEqual(png);
+    expect((await call(`/${ns}/${image.id}/d`)).headers.get("content-disposition")).toContain(
       "photo.png",
     );
 
@@ -209,8 +212,8 @@ describe("bun server", () => {
     const ns = fresh();
     const item = await typed(ns, "once", { burn: "1" });
     expect(item.text).toBeUndefined();
-    expect(await (await call(item.contentUrl)).text()).toBe("once");
-    expect((await call(item.contentUrl)).status).toBe(404);
+    expect(await (await call(`/${ns}/${item.id}`)).text()).toBe("once");
+    expect((await call(`/${ns}/${item.id}`)).status).toBe(404);
   });
 
   test("shares one item, and only with the right key when encrypted", async () => {
@@ -269,9 +272,8 @@ describe("bun server", () => {
       { kind: "text", burn: true },
       { kind: "text", name: "first text", text: "first text" },
     ]);
-    // Burn-after-reading texts have no name; every item says where its (sealed) contents are.
+    // Burn-after-reading texts have no name.
     expect(listed[0].name).toBeUndefined();
-    for (const item of listed) expect(item.contentUrl).toMatch(/^\/e\/[0-9a-f]{32}\/[a-z]{6}$/);
     expect(await k(link)).toContain("deletes when opened");
 
     // Items by position: 1 is the newest. Reading a burn-after-reading item consumes it.
@@ -311,10 +313,18 @@ describe("bun server", () => {
     const all = mkdtempSync(join(tmpdir(), "kurobako-all-"));
     const saveAll = Bun.spawn(["bun", script, "-O", link], { cwd: all, stdout: "pipe" });
     await saveAll.exited;
-    expect(readdirSync(all).sort()).toEqual([
-      "picture.png",
-      expect.stringMatching(/^text-[a-z]{6}\.txt$/),
-    ]);
+    // As with curl: -d @file drops line breaks, --data-binary @file keeps them.
+    // (In a namespace of its own: the queue here holds three items.)
+    const lines = `${base}/e#${encodeURIComponent(`lines ${crypto.randomUUID()}`)}`;
+    writeFileSync(join(workDir, "lines.txt"), "one\ntwo\r\n");
+    expect(JSON.parse(await k("-d", "@lines.txt", `${lines}/new`)).text).toBe("onetwo");
+    expect(JSON.parse(await k("--data-binary", "@lines.txt", `${lines}/new`)).text).toBe(
+      "one\ntwo\r\n",
+    );
+    expect(JSON.parse(await k("--data-raw", "@lines.txt", `${lines}/new`)).text).toBe("@lines.txt");
+
+    // Texts under their name, as the server names plain downloads.
+    expect(readdirSync(all).sort()).toEqual(["first text.txt", "picture.png"]);
     expect(JSON.parse(await k("-X", "DELETE", `${link}/1`))).toEqual({ ok: true });
     expect(JSON.parse(await k(`${link}/ls`))).toHaveLength(1);
 
@@ -608,6 +618,36 @@ describe("rules kept in two places", () => {
     expect(new TextDecoder().decode(body)).toBe("hello");
   });
 
+  test("file types and names: k.mjs describes files as the server does", () => {
+    const head = (...bytes: number[]) => new Uint8Array([...bytes, ...new Array(12).fill(0)]);
+    const ascii = (text: string) => [...text].map((character) => character.charCodeAt(0));
+    const samples = [
+      head(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a),
+      head(0xff, 0xd8, 0xff, 0xe0),
+      head(...ascii("GIF89a")),
+      head(...ascii("RIFF"), 0, 0, 0, 0, ...ascii("WEBP")),
+      head(0, 0, 0, 0x1c, ...ascii("ftypavif")),
+      head(0, 0, 0, 0x1c, ...ascii("ftypheic")),
+      head(0, 0, 0, 0x1c, ...ascii("ftypisom")),
+      head(...ascii("%PDF-1.7")),
+      new Uint8Array([0x89, 0x50]),
+    ];
+    for (const bytes of samples) {
+      const server = detectImage(bytes);
+      expect(cliDetectImage(bytes)).toEqual(server);
+      for (const name of ["photo.jpeg", "Report 2024.pdf", "", "-rf", "a/b/c.tar.gz", "noext"]) {
+        const expected = server
+          ? safeImageName(name || "file", server.extension)
+          : safeFileName(name || "file");
+        expect(fileMetadata(bytes, name)).toMatchObject({
+          filename: expected,
+          mime: server?.mime ?? "application/octet-stream",
+        });
+      }
+    }
+    expect(CLI_TEXT_PREVIEW_CHARS).toBe(TEXT_PREVIEW_CHARS);
+  });
+
   test("versions: k.mjs says which server version it comes from", async () => {
     const pkg = (await Bun.file(join(import.meta.dir, "..", "package.json")).json()) as {
       version: string;
@@ -884,7 +924,7 @@ describe("under a base path", () => {
     expect(await script.text()).toContain('from "./common.js"');
   });
 
-  test("items, share links and live updates carry the path", async () => {
+  test("items and share links are under the path", async () => {
     const sent = (await (
       await at("/k/notes/new", {
         method: "POST",
@@ -892,17 +932,15 @@ describe("under a base path", () => {
         body: "under k",
       })
     ).json()) as Item;
-    expect(sent.contentUrl).toStartWith("/k/notes/");
-    expect(await (await at(sent.contentUrl)).text()).toBe("under k");
+    expect(await (await at(`/k/notes/${sent.id}`)).text()).toBe("under k");
 
     const described = (await (await at("/k/notes/1.json")).json()) as { shareUrl: string };
     expect(described.shareUrl).toStartWith(`${origin}/k/i/`);
-    const shared = (await (await fetch(`${described.shareUrl}.json`)).json()) as SharedItem;
-    expect(shared.contentUrl).toStartWith("/k/i/");
+    expect(await (await fetch(`${described.shareUrl}/c`)).text()).toBe("under k");
 
     const socket = new WebSocket(`${origin.replace("http", "ws")}/k/notes/live`);
     const first = await nextMessage(socket);
-    expect(first.items[0]?.contentUrl).toStartWith("/k/notes/");
+    expect(first.items[0]?.id).toBe(sent.id);
     socket.close();
   });
 

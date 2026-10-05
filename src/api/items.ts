@@ -53,7 +53,7 @@ export const mountItems = (
         if (!found) return jsonError(c, 404, "Item not found.");
         const token = await hub(c).createShare(ref, found.item.id, found.item.expiresAt);
         return c.json({
-          ...publicItem(found.item, ref, site),
+          ...publicItem(found.item),
           position: found.position,
           shareUrl: `${platformOf(c).origin(c)}${site}/i/${token}`,
         });
@@ -119,7 +119,7 @@ export const mountItems = (
           | null;
         if (!result) return jsonError(c, 404, "Item not found.");
         if ("error" in result) return jsonError(c, 400, result.error);
-        return c.json(publicItem(result.item, ref, site));
+        return c.json(publicItem(result.item));
       }, "Item not found."),
     );
 

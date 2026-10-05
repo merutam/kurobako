@@ -225,7 +225,7 @@ export const createBunPlatform = (options: BunOptions) => {
       if (!core.canWatch()) {
         return c.json({ error: "Too many live connections. Try again later." }, 503);
       }
-      const snapshot = await core.watch(ref, visit);
+      const snapshot = await core.watch(visit);
       const upgraded = server(c).upgrade(c.req.raw, { data: { ref, snapshot } });
       // After an upgrade Bun ignores the response.
       return upgraded

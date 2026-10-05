@@ -21,7 +21,7 @@ export const mountShares = (
   api: Api,
   { serveItem }: ReturnType<typeof createContents>,
 ) => {
-  const { hub, namespace, later, visit, countVisitor, pages, config } = api;
+  const { hub, namespace, later, visit, countVisitor, pages } = api;
   const shareCache = new Map<string, { expires: number; ref: NamespaceRef; itemId: string }>();
 
   const resolveShare = async (c: AppContext, token: string) => {
@@ -57,7 +57,7 @@ export const mountShares = (
       forgetShare(c, token);
       return null;
     }
-    return sharedItem(item, token, config.basePath);
+    return sharedItem(item);
   };
 
   // /i/<token> is the page, with the item embedded so it needs no request

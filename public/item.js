@@ -26,6 +26,8 @@ const actions = element("#item-actions");
 const status = createStatus(element("#status"));
 
 const keyText = decodeURIComponent(window.location.hash.slice(1));
+/** This page is /i/<token>: the contents are at /c, a download at /d. */
+const here = window.location.pathname.replace(/\/$/, "");
 const GONE = "This item is no longer available.";
 
 /** The same description the namespace page uses, plus how to read the contents. */
@@ -60,9 +62,9 @@ const fetchBytes = async (url, info) => {
 const loadContent = async (item, info) => {
   if (info.kind === "text") {
     if (item.text !== undefined) return { text: item.text };
-    return { text: new TextDecoder().decode(await fetchBytes(item.contentUrl, info)) };
+    return { text: new TextDecoder().decode(await fetchBytes(`${here}/c`, info)) };
   }
-  const bytes = await fetchBytes(item.contentUrl, info);
+  const bytes = await fetchBytes(`${here}/c`, info);
   return { blob: new Blob([bytes], { type: info.mime || "application/octet-stream" }) };
 };
 
@@ -157,10 +159,10 @@ try {
         }
       }),
     );
-  } else if (item.downloadUrl && !info.isImage) {
+  } else if (item.kind === "file" && !item.burn) {
     // A plain file: link to it rather than fetching it all just for a button.
     const download = document.createElement("a");
-    download.href = item.downloadUrl;
+    download.href = `${here}/d`;
     download.textContent = "Download";
     download.className = "button";
     actions.replaceChildren(download);

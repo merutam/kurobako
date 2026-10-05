@@ -163,11 +163,11 @@ export const newItemId = (): string => {
 };
 
 /**
- * An item as JSON, with where to read it: `contentUrl` serves the contents
- * as they are (and consumes a burn-after-reading item); files and images also
- * get `downloadUrl`, which saves them under their name.
+ * An item as JSON. Where to read it follows from where it is listed:
+ * <ns>/<id> serves its contents as they are (and consumes a
+ * burn-after-reading item), <ns>/<id>/d saves them under their name.
  */
-const exposeItem = (item: StoredItem, contentUrl: string, downloadUrl: string) => {
+const exposeItem = (item: StoredItem) => {
   const {
     object: _object,
     sha256: _sha256,
@@ -175,20 +175,12 @@ const exposeItem = (item: StoredItem, contentUrl: string, downloadUrl: string) =
     ...metadata
   } = item as StoredItem & { object?: string; text?: string };
   // Burn-after-reading content is only handed out by a consuming read.
-  if (item.burn) return { ...metadata, contentUrl };
-  if (item.kind === "text") {
-    return "text" in item ? { ...metadata, text, contentUrl } : { ...metadata, contentUrl };
-  }
-  if (item.kind === "sealed") return { ...metadata, contentUrl };
-  return { ...metadata, contentUrl, downloadUrl };
+  if (item.burn || item.kind !== "text" || !("text" in item)) return metadata;
+  return { ...metadata, text };
 };
 
-const itemPath = (item: StoredItem, ref: NamespaceRef, site: string) =>
-  `${namespacePath(site, ref)}/${item.id}`;
-
 /** What the namespace's JSON and live updates show for an item. */
-export const publicItem = (item: StoredItem, ref: NamespaceRef, site: string) =>
-  exposeItem(item, itemPath(item, ref, site), `${itemPath(item, ref, site)}/d`);
+export const publicItem = (item: StoredItem) => exposeItem(item);
 
 /** Texts longer than this go out as a preview in lists; the rest is fetched on demand. */
 export const TEXT_PREVIEW_CHARS = 280;
@@ -198,8 +190,8 @@ export const TEXT_PREVIEW_CHARS = 280;
  * a preview. Every change sends the queue to every viewer, so this keeps
  * those messages small even with large texts.
  */
-export const summaryItem = (item: StoredItem, ref: NamespaceRef, site: string) => {
-  const shown = publicItem(item, ref, site);
+export const summaryItem = (item: StoredItem) => {
+  const shown = publicItem(item);
   if (
     item.kind !== "text" ||
     item.burn ||
@@ -212,8 +204,11 @@ export const summaryItem = (item: StoredItem, ref: NamespaceRef, site: string) =
   return { ...rest, preview: item.text.slice(0, TEXT_PREVIEW_CHARS) };
 };
 
-/** A shared item: only its own links, nothing that leads back to the namespace. */
-export const sharedItem = (item: StoredItem, token: string, site: string) => {
-  const { id: _id, ...rest } = exposeItem(item, `${site}/i/${token}/c`, `${site}/i/${token}/d`);
+/**
+ * A shared item, without its ID: nothing that leads back to the namespace.
+ * Its contents are at /i/<token>/c, a download at /i/<token>/d.
+ */
+export const sharedItem = (item: StoredItem) => {
+  const { id: _id, ...rest } = exposeItem(item);
   return rest;
 };

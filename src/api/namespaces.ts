@@ -63,19 +63,7 @@ export const mountNamespaces = (
   api: Api,
   { uploadFile, uploadPlain, uploadSealed }: ReturnType<typeof createUploads>,
 ) => {
-  const {
-    namespace,
-    visit,
-    page,
-    pageView,
-    pages,
-    build,
-    assets,
-    platformOf,
-    sendAllowed,
-    config,
-  } = api;
-  const site = config.basePath;
+  const { namespace, visit, page, pageView, pages, build, assets, platformOf, sendAllowed } = api;
 
   for (const space of SPACES) {
     const { prefix } = space;
@@ -94,7 +82,7 @@ export const mountNamespaces = (
         const items = (await namespace(c, ref).list(visit(c))) as StoredItem[];
         // ?summary is what the page uses: long texts as previews.
         const shape = c.req.query("summary") === undefined ? publicItem : summaryItem;
-        return c.json(items.map((item) => shape(item, ref, site)));
+        return c.json(items.map((item) => shape(item)));
       }),
     );
 

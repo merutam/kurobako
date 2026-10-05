@@ -323,7 +323,7 @@ export const sharedTests = (harness: Harness) => {
         body: png,
       });
       expect(image).toMatchObject({ kind: "image", mime: "image/png", filename: "foto.png" });
-      const preview = await call(image.contentUrl);
+      const preview = await call(`/${ns}/${image.id}`);
       expect(preview.headers.get("content-type")).toBe("image/png");
       expect(new Uint8Array(await preview.arrayBuffer())).toEqual(png);
 
@@ -340,10 +340,10 @@ export const sharedTests = (harness: Harness) => {
         mime: "application/octet-stream",
         filename: "notas-script-.html",
       });
-      expect((await call(file.contentUrl)).headers.get("content-type")).toBe(
+      expect((await call(`/${ns}/${file.id}`)).headers.get("content-type")).toBe(
         "application/octet-stream",
       );
-      const download = await call(file.downloadUrl);
+      const download = await call(`/${ns}/${file.id}/d`);
       expect(download.headers.get("content-disposition")).toMatch(/^attachment/);
       expect(download.headers.get("content-security-policy")).toContain("sandbox");
     });
@@ -379,7 +379,7 @@ export const sharedTests = (harness: Harness) => {
         },
         body: "pdf",
       });
-      const disposition = (await call(file.downloadUrl)).headers.get("content-disposition");
+      const disposition = (await call(`/${ns}/${file.id}/d`)).headers.get("content-disposition");
       // curl -J and older clients read filename; browsers prefer filename*.
       expect(disposition).toBe(
         `attachment; filename="relatorio acao.pdf"; filename*=UTF-8''relat%C3%B3rio%20a%C3%A7%C3%A3o.pdf`,
@@ -481,8 +481,8 @@ export const sharedTests = (harness: Harness) => {
         body: ciphertext,
       });
       expect(item).toMatchObject({ kind: "sealed", metadata: "a2V5.bWV0YQ", size: 5 });
-      expect(item.contentUrl).toBe(`/e/${id}/${item.id}`);
-      const content = await call(item.contentUrl);
+      expect(item).not.toHaveProperty("contentUrl");
+      const content = await call(`/e/${id}/${item.id}`);
       expect(content.headers.get("content-type")).toBe("application/octet-stream");
       expect(new Uint8Array(await content.arrayBuffer())).toEqual(ciphertext);
       expect(await json<Item[]>(`/${id}/ls`)).toEqual([]);
@@ -513,7 +513,7 @@ export const sharedTests = (harness: Harness) => {
         title: "greeting",
         size: contents.byteLength,
       });
-      const sealed = await (await call(listed.contentUrl)).arrayBuffer();
+      const sealed = await (await call(`/e/${space.id}/${listed.id}`)).arrayBuffer();
       expect(new TextDecoder().decode(await opened.open(sealed))).toBe(
         "olá, só para quem tem o nome",
       );
@@ -558,8 +558,8 @@ export const sharedTests = (harness: Harness) => {
       expect(item).toMatchObject({ kind: "text", burn: true });
       expect(JSON.stringify(await json<Item[]>(`/${ns}/ls`))).not.toContain("secret");
 
-      expect(await (await call(item.contentUrl)).text()).toBe("secret");
-      expect((await call(item.contentUrl)).status).toBe(404);
+      expect(await (await call(`/${ns}/${item.id}`)).text()).toBe("secret");
+      expect((await call(`/${ns}/${item.id}`)).status).toBe(404);
       expect(await json<Item[]>(`/${ns}/ls`)).toEqual([]);
     });
 
@@ -570,8 +570,8 @@ export const sharedTests = (harness: Harness) => {
         headers: { "x-filename": "a.txt", burn: "true" },
         body: "contents",
       });
-      expect((await call(file.contentUrl)).status).toBe(200);
-      expect((await call(file.contentUrl)).status).toBe(404);
+      expect((await call(`/${ns}/${file.id}`)).status).toBe(200);
+      expect((await call(`/${ns}/${file.id}`)).status).toBe(404);
       expect(await storedFiles(`plain/${ns}/`)).toHaveLength(0);
 
       await sendText(ns, "latest", { burn: "1" });
@@ -584,8 +584,8 @@ export const sharedTests = (harness: Harness) => {
         headers: { "x-sealed-metadata": "a2V5.bWV0YQ", burn: "1" },
         body: new Uint8Array([9, 9]),
       });
-      expect((await call(sealed.contentUrl)).status).toBe(200);
-      expect((await call(sealed.contentUrl)).status).toBe(404);
+      expect((await call(`/e/${id}/${sealed.id}`)).status).toBe(200);
+      expect((await call(`/e/${id}/${sealed.id}`)).status).toBe(404);
     });
   });
 
@@ -597,7 +597,7 @@ export const sharedTests = (harness: Harness) => {
         headers: { burn: "1" },
         body: png,
       });
-      const responses = await Promise.all([call(file.contentUrl), call(file.contentUrl)]);
+      const responses = await Promise.all([call(`/${ns}/${file.id}`), call(`/${ns}/${file.id}`)]);
       expect(responses.map((response) => response.status).sort()).toEqual([200, 404]);
       const winner = defined(
         responses.find((response) => response.status === 200),
@@ -621,7 +621,7 @@ export const sharedTests = (harness: Harness) => {
         body: stream,
       });
       expect(item).toMatchObject({ kind: "image", size: big.byteLength });
-      const download = new Uint8Array(await (await call(item.downloadUrl)).arrayBuffer());
+      const download = new Uint8Array(await (await call(`/${ns}/${item.id}/d`)).arrayBuffer());
       expect(download.byteLength).toBe(big.byteLength);
       expect(download.every((byte, index) => byte === big[index])).toBe(true);
     });
@@ -687,10 +687,8 @@ export const sharedTests = (harness: Harness) => {
       const shared = await json<SharedItem>(`${url}.json`);
       expect(shared).toMatchObject({
         kind: "image",
-        contentUrl: `${url}/c`,
-        downloadUrl: `${url}/d`,
       });
-      expect(new Uint8Array(await (await call(shared.contentUrl)).arrayBuffer())).toEqual(png);
+      expect(new Uint8Array(await (await call(`${url}/c`)).arrayBuffer())).toEqual(png);
 
       await call(`/${ns}/${image.id}`, { method: "DELETE" });
       const gone = await call(url);
@@ -706,7 +704,7 @@ export const sharedTests = (harness: Harness) => {
       const secret = await await parse<Item>(sendText(ns, "once", { burn: "1" }));
       const url = await share(`/${ns}`, secret.id);
       const shared = await json<SharedItem>(`${url}.json`);
-      expect(shared).toMatchObject({ kind: "text", burn: true, contentUrl: `${url}/c` });
+      expect(shared).toMatchObject({ kind: "text", burn: true });
       expect(shared.text).toBeUndefined();
       expect(await (await call(`${url}/c`)).text()).toBe("once");
       expect((await call(`${url}/c`)).status).toBe(404);
@@ -725,7 +723,6 @@ export const sharedTests = (harness: Harness) => {
       expect(shared).toMatchObject({
         kind: "sealed",
         metadata: "a2V5.bWV0YQ",
-        contentUrl: `${url}/c`,
       });
       expect(JSON.stringify(shared)).not.toContain(id);
       expect(new Uint8Array(await (await call(`${url}/c`)).arrayBuffer())).toEqual(
@@ -745,7 +742,7 @@ export const sharedTests = (harness: Harness) => {
       expect(summary.text).toBeUndefined();
       expect(preview.length).toBeLessThan(long.length);
       expect(long.startsWith(preview)).toBe(true);
-      expect(await (await call(summary.contentUrl)).text()).toBe(long);
+      expect(await (await call(`/${ns}/${summary.id}`)).text()).toBe(long);
       // Not burn-after-reading: reading the whole text consumes nothing.
       expect(await json<Item[]>(`/${ns}/ls`)).toMatchObject([{ id: item.id, text: long }]);
 
@@ -767,8 +764,8 @@ export const sharedTests = (harness: Harness) => {
 
       const listed = defined((await json<Item[]>(`/${ns}/ls`))[0], "the external text");
       expect(listed.text).toBeUndefined();
-      expect(await (await call(listed.contentUrl)).text()).toBe(text);
-      expect((await call(`${listed.contentUrl}/d`)).headers.get("content-disposition")).toContain(
+      expect(await (await call(`/${ns}/${listed.id}`)).text()).toBe(text);
+      expect((await call(`/${ns}/${listed.id}/d`)).headers.get("content-disposition")).toContain(
         ".txt",
       );
 
@@ -783,8 +780,8 @@ export const sharedTests = (harness: Harness) => {
       expect(burning).toMatchObject({ kind: "text", burn: true });
       expect(burning.preview).toBeUndefined();
       expect(await storedFiles(`plain/${burnNamespace}/`)).toHaveLength(1);
-      expect(await (await call(burning.contentUrl)).text()).toBe(`${text}!`);
-      expect((await call(burning.contentUrl)).status).toBe(404);
+      expect(await (await call(`/${burnNamespace}/${burning.id}`)).text()).toBe(`${text}!`);
+      expect((await call(`/${burnNamespace}/${burning.id}`)).status).toBe(404);
       expect(await storedFiles(`plain/${burnNamespace}/`)).toHaveLength(0);
     });
 
