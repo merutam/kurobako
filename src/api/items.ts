@@ -22,7 +22,8 @@ export const mountItems = (
   api: Api,
   { serveItem }: ReturnType<typeof createContents>,
 ) => {
-  const { namespace, hub, visit, platformOf, sendAllowed } = api;
+  const { namespace, hub, visit, platformOf, sendAllowed, config } = api;
+  const site = config.basePath;
 
   for (const space of SPACES) {
     const { prefix } = space;
@@ -52,9 +53,9 @@ export const mountItems = (
         if (!found) return jsonError(c, 404, "Item not found.");
         const token = await hub(c).createShare(ref, found.item.id, found.item.expiresAt);
         return c.json({
-          ...publicItem(found.item, ref),
+          ...publicItem(found.item, ref, site),
           position: found.position,
-          shareUrl: `${platformOf(c).origin(c)}/i/${token}`,
+          shareUrl: `${platformOf(c).origin(c)}${site}/i/${token}`,
         });
       }, "Item not found."),
     );
@@ -85,7 +86,7 @@ export const mountItems = (
         const item = (await namespace(c, ref).peek(itemRef(c), visit(c))) as StoredItem | null;
         if (!item) return jsonError(c, 404, "Item not found.");
         const token = await hub(c).createShare(ref, item.id, item.expiresAt);
-        return c.text(`${platformOf(c).origin(c)}/i/${token}\n`);
+        return c.text(`${platformOf(c).origin(c)}${site}/i/${token}\n`);
       }, "Item not found."),
     );
 
@@ -118,7 +119,7 @@ export const mountItems = (
           | null;
         if (!result) return jsonError(c, 404, "Item not found.");
         if ("error" in result) return jsonError(c, 400, result.error);
-        return c.json(publicItem(result.item, ref));
+        return c.json(publicItem(result.item, ref, site));
       }, "Item not found."),
     );
 

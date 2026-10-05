@@ -10,6 +10,21 @@
 
 import { type NamespaceRef, objectName, plainName, SHARE_TOKEN_PATTERN, sealedName } from "./model";
 
+/** Where any Kurobako server describes itself, whatever its base path. */
+export const WELL_KNOWN_PATH = "/.well-known/kurobako";
+
+/**
+ * A request's path inside the site at `base` ("" for the root, or e.g. "/k"),
+ * without a trailing slash; null when it falls outside. The well-known
+ * description is answered at the domain's root too.
+ */
+export const sitePath = (base: string, pathname: string): string | null => {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  if (!base) return path;
+  if (path === base || path.startsWith(`${base}/`)) return path.slice(base.length) || "/";
+  return path === WELL_KNOWN_PATH ? path : null;
+};
+
 export const SLOT_COUNT = 4096;
 const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 

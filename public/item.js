@@ -14,9 +14,9 @@ import {
   formatExpiry,
   HIDDEN_TITLE,
   request,
-} from "/common.js";
-import { openSharedItem } from "/k.mjs";
-import { createStatus } from "/status.js";
+} from "./common.js";
+import { openSharedItem } from "./k.mjs";
+import { createStatus } from "./status.js";
 
 const title = element("#item-title");
 const meta = element("#item-meta");

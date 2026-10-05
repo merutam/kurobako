@@ -7,8 +7,9 @@ import { createApp } from "../app";
 import { loadConfig } from "../config";
 import { logError } from "../log";
 import { objectName } from "../model";
-import { loadAssets } from "../pages";
+import { isPublicFile, loadAssets } from "../pages";
 import type { NamespaceApi, Platform } from "../platform";
+import { sitePath } from "../routing";
 import { CLOUDFLARE_LIMITS } from "./limits";
 import { hubOf, VISIT_HEADER } from "./objects";
 import { r2Store } from "./r2";
@@ -61,10 +62,13 @@ const readAsset = (assets: Fetcher) => async (path: string) => {
   return response.text();
 };
 
-const buildApp = async (env: Env) =>
-  createApp(loadConfig(env, CLOUDFLARE_LIMITS), await loadAssets(readAsset(env.ASSETS)), (c) =>
+const buildApp = async (env: Env) => {
+  const config = loadConfig(env, CLOUDFLARE_LIMITS);
+  const app = createApp(config, await loadAssets(readAsset(env.ASSETS)), (c) =>
     platformFor(c.env as Env, c.executionCtx as ExecutionContext),
   );
+  return { app, basePath: config.basePath };
+};
 
 // Built once per isolate: assets and config only change with a new deployment.
 let app: ReturnType<typeof buildApp> | null = null;
@@ -75,6 +79,15 @@ export default {
       app = null;
       throw error;
     });
-    return (await app).fetch(request, env, ctx);
+    const { app: built, basePath } = await app;
+    // Static assets live at the root of public/; under a base path, their
+    // URLs (/k/common.js) find no asset and land here.
+    if (basePath) {
+      const inside = sitePath(basePath, new URL(request.url).pathname);
+      if (inside && isPublicFile(inside)) {
+        return env.ASSETS.fetch(new Request(new URL(inside, request.url), request));
+      }
+    }
+    return built.fetch(request, env, ctx);
   },
 } satisfies ExportedHandler<Env>;

@@ -21,6 +21,7 @@ import { startServer } from "../src/bun/server";
 import { type AppConfig, loadConfig } from "../src/config";
 import { safeFileName } from "../src/image";
 import { defaultTextName } from "../src/model";
+import { ICON_FILES, STATIC_FILES } from "../src/pages";
 import type { BlobStore } from "../src/platform";
 import { routeOf, SLOT_COUNT, slotOf, slotOwners, slotPrefix, tokenSlot } from "../src/routing";
 import { TEST_ADMIN_KEY } from "./admin-key";
@@ -384,7 +385,7 @@ describe("bun server", () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch: (request) =>
-        new URL(request.url).pathname === "/config.json"
+        new URL(request.url).pathname === "/.well-known/kurobako"
           ? Response.json({
               version: "99.0.0",
               namespace: { pattern: "." },
@@ -541,6 +542,13 @@ describe("rules kept in two places", () => {
       "no-extension",
     ];
     for (const name of names) expect(safeName(name, "file")).toBe(safeFileName(name));
+  });
+
+  test("files Cloudflare serves without the Worker: those the pages load", async () => {
+    const wrangler = await Bun.file(join(import.meta.dir, "..", "wrangler.jsonc")).text();
+    const list = /"run_worker_first":\s*\[([^\]]*)\]/.exec(wrangler)?.[1] ?? "";
+    const skipped = [...list.matchAll(/"!\/([^"]+)"/g)].map((match) => match[1]);
+    expect([...skipped].sort()).toEqual([...STATIC_FILES, ...ICON_FILES].sort());
   });
 
   test("versions: k.mjs says which server version it comes from", async () => {
@@ -746,5 +754,105 @@ describe("slots", () => {
     ]) {
       expect(routeOf(path)).toBeNull();
     }
+  });
+});
+
+/** A site under a path of its domain, as when it shares the domain with another site. */
+describe("under a base path", () => {
+  const siteDir = mkdtempSync(join(tmpdir(), "kurobako-base-"));
+  const workDir = mkdtempSync(join(tmpdir(), "kurobako-base-cli-"));
+  let site: Awaited<ReturnType<typeof startServer>>;
+  let origin = "";
+  const at = (path: string, init?: RequestInit) => fetch(`${origin}${path}`, init);
+  const k = async (...args: string[]) => {
+    const child = Bun.spawn(["bun", join(import.meta.dir, "..", "public", "k.mjs"), ...args], {
+      cwd: workDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, error, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    if (code !== 0) throw new Error(error);
+    return out;
+  };
+
+  beforeAll(async () => {
+    site = await startServer({
+      config: { ...config, basePath: "/k" },
+      dataDir: siteDir,
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+    origin = site.server.url.origin;
+  });
+  afterAll(async () => {
+    await site.stop();
+    rmSync(siteDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  });
+
+  test("answers only under its path, and describes itself at the root too", async () => {
+    for (const path of ["/.well-known/kurobako", "/k/.well-known/kurobako"]) {
+      expect(await (await at(path)).json()).toMatchObject({ base: "/k" });
+    }
+    expect((await at("/notes/ls")).status).toBe(404);
+    expect((await at("/common.js")).status).toBe(404);
+    expect((await at("/k/notes/ls")).status).toBe(200);
+  });
+
+  test("pages link to their files and pages under the path", async () => {
+    for (const path of ["/k", "/k/", "/k/notes", "/k/e"]) {
+      const html = await (await at(path)).text();
+      const links = [...html.matchAll(/\b(?:src|href)="(\/[^"]*)"/g)].map((match) => match[1]);
+      expect(links.length).toBeGreaterThan(3);
+      for (const link of links) expect(link).toStartWith("/k/");
+    }
+    const script = await at("/k/namespace.js?v=1");
+    expect(script.headers.get("content-type")).toContain("javascript");
+    // Scripts import each other by relative paths, which stay under the path.
+    expect(await script.text()).toContain('from "./common.js"');
+  });
+
+  test("items, share links and live updates carry the path", async () => {
+    const sent = (await (
+      await at("/k/notes/new", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "under k",
+      })
+    ).json()) as Item;
+    expect(sent.contentUrl).toStartWith("/k/notes/");
+    expect(await (await at(sent.contentUrl)).text()).toBe("under k");
+
+    const described = (await (await at("/k/notes/1.json")).json()) as { shareUrl: string };
+    expect(described.shareUrl).toStartWith(`${origin}/k/i/`);
+    const shared = (await (await fetch(`${described.shareUrl}.json`)).json()) as SharedItem;
+    expect(shared.contentUrl).toStartWith("/k/i/");
+
+    const socket = new WebSocket(`${origin.replace("http", "ws")}/k/notes/live`);
+    const first = await nextMessage(socket);
+    expect(first.items[0]?.contentUrl).toStartWith("/k/notes/");
+    socket.close();
+  });
+
+  test("k.mjs takes the site with its path, like curl", async () => {
+    const box = `${origin}/k`;
+    const sealed = `${box}/e#${encodeURIComponent(`base ${crypto.randomUUID()}`)}`;
+    await k("-d", "sealed under k", `${sealed}/new`);
+    expect(await k(`${sealed}/1`)).toBe("sealed under k");
+    const link = (await k(`${sealed}/1/s`)).trim();
+    expect(link).toStartWith(`${box}/i/`);
+    expect(await k(link)).toBe("sealed under k");
+
+    // A bare namespace lists its items; one under a path is told by the server.
+    writeFileSync(join(workDir, "note.txt"), "a file under k");
+    await k("-T", "note.txt", `${box}/files`);
+    expect(await k(`${box}/files`)).toContain("note.txt");
+    expect(await k(`${box}/files/note`)).toBe("a file under k");
   });
 });

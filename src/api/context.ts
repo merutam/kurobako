@@ -50,6 +50,8 @@ export const createContext = (
   const visit = (c: AppContext) => accessEvent(c, platformOf(c).client(c));
 
   const publicConfig = () => ({
+    /** Where the site lives under its domain: "" for the root, or e.g. "/k". */
+    base: config.basePath,
     /** The server's version, which k.mjs compares with its own when a request fails. */
     version: assets.version,
     maxFileBytes: config.maxFileBytes,
@@ -71,9 +73,14 @@ export const createContext = (
    * and the public config embedded, which saves every page a request for it.
    */
   const embeddedConfig = JSON.stringify(publicConfig()).replaceAll("<", "\\u003c");
+  // Links in pages are written from the site's root; under a base path they
+  // get it in front.
+  const rebased = (html: string) =>
+    config.basePath
+      ? html.replace(/\b(src|href|action)="\/(?!\/)/g, `$1="${config.basePath}/`)
+      : html;
   const build = (html: string) =>
-    site
-      .versioned(html)
+    rebased(site.versioned(html))
       .replaceAll("%APP_VERSION%", escapeHtml(appVersion))
       // Quoted in the pages, so they stay valid JSON until filled in.
       .replaceAll('"%CONFIG%"', embeddedConfig);

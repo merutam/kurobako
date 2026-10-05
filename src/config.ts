@@ -2,6 +2,11 @@
 // Copyright (C) 2026 Kurobako contributors
 
 export type AppConfig = {
+  /**
+   * Where the site lives under its domain: "" for the root, or a path such
+   * as "/k" to share a domain with another site.
+   */
+  basePath: string;
   maxFileBytes: number;
   maxTextBytes: number;
   /** Texts no larger than this stay directly in SQLite. */
@@ -66,6 +71,15 @@ const adminKey = (vars: Vars): string | null => {
   return key;
 };
 
+const basePath = (vars: Vars): string => {
+  const raw = typeof vars.BASE_PATH === "string" ? vars.BASE_PATH.trim() : "";
+  const path = raw.replace(/\/+$/, "");
+  if (path && !/^(?:\/[A-Za-z0-9._~-]+)+$/.test(path)) {
+    throw new Error("BASE_PATH must be a path such as /k (letters, digits, . _ ~ -).");
+  }
+  return path;
+};
+
 /**
  * Reads the settings from environment variables (or a Worker's vars and
  * secrets). The defaults are the same everywhere; how far the sizes may go is
@@ -88,6 +102,7 @@ export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMIT
     Math.min(maxTextBytes, limits.maxInlineTextBytes),
   );
   return {
+    basePath: basePath(vars),
     maxFileBytes: integer(
       vars,
       "MAX_FILE_BYTES",

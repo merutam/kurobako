@@ -373,18 +373,23 @@ const parseLink = (text) => {
   }
   const url = new URL(/^[a-z]+:\/\//i.test(text) ? text : `https://${text}`);
   const fragment = url.hash.slice(1);
-  if (url.pathname === "/e" && fragment) {
+  // A site may live under a path (https://example.com/k): whatever comes
+  // before /e or /i/<token> is part of the site.
+  const sealed = /^((?:\/[^/]+)*)\/e$/.exec(url.pathname);
+  if (sealed && fragment) {
     const { name, path } = splitFragment(fragment);
     const problem = secretNameProblem(name);
     if (problem) throw new Error(problem);
-    return { kind: "sealed", site: url.origin, name, path };
+    return { kind: "sealed", site: `${url.origin}${sealed[1]}`, name, path };
   }
-  const shared = /^\/i\/((?:[A-Za-z0-9_-]{2})?[A-Za-z0-9_-]{12})(.*)$/.exec(url.pathname);
+  const shared = /^((?:\/[^/]+)*)\/i\/((?:[A-Za-z0-9_-]{2})?[A-Za-z0-9_-]{12})(.*)$/.exec(
+    url.pathname,
+  );
   if (shared && fragment) {
     return {
       kind: "shared",
-      base: `${url.origin}/i/${shared[1]}`,
-      suffix: shared[2],
+      base: `${url.origin}${shared[1]}/i/${shared[2]}`,
+      suffix: shared[3],
       keyText: decodeURIComponent(fragment),
     };
   }
@@ -403,17 +408,36 @@ const reach = async (url, init) => {
   }
 };
 
+/** Where every Kurobako server describes itself: its base path, version and rules. */
+export const WELL_KNOWN_PATH = "/.well-known/kurobako";
+const described = new Map();
+
 /**
- * A Kurobako server's public config, or null when the site is no Kurobako
- * server: every one serves /config.json, with the rules its pages use.
+ * The description of the Kurobako server a URL belongs to, or null when there
+ * is none. A server under a path (/k) answers at /k/.well-known/kurobako, and
+ * at the domain's root if the site in front passes that on: the root is tried
+ * first, then each leading part of the path.
  */
-const kurobakoConfig = async (origin) => {
-  try {
-    const config = await (await fetch(`${origin}/config.json`)).json();
-    return config?.namespace?.pattern && config?.live?.ping ? config : null;
-  } catch {
-    return null;
+const kurobakoConfig = (url) => {
+  const { origin, pathname } = new URL(url);
+  const parts = pathname.split("/").filter(Boolean).slice(0, -1);
+  const prefixes = parts.map((_, index) => `/${parts.slice(0, index + 1).join("/")}`);
+  const key = `${origin}${pathname}`;
+  if (!described.has(key)) {
+    described.set(
+      key,
+      (async () => {
+        for (const prefix of ["", ...prefixes]) {
+          try {
+            const config = await (await fetch(`${origin}${prefix}${WELL_KNOWN_PATH}`)).json();
+            if (config?.namespace?.pattern && config?.live?.ping) return config;
+          } catch {}
+        }
+        return null;
+      })(),
+    );
   }
+  return described.get(key);
 };
 
 /**
@@ -421,11 +445,14 @@ const kurobakoConfig = async (origin) => {
  * server at all, or one of another version than this file (which may or may
  * not be the cause, so it is only a hint).
  */
-const explainFailure = async (origin, message) => {
-  const config = await kurobakoConfig(origin);
-  if (!config) return `${origin} does not look like a Kurobako server: it has no /config.json.`;
+const explainFailure = async (url, message) => {
+  const { origin } = new URL(url);
+  const config = await kurobakoConfig(url);
+  if (!config) {
+    return `${origin} does not look like a Kurobako server: it has no ${WELL_KNOWN_PATH}.`;
+  }
   if (config.version && config.version !== VERSION) {
-    return `${message}\nThis k.mjs is ${VERSION} and the server is ${config.version}; its own matches it: curl -O ${origin}/k.mjs`;
+    return `${message}\nThis k.mjs is ${VERSION} and the server is ${config.version}; its own matches it: curl -O ${origin}${config.base ?? ""}/k.mjs`;
   }
   return message;
 };
@@ -441,7 +468,7 @@ const call = async (url, init, { page = false } = {}) => {
   const body = response.ok ? null : await response.json().catch(() => null);
   if (response.ok && (page || !isPage)) return response;
   const message = body?.error ?? `Server error (${response.status}).`;
-  throw new Error(await explainFailure(new URL(url).origin, message));
+  throw new Error(await explainFailure(url, message));
 };
 const fetchBytes = async (url) => new Uint8Array(await (await call(url)).arrayBuffer());
 
@@ -528,7 +555,13 @@ const openList = async (space, site) => {
   return Promise.all(
     items.map(async (item, index) => {
       const opened = await space.openItem(item.metadata).catch(() => null);
-      return { number: index + 1, item, opened, contentUrl: `${site}${item.contentUrl}` };
+      return {
+        number: index + 1,
+        item,
+        opened,
+        // The server's paths start at the domain's root, base path included.
+        contentUrl: new URL(item.contentUrl, site).href,
+      };
     }),
   );
 };
@@ -863,11 +896,27 @@ const sharedRequest = async ({ base, suffix, keyText }, options) => {
   });
 };
 
+/**
+ * Whether a plain link is a bare namespace (https://<site>/notes). With one
+ * part in its path it is, at a site at the domain's root; with more, the site
+ * may live under a path (https://example.com/k/notes), which the server says.
+ */
+const isNamespace = async (url) => {
+  const pathname = new URL(url).pathname.replace(/\/$/, "");
+  if (/^\/[a-z0-9_-]+$/.test(pathname)) return true;
+  if (!/^(?:\/[^/]+){2,}$/.test(pathname)) return false;
+  const base = (await kurobakoConfig(url))?.base ?? "";
+  return (
+    Boolean(base) &&
+    pathname.startsWith(`${base}/`) &&
+    /^\/[a-z0-9_-]+$/.test(pathname.slice(base.length))
+  );
+};
+
 /** Plain links go to the server as they are, like curl would send them. */
 const plainRequest = async ({ url }, options) => {
-  const { pathname, origin } = new URL(url);
   // The bare namespace is a page; here it lists the items, like e#<name>.
-  if (/^\/[a-z0-9_-]+\/?$/.test(pathname) && options.method === "GET") {
+  if (options.method === "GET" && (await isNamespace(url))) {
     const items = await (await call(`${url.replace(/\/$/, "")}/ls?summary`)).json();
     return console.log(itemsTable(items));
   }
@@ -886,7 +935,7 @@ const plainRequest = async ({ url }, options) => {
     body = await readInput(options.upload);
     // curl -T file <url>/ appends the file's name; here a bare namespace gets
     // it too, with or without the slash.
-    if (options.upload !== "-" && /^\/[a-z0-9_-]+\/?$/.test(new URL(target).pathname)) {
+    if (options.upload !== "-" && (await isNamespace(target))) {
       target = `${target.replace(/\/$/, "")}/${encodeURIComponent(safeName(options.upload, "file"))}`;
     }
   }
@@ -899,7 +948,7 @@ const plainRequest = async ({ url }, options) => {
     try {
       error = JSON.parse(decoder.decode(bytes))?.error ?? null;
     } catch {}
-    const explained = await explainFailure(origin, error ?? `Server error (${response.status}).`);
+    const explained = await explainFailure(url, error ?? `Server error (${response.status}).`);
     // Kurobako's own error, with nothing to add, prints as curl would show it.
     if (explained !== error) throw new Error(explained);
     process.exitCode = 1;
@@ -912,7 +961,7 @@ const plainRequest = async ({ url }, options) => {
     isText: /^(text\/|application\/json)/.test(type),
     ownName: safeName(
       headerName ? decodeURIComponent(headerName) : "",
-      new URL(target, origin).pathname.split("/").pop(),
+      new URL(target).pathname.split("/").pop(),
     ),
     urlName: new URL(target).pathname.split("/").pop() || "index",
     load: async () => bytes,

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { readConfig } from "/common.js";
-import { encryptionAvailable, normalizeSecretName, secretNameProblem } from "/k.mjs";
-import { createStatus } from "/status.js";
+import { readConfig, SITE } from "./common.js";
+import { encryptionAvailable, normalizeSecretName, secretNameProblem } from "./k.mjs";
+import { createStatus } from "./status.js";
 
 const element = (selector) => {
   const found = document.querySelector(selector);
@@ -138,7 +138,7 @@ form.addEventListener("submit", (event) => {
       input.focus();
       return;
     }
-    window.location.assign(`/e#${encodeURIComponent(name)}`);
+    window.location.assign(`${SITE}/e#${encodeURIComponent(name)}`);
     return;
   }
 
@@ -153,7 +153,7 @@ form.addEventListener("submit", (event) => {
     input.focus();
     return;
   }
-  window.location.assign(`/${encodeURIComponent(namespace)}`);
+  window.location.assign(`${SITE}/${encodeURIComponent(namespace)}`);
 });
 
 try {
@@ -192,7 +192,7 @@ const statFormats = {
 const statCells = document.querySelectorAll("[data-stat]");
 
 try {
-  const stats = await fetchJson("/stats.json");
+  const stats = await fetchJson(`${SITE}/stats.json`);
   for (const cell of statCells) {
     const value = stats[cell.dataset.stat];
     const format = statFormats[cell.dataset.stat] ?? ((number) => numberFormatter.format(number));

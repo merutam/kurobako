@@ -48,7 +48,8 @@ node k.mjs -O "$BOX/e#secret name"             # save every item here
 
 `node k.mjs` lists everything it does. When a request fails and the server
 runs another version, it says so. The encryption is described at `/k/protocol`
-on every instance.
+on every instance. Every instance describes itself (base path,
+version, limits) at `/.well-known/kurobako`.
 
 ## Behavior
 
@@ -82,6 +83,7 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 | `MAX_LIVE_CONNECTIONS` | `100` | per namespace |
 | `ADMIN_KEY` | unset | enables `/a`; 32 characters or more |
 | `ADMIN_SESSION_HOURS` | `12` | |
+| `BASE_PATH` | unset | e.g. `/k`, to share a domain with another site: `$BOX` is then `https://example.com/k` |
 
 Values beyond a platform's technical limits are refused at start.
 
@@ -121,7 +123,7 @@ SERVERS=http://10.0.0.1:3000,http://10.0.0.2:3000 bun src/bun/router.ts
 
 The servers run with `CLIENT_IP_HEADER=x-forwarded-for` and listen only
 where the router reaches them. Every router needs the same `SERVERS`, in the
-same order. A server added later takes about 1/n of the namespaces; their
+same order, and the servers' `BASE_PATH` if they have one. A server added later takes about 1/n of the namespaces; their
 SQLite files must move with them. Each server limits sends on its own, and
 admin logins go to the first. `/a` shows one server at a time, with a picker
 (`/a?server=2`); one login works on every server sharing `ADMIN_KEY`.

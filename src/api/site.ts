@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The site's own pages and documents: home, encryption spec, health, config, stats.
+// The site's own pages and documents: home, encryption spec, health, the
+// well-known description, stats.
+import { WELL_KNOWN_PATH } from "../routing";
 import type { Api, App } from "./context";
 
 /** The home page's stats, shared by every request to this instance for a little while. */
@@ -17,8 +19,11 @@ export const mountSite = (app: App, api: Api) => {
   app.get("/e", (c) => pageView(c, pages.namespace));
 
   app.get("/k/healthz", (c) => c.json({ ok: true }));
-  app.get("/config.json", (c) => {
+  // What any client needs to talk to this server: its base path, version and
+  // rules. Served at the domain's root and under the base path alike.
+  app.get(WELL_KNOWN_PATH, (c) => {
     c.header("Cache-Control", "no-store");
+    c.header("Access-Control-Allow-Origin", "*");
     return c.json(publicConfig());
   });
   app.get("/stats.json", async (c) => {

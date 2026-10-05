@@ -352,7 +352,7 @@ describe("site", () => {
     expect(page).not.toContain("%APP_VERSION%");
     expect(await json("/k/healthz")).toEqual({ ok: true });
     expect((await call("/k/ls")).status).toBe(404);
-    expect((await json<PublicConfig>("/config.json")).namespace.reserved).toEqual([
+    expect((await json<PublicConfig>("/.well-known/kurobako")).namespace.reserved).toEqual([
       "a",
       "e",
       "i",
