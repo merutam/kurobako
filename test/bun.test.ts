@@ -16,11 +16,13 @@ import {
   openSharedItem,
   safeName,
 } from "../public/k.mjs";
+import { startRouter } from "../src/bun/router";
 import { startServer } from "../src/bun/server";
 import { type AppConfig, loadConfig } from "../src/config";
 import { safeFileName } from "../src/image";
 import { defaultTextName } from "../src/model";
 import type { BlobStore } from "../src/platform";
+import { routeOf, SLOT_COUNT, slotOf, slotOwners, slotPrefix, tokenSlot } from "../src/routing";
 import { TEST_ADMIN_KEY } from "./admin-key";
 import { type Harness, sharedTests } from "./shared";
 import type { FileItem, Item, LiveMessage, SharedItem } from "./support";
@@ -290,13 +292,13 @@ describe("bun server", () => {
     // <item>.json: details, position and a share link with the item's key.
     const described = JSON.parse(await k(`${link}/1.json`));
     expect(described).toMatchObject({ kind: "image", position: 1, filename: "picture.png" });
-    expect(described.shareUrl).toMatch(/\/i\/[A-Za-z0-9_-]{12}#.+/);
+    expect(described.shareUrl).toMatch(/\/i\/[A-Za-z0-9_-]{14}#.+/);
     expect((await run([described.shareUrl])).out).toEqual(png);
 
     // A share link carries the item's key and works on its own.
     const url = (await k(`${link}/1/s`)).trim();
     expect((await k("-X", "POST", `${link}/1/s`)).trim()).toBe(url);
-    expect(url).toMatch(/\/i\/[A-Za-z0-9_-]{12}#/);
+    expect(url).toMatch(/\/i\/[A-Za-z0-9_-]{14}#/);
     expect((await run([url])).out).toEqual(png);
 
     // -O on the bare link saves every item; DELETE removes one.
@@ -315,7 +317,7 @@ describe("bun server", () => {
     await k("-d", "plain text", `${base}/${ns}/new`);
     expect(await k(`${base}/${ns}/1`)).toBe("plain text");
     expect(await k(`${base}/${ns}`)).toContain("plain text");
-    expect((await k(`${base}/${ns}/1/s`)).trim()).toMatch(/\/i\/[A-Za-z0-9_-]{12}$/);
+    expect((await k(`${base}/${ns}/1/s`)).trim()).toMatch(/\/i\/[A-Za-z0-9_-]{14}$/);
     expect(JSON.parse(await k(`${base}/${ns}/1.json`))).toMatchObject({
       text: "plain text",
       position: 1,
@@ -553,6 +555,196 @@ describe("rules kept in two places", () => {
       0, 1, 999, 1000, 1500, 9999, 10_000, 999_999, 1_000_000, 123_456_789, 5e9,
     ]) {
       expect(cliFormatBytes(bytes)).toBe(pageFormatBytes(bytes));
+    }
+  });
+});
+
+/** Two servers behind a router, each with its own data and hub, sharing one S3 store. */
+describe("several servers", () => {
+  const sharedBlobs = memoryStore();
+  const dirs = [0, 1].map(() => mkdtempSync(join(tmpdir(), "kurobako-node-")));
+  let nodes: Awaited<ReturnType<typeof startServer>>[] = [];
+  let router: ReturnType<typeof startRouter>;
+  let front = "";
+  const via = (path: string, init?: RequestInit) => fetch(`${front}${path}`, init);
+  const send = async (ns: string, text: string) =>
+    (
+      await via(`/${ns}/new`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: text,
+      })
+    ).json() as Promise<Item>;
+  const nodeHolding = (ns: string) =>
+    dirs.findIndex((dir) => existsSync(join(dir, "namespaces", "plain", `${ns}.sqlite`)));
+
+  beforeAll(async () => {
+    nodes = await Promise.all(
+      dirs.map((dataDir) =>
+        startServer({
+          config: { ...config, adminKey: TEST_ADMIN_KEY },
+          dataDir,
+          blobs: sharedBlobs.store,
+          port: 0,
+          hostname: "127.0.0.1",
+          clientIpHeader: "x-forwarded-for",
+          // Every test here sends from one address.
+          sendsPerMinute: 1000,
+          logRequests: false,
+        }),
+      ),
+    );
+    router = startRouter({
+      servers: nodes.map((node) => node.server.url.origin),
+      port: 0,
+      hostname: "127.0.0.1",
+    });
+    front = router.url.origin;
+  });
+  afterAll(async () => {
+    await router.stop(true);
+    for (const node of nodes) await node.stop();
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("each namespace lives on the server that owns its slot", async () => {
+    const origins = nodes.map((node) => node.server.url.origin);
+    const owners = slotOwners(origins);
+    const names = Array.from({ length: 24 }, fresh);
+    for (const ns of names) await send(ns, `in ${ns}`);
+    for (const ns of names) {
+      const owner = origins.indexOf(owners[slotOf({ space: "plain", name: ns })] as string);
+      expect(nodeHolding(ns)).toBe(owner);
+      expect(await (await via(`/${ns}/1`)).text()).toBe(`in ${ns}`);
+    }
+    // Both servers got some.
+    expect(new Set(names.map(nodeHolding))).toEqual(new Set([0, 1]));
+  });
+
+  test("share links reach the namespace's server", async () => {
+    const ns = fresh();
+    await send(ns, "shared across");
+    const link = (await (await via(`/${ns}/1/s`)).text()).trim();
+    const token = new URL(link).pathname.split("/")[2] ?? "";
+    expect(tokenSlot(token)).toBe(slotOf({ space: "plain", name: ns }));
+    expect(await (await via(`/i/${token}/c`)).text()).toBe("shared across");
+  });
+
+  test("relays live updates both ways", async () => {
+    const ns = fresh();
+    const socket = new WebSocket(`${front.replace("http", "ws")}/${ns}/live`);
+    expect((await nextMessage(socket)).items).toEqual([]);
+    const update = nextMessage(socket);
+    await send(ns, "live through the router");
+    expect((await update).items[0]).toMatchObject({ text: "live through the router" });
+    const pong = new Promise((resolve) =>
+      socket.addEventListener("message", (event) => resolve(event.data), { once: true }),
+    );
+    socket.send("ping");
+    expect(await pong).toBe("pong");
+    socket.close();
+  });
+
+  test("adds up every server's stats", async () => {
+    const each = await Promise.all(
+      nodes.map(async (node) => (await fetch(`${node.server.url.origin}/stats.json`)).json()),
+    );
+    const total = (await (await via("/stats.json")).json()) as { totalItems: number };
+    expect(total.totalItems).toBe(
+      each.reduce((sum: number, stats) => sum + (stats as { totalItems: number }).totalItems, 0),
+    );
+    expect(total.totalItems).toBeGreaterThan(0);
+  });
+
+  test("passes the client's address on, and only the real one", async () => {
+    // At the edge, the router ignores an address or location the client claims.
+    const spoofed = fresh();
+    await via(`/${spoofed}/new`, {
+      method: "POST",
+      headers: { "x-forwarded-for": "203.0.113.9", "cf-ipcountry": "AQ" },
+      body: "spoofed",
+    });
+    const spoofedLog = await fetch(
+      `${nodes[nodeHolding(spoofed)]?.server.url.origin}/${spoofed}/log.json`,
+    );
+    expect(spoofedLog.ok).toBe(true);
+    const text = await spoofedLog.text();
+    expect(text).toContain("127.0.0.1");
+    expect(text).not.toContain("203.0.113.9");
+    expect(text).not.toContain("AQ");
+  });
+  test("the dashboard looks at one server at a time; logins go to the first", async () => {
+    const auth = { authorization: `Bearer ${TEST_ADMIN_KEY}` };
+    const names = Array.from({ length: 8 }, fresh);
+    for (const ns of names) await send(ns, "listed");
+    for (const index of nodes.keys()) {
+      const response = await via(`/a/namespaces?server=${index + 1}&limit=500`, { headers: auth });
+      expect(response.headers.get("X-Kurobako-Server")).toBe(String(index + 1));
+      expect(response.headers.get("X-Kurobako-Servers")).toBe("2");
+      const { items } = (await response.json()) as { items: { name: string }[] };
+      const listed = new Set(items.map((item) => item.name));
+      for (const ns of names) expect(listed.has(ns)).toBe(nodeHolding(ns) === index);
+    }
+    // Out of range: the first server. Logged out: nothing said about the others.
+    const outOfRange = await via("/a/overview?server=9", { headers: auth });
+    expect(outOfRange.headers.get("X-Kurobako-Server")).toBe("1");
+    expect((await via("/a/overview?server=2")).headers.get("X-Kurobako-Servers")).toBeNull();
+
+    // Failed logins count on the first server, whichever one the page looks at.
+    const wrong = { method: "POST", body: JSON.stringify({ key: "wrong" }) };
+    for (let attempt = 0; attempt < 5; attempt += 1) await via("/a/login?server=2", wrong);
+    expect((await via("/a/login", wrong)).status).toBe(429);
+    const second = nodes[1]?.server.url.origin;
+    const direct = await fetch(`${second}/a/login`, {
+      ...wrong,
+      headers: { "x-forwarded-for": "127.0.0.1" },
+    });
+    expect(direct.status).toBe(401);
+  });
+});
+
+describe("slots", () => {
+  test("spread evenly, and a new server takes only its share", () => {
+    const three = slotOwners(["http://a:3000", "http://b:3000", "http://c:3000"]);
+    const four = slotOwners(["http://a:3000", "http://b:3000", "http://c:3000", "http://d:3000"]);
+    for (const server of new Set(three)) {
+      const share = three.filter((owner) => owner === server).length / SLOT_COUNT;
+      expect(share).toBeGreaterThan(0.3);
+      expect(share).toBeLessThan(0.37);
+    }
+    const moved = three.filter((owner, slot) => owner !== four[slot]);
+    expect(moved.length / SLOT_COUNT).toBeLessThan(0.3);
+    // Every slot that moved went to the new server.
+    expect(
+      four.filter((owner, slot) => owner !== three[slot]).every((o) => o === "http://d:3000"),
+    ).toBe(true);
+  });
+
+  test("namespaces spread over the slots", () => {
+    const counts = new Array<number>(16).fill(0);
+    for (let index = 0; index < 16_000; index += 1) {
+      const slot = slotOf({ space: "plain", name: `name-${index}` });
+      counts[slot % 16] = (counts[slot % 16] ?? 0) + 1;
+    }
+    for (const count of counts) expect(Math.abs(count - 1000)).toBeLessThan(150);
+  });
+
+  test("routes requests by path", () => {
+    const sealed = "0123456789abcdef0123456789abcdef";
+    expect(routeOf("/notes/ls")).toBe(slotOf({ space: "plain", name: "notes" }));
+    expect(routeOf("/notes")).toBe(routeOf("/notes/1/d"));
+    expect(routeOf(`/e/${sealed}/live`)).toBe(slotOf({ space: "sealed", name: sealed }));
+    expect(routeOf(`/i/${slotPrefix(1234)}abcdefghijkl.json`)).toBe(1234);
+    for (const path of [
+      "/",
+      "/e",
+      "/stats.json",
+      "/k.mjs",
+      "/a/overview",
+      "/k/protocol",
+      "/Notes",
+    ]) {
+      expect(routeOf(path)).toBeNull();
     }
   });
 });

@@ -20,6 +20,8 @@ const logsSection = element("#logs");
 const namespacesBody = element("#namespaces");
 const namespacesPager = element("#namespaces-pager");
 const namespaceSearch = element("#namespace-search");
+const serverSelect = element("#server");
+const serverLabel = element('label[for="server"]');
 
 const INTERVAL_STORAGE_KEY = "kurobako-admin-refresh";
 const numberFormatter = new Intl.NumberFormat();
@@ -36,18 +38,47 @@ const statRow = (label, value) =>
 
 class Unauthorized extends Error {}
 
+/**
+ * Behind a router for several servers, the dashboard shows one at a time,
+ * kept in the page's ?server=; the router says how many there are.
+ */
+let server = new URLSearchParams(location.search).get("server") ?? "";
+let servers = 0;
+
 const api = async (path, options) => {
-  const response = await fetch(`/a/${path}`, { cache: "no-store", ...options });
+  const url = new URL(`/a/${path}`, location.origin);
+  if (server) url.searchParams.set("server", server);
+  const response = await fetch(url, { cache: "no-store", ...options });
   if (response.status === 401) throw new Unauthorized();
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || `Server error (${response.status}).`);
+  const count = Number(response.headers.get("X-Kurobako-Servers"));
+  if (count > 1) {
+    servers = count;
+    server = response.headers.get("X-Kurobako-Server") ?? server;
+  }
   return body;
+};
+
+const renderServers = () => {
+  serverSelect.hidden = serverLabel.hidden = servers < 2;
+  if (servers < 2 || serverSelect.options.length === servers) {
+    serverSelect.value = server;
+    return;
+  }
+  serverSelect.replaceChildren(
+    ...Array.from({ length: servers }, (_, index) =>
+      el("option", { value: String(index + 1) }, `Server ${index + 1}`),
+    ),
+  );
+  serverSelect.value = server;
 };
 
 const ago = (time) => `${formatDuration(Math.max(0, (Date.now() - Date.parse(time)) / 1000))} ago`;
 
 const renderOverview = (overview) => {
-  summary.textContent = `${overview.version} · ${overview.deployedAt ? `deployed ${ago(overview.deployedAt)}` : "local"}`;
+  const where = servers > 1 ? ` · server ${server} of ${servers}` : "";
+  summary.textContent = `${overview.version} · ${overview.deployedAt ? `deployed ${ago(overview.deployedAt)}` : "local"}${where}`;
   // A logs page to open, or else where to read them (a self-hosted server
   // writes them to standard output).
   logsSection.hidden = !overview.logsUrl && !overview.logsHint;
@@ -140,6 +171,7 @@ const load = async () => {
     const [overview, namespaces] = await Promise.all([api("overview"), api(`namespaces?${query}`)]);
     loginForm.hidden = true;
     dashboard.hidden = false;
+    renderServers();
     renderOverview(overview);
     renderNamespaces(namespaces.items);
     renderPager(namespaces);
@@ -190,6 +222,14 @@ logoutButton.addEventListener("click", async () => {
   showLogin();
 });
 refreshButton.addEventListener("click", load);
+serverSelect.addEventListener("change", () => {
+  server = serverSelect.value;
+  const url = new URL(location.href);
+  url.searchParams.set("server", server);
+  history.replaceState(null, "", url);
+  offset = 0;
+  void load();
+});
 refreshInterval.addEventListener("change", schedule);
 // A new filter starts again from the first page.
 let searchTimer = null;

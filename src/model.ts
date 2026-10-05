@@ -108,11 +108,14 @@ export const NAMESPACE_MAX_LENGTH = 64;
 export const RESERVED_NAMESPACES = new Set(["a", "e", "i", "k"]);
 
 /**
- * Share tokens: 72 random bits, 12 base64url characters. Far beyond guessing
- * through the server, and short; they reveal nothing about the namespace.
+ * Share tokens: the namespace's slot (two characters, see routing.ts), then
+ * 72 random bits in 12 base64url characters. Far beyond guessing through the
+ * server, and short; the slot is shared by a few thousandths of all
+ * namespaces, so it does not reveal which one. Tokens from before slots have
+ * only the random part.
  */
 export const SHARE_TOKEN_BYTES = 9;
-export const SHARE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{12}$/;
+export const SHARE_TOKEN_PATTERN = /^(?:[A-Za-z0-9_-]{2})?[A-Za-z0-9_-]{12}$/;
 export const NAMESPACE_PATTERN = new RegExp(
   `^[a-z0-9](?:[a-z0-9_-]{0,${NAMESPACE_MAX_LENGTH - 2}}[a-z0-9])?$`,
 );
