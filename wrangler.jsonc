@@ -9,7 +9,10 @@
   // Only reachable at its own domain, so the zone's WAF and rate limiting
   // rules apply to every request (workers.dev would bypass them).
   "workers_dev": false,
-  "routes": [{ "pattern": "kurobako.mugens.org", "custom_domain": true }],
+  "routes": [
+    { "pattern": "kurobako.mugens.org", "custom_domain": true },
+    { "pattern": "k.mugens.org", "custom_domain": true }
+  ],
 
   "observability": {
     "enabled": true,
