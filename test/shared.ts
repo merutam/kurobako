@@ -831,6 +831,8 @@ export const sharedTests = (harness: Harness) => {
       expect(body).toMatchObject({
         base: "",
         version: expect.any(String),
+        protocolUrl: "/k/protocol",
+        clientUrl: "/k.mjs",
         maxItems: config.maxItems,
         sendsPerMinute: config.sendsPerMinute,
         inlineTextBytes: config.inlineTextBytes,

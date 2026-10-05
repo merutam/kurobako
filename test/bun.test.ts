@@ -4,6 +4,7 @@
 // SQLite files in a temporary directory and file contents in memory.
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { createCipheriv, pbkdf2Sync } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,7 +27,7 @@ import type { BlobStore } from "../src/platform";
 import { routeOf, SLOT_COUNT, slotOf, slotOwners, slotPrefix, tokenSlot } from "../src/routing";
 import { TEST_ADMIN_KEY } from "./admin-key";
 import { type Harness, sharedTests } from "./shared";
-import type { FileItem, Item, LiveMessage, SharedItem } from "./support";
+import { defined, type FileItem, type Item, type LiveMessage, type SharedItem } from "./support";
 
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -560,6 +561,49 @@ describe("rules kept in two places", () => {
     expect(told).toBe(limiter?.[1]);
   });
 
+  test("the protocol page's test vectors: computed here, and opened by k.mjs", async () => {
+    const page = await Bun.file(join(import.meta.dir, "..", "public", "protocol.html")).text();
+    const vector = (name: string) => {
+      const value = new RegExp(`data-vector="${name}">([^<]*)<`).exec(page)?.[1];
+      return defined(value, `the ${name} vector`).replaceAll("&quot;", '"');
+    };
+    const typed = "  cafe\u0301 horse battery  ";
+    const name = Buffer.from(vector("name"), "hex");
+    expect(name.toString("utf8")).toBe(typed.normalize("NFC").trim());
+
+    const bits = pbkdf2Sync(name, "kurobako/sealed/v2", 600_000, 32, "sha256");
+    expect(bits.toString("hex")).toBe(vector("pbkdf2"));
+    expect(bits.subarray(0, 16).toString("hex")).toBe(vector("id"));
+    expect(bits.subarray(16).toString("hex")).toBe(vector("namespace-key"));
+
+    const seal = (key: Uint8Array, ivStart: number, plain: Uint8Array) => {
+      const iv = Uint8Array.from({ length: 12 }, (_, index) => ivStart + index);
+      const cipher = createCipheriv("aes-128-gcm", key, iv);
+      return Buffer.concat([
+        iv,
+        cipher.update(plain),
+        cipher.final(),
+        cipher.getAuthTag(),
+      ]).toString("base64url");
+    };
+    const itemKey = Buffer.from(vector("item-key"), "hex");
+    expect(itemKey.toString("base64url")).toBe(vector("item-key-text"));
+    expect(seal(bits.subarray(16), 0x00, itemKey)).toBe(vector("wrapped"));
+    expect(seal(itemKey, 0x20, Buffer.from(vector("metadata")))).toBe(vector("sealed-metadata"));
+    expect(seal(itemKey, 0x30, Buffer.from("hello"))).toBe(vector("body"));
+
+    // k.mjs agrees: the same ID, and it opens what the page shows.
+    const space = await openSealedSpace(typed);
+    expect(space.id).toBe(vector("id"));
+    const header = `${vector("wrapped")}.${vector("sealed-metadata")}`;
+    const item = await space.openItem(header);
+    expect(item.keyText).toBe(vector("item-key-text"));
+    expect(item.metadata).toEqual(JSON.parse(vector("metadata")));
+    const opened = await openSharedItem(vector("item-key-text"), header);
+    const body = await opened.open(Buffer.from(vector("body"), "base64url"));
+    expect(new TextDecoder().decode(body)).toBe("hello");
+  });
+
   test("versions: k.mjs says which server version it comes from", async () => {
     const pkg = (await Bun.file(join(import.meta.dir, "..", "package.json")).json()) as {
       version: string;
@@ -806,8 +850,18 @@ describe("under a base path", () => {
 
   test("answers only under its path, and describes itself at the root too", async () => {
     for (const path of ["/.well-known/kurobako", "/k/.well-known/kurobako"]) {
-      expect(await (await at(path)).json()).toMatchObject({ base: "/k" });
+      expect(await (await at(path)).json()).toMatchObject({
+        base: "/k",
+        protocolUrl: "/k/k/protocol",
+        clientUrl: "/k/k.mjs",
+      });
     }
+    const { protocolUrl, clientUrl } = (await (await at("/.well-known/kurobako")).json()) as {
+      protocolUrl: string;
+      clientUrl: string;
+    };
+    expect((await at(protocolUrl)).headers.get("content-type")).toContain("text/html");
+    expect(await (await at(clientUrl)).text()).toContain("export const VERSION");
     expect((await at("/notes/ls")).status).toBe(404);
     expect((await at("/common.js")).status).toBe(404);
     expect((await at("/k/notes/ls")).status).toBe(200);

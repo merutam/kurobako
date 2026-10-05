@@ -46,8 +46,8 @@ node k.mjs -d 'hello' "$BOX/e#secret name/new"
 node k.mjs -O "$BOX/e#secret name"             # save every item here
 ```
 
-`node k.mjs` lists everything it does. The encryption is described at
-`/k/protocol` on every instance. Every instance describes itself
+`node k.mjs` lists everything it does. The whole protocol, plain and
+encrypted, is at `/k/protocol` on every instance. Every instance describes itself
 (base path, version, limits) at `/.well-known/kurobako`.
 
 ## Behavior

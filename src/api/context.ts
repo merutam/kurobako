@@ -17,6 +17,7 @@ import { LIVE } from "../namespace";
 import { escapeHtml, staticFiles, type WebAssets } from "../pages";
 import type { Platform } from "../platform";
 import { accessEvent } from "../request-info";
+import { CLIENT_PATH, PROTOCOL_PATH } from "../routing";
 
 export type AppEnv = { Bindings: object };
 export type AppContext = Context<AppEnv>;
@@ -54,6 +55,10 @@ export const createContext = (
     base: config.basePath,
     /** The server's version, which k.mjs compares with its own when a request fails. */
     version: assets.version,
+    /** The protocol, plain and encrypted, complete enough to write a client from. */
+    protocolUrl: `${config.basePath}${PROTOCOL_PATH}`,
+    /** k.mjs: a client for the protocol, and a command line that speaks curl. */
+    clientUrl: `${config.basePath}${CLIENT_PATH}`,
     maxFileBytes: config.maxFileBytes,
     maxTextBytes: config.maxTextBytes,
     inlineTextBytes: config.inlineTextBytes,
