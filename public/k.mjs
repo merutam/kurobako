@@ -88,11 +88,18 @@ const unpackMetadata = (packed, sealedSize) => {
 };
 const OCTET_STREAM = "application/octet-stream";
 
-/** IV followed by the AES-GCM ciphertext and tag. */
-const sealWith = async (key, bytes) => {
+/**
+ * What each seal is for, as AES-GCM's additional data: a metadata seal never
+ * opens as contents, nor the other way round, though both use the item key.
+ */
+const METADATA_LABEL = encoder.encode("kurobako/v3/metadata");
+const BODY_LABEL = encoder.encode("kurobako/v3/body");
+
+/** IV followed by the AES-GCM ciphertext and tag; `label` is authenticated, not sent. */
+const sealWith = async (key, label, bytes) => {
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, bytes),
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: label }, key, bytes),
   );
   const sealed = new Uint8Array(IV_BYTES + ciphertext.byteLength);
   sealed.set(iv);
@@ -100,12 +107,12 @@ const sealWith = async (key, bytes) => {
   return sealed;
 };
 
-const openWith = async (key, sealed) => {
+const openWith = async (key, label, sealed) => {
   const bytes = new Uint8Array(sealed);
   try {
     return new Uint8Array(
       await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: bytes.subarray(0, IV_BYTES) },
+        { name: "AES-GCM", iv: bytes.subarray(0, IV_BYTES), additionalData: label },
         key,
         bytes.subarray(IV_BYTES),
       ),
@@ -198,11 +205,12 @@ export const openSealedSpace = async (secretName) => {
       );
       const sealedMetadata = await sealWith(
         itemKey,
+        METADATA_LABEL,
         encoder.encode(JSON.stringify(packMetadata(metadata))),
       );
       return {
         header: `${toBase64Url(wrappedKey)}.${toBase64Url(sealedMetadata)}`,
-        body: await sealWith(itemKey, bytes),
+        body: await sealWith(itemKey, BODY_LABEL, bytes),
         keyText: toBase64Url(rawKey),
       };
     },
@@ -253,13 +261,21 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
     throw new Error("Encryption needs a secure (https) connection.");
   }
   const itemKey = await importKey(fromBase64Url(keyText));
-  const packed = JSON.parse(decoder.decode(await openWith(itemKey, fromBase64Url(sealedMetadata))));
+  const packed = JSON.parse(
+    decoder.decode(await openWith(itemKey, METADATA_LABEL, fromBase64Url(sealedMetadata))),
+  );
   return {
     metadata: unpackMetadata(packed, sealedSize),
     keyText,
-    open: (bytes) => openWith(itemKey, bytes),
+    open: (bytes) => openWith(itemKey, BODY_LABEL, bytes),
     sealMetadata: async (changed) =>
-      toBase64Url(await sealWith(itemKey, encoder.encode(JSON.stringify(packMetadata(changed))))),
+      toBase64Url(
+        await sealWith(
+          itemKey,
+          METADATA_LABEL,
+          encoder.encode(JSON.stringify(packMetadata(changed))),
+        ),
+      ),
   };
 };
 

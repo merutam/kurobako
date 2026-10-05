@@ -592,9 +592,10 @@ describe("rules kept in two places", () => {
     expect(bits.subarray(0, 16).toString("base64url")).toBe(vector("id"));
     expect(bits.subarray(16).toString("hex")).toBe(vector("namespace-key"));
 
-    const seal = (key: Uint8Array, ivStart: number, plain: Uint8Array) => {
+    const seal = (key: Uint8Array, ivStart: number, label: string, plain: Uint8Array) => {
       const iv = Uint8Array.from({ length: 12 }, (_, index) => ivStart + index);
       const cipher = createCipheriv("aes-128-gcm", key, iv);
+      cipher.setAAD(Buffer.from(label));
       return Buffer.concat([
         iv,
         cipher.update(plain),
@@ -611,8 +612,10 @@ describe("rules kept in two places", () => {
     const plainKey = await crypto.subtle.importKey("raw", itemKey, "AES-GCM", true, ["encrypt"]);
     const wrapped = await crypto.subtle.wrapKey("raw", plainKey, kek, "AES-KW");
     expect(Buffer.from(wrapped).toString("base64url")).toBe(vector("wrapped"));
-    expect(seal(itemKey, 0x20, Buffer.from(vector("metadata")))).toBe(vector("sealed-metadata"));
-    expect(seal(itemKey, 0x30, Buffer.from("hello"))).toBe(vector("body"));
+    expect(seal(itemKey, 0x20, "kurobako/v3/metadata", Buffer.from(vector("metadata")))).toBe(
+      vector("sealed-metadata"),
+    );
+    expect(seal(itemKey, 0x30, "kurobako/v3/body", Buffer.from("hello"))).toBe(vector("body"));
 
     // k.mjs agrees: the same ID, and it opens what the page shows.
     const space = await openSealedSpace(typed);
@@ -626,6 +629,22 @@ describe("rules kept in two places", () => {
     const opened = await openSharedItem(vector("item-key-text"), header, sealedSize);
     const body = await opened.open(Buffer.from(vector("body"), "base64url"));
     expect(new TextDecoder().decode(body)).toBe("hello");
+
+    // The same key, but a body never opens as metadata, nor metadata as a body:
+    // not even contents that read as metadata, which would otherwise pass.
+    const lookalike = Buffer.from(JSON.stringify({ filename: "x.exe" }));
+    const asMetadata = seal(itemKey, 0x40, "kurobako/v3/metadata", lookalike);
+    expect((await space.openItem(`${vector("wrapped")}.${asMetadata}`, 48)).metadata).toMatchObject(
+      {
+        kind: "file",
+        filename: "x.exe",
+      },
+    );
+    const asBody = seal(itemKey, 0x40, "kurobako/v3/body", lookalike);
+    await expect(space.openItem(`${vector("wrapped")}.${asBody}`, 48)).rejects.toThrow();
+    await expect(
+      opened.open(Buffer.from(vector("sealed-metadata"), "base64url")),
+    ).rejects.toThrow();
   });
 
   test("file types and names: k.mjs describes files as the server does", () => {
