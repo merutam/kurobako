@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { Database } from "bun:sqlite";
+import { logError } from "../log";
 import type { Sql, SqlValue } from "../platform";
 
 export const openDatabase = (path: string) => {
@@ -38,9 +39,7 @@ export class Alarm {
         if (delay > MAX_TIMEOUT_MS) return this.arm();
         this.timer = null;
         this.at = null;
-        this.run().catch((error: unknown) =>
-          console.error({ message: "Alarm failed", error: String(error) }),
-        );
+        this.run().catch((error: unknown) => logError("Alarm failed", error));
       },
       Math.min(delay, MAX_TIMEOUT_MS),
     );

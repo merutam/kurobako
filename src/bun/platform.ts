@@ -11,6 +11,7 @@ import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import type { Context } from "hono";
 import type { AppConfig } from "../config";
 import { HubCore } from "../hub";
+import { logError } from "../log";
 import { type NamespaceRef, objectName, plainName, type SpaceKind, sealedName } from "../model";
 import { LIVE, NamespaceCore } from "../namespace";
 import type { BlobStore, Client, HubApi, Platform } from "../platform";
@@ -193,9 +194,7 @@ export const createBunPlatform = (options: BunOptions) => {
     },
     allowSend: async (_c, ip) => allowSend(ip),
     later: (_c, work) => {
-      work.catch((error: unknown) =>
-        console.error({ message: "Background work failed", error: String(error) }),
-      );
+      work.catch((error: unknown) => logError("Background work failed", error));
     },
     client(c): Client {
       if (options.clientIpHeader) {
@@ -231,11 +230,7 @@ export const createBunPlatform = (options: BunOptions) => {
   };
 
   const report = (entry: Entry) =>
-    entry.core
-      .watchersChanged()
-      .catch((error: unknown) =>
-        console.error({ message: "Live update failed", error: String(error) }),
-      );
+    entry.core.watchersChanged().catch((error: unknown) => logError("Live update failed", error));
   const websocket: WebSocketHandler<SocketData> = {
     open(socket) {
       const entry = namespaceOf(socket.data.ref);
