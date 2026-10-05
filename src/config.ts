@@ -4,6 +4,8 @@
 export type AppConfig = {
   maxFileBytes: number;
   maxTextBytes: number;
+  /** Texts no larger than this stay directly in SQLite. */
+  inlineTextBytes: number;
   itemTtlMs: number;
   maxItems: number;
   /** How long a namespace may stay empty before its storage is deleted. */
@@ -16,7 +18,20 @@ export type AppConfig = {
 };
 
 /** The largest sizes a platform can take; each platform sets its own. */
-export type PlatformLimits = { maxFileBytes: number; maxTextBytes: number };
+export type PlatformLimits = {
+  maxFileBytes: number;
+  maxTextBytes: number;
+  /** Largest text that this platform can safely keep directly in SQLite. */
+  maxInlineTextBytes: number;
+};
+
+/** Used by self-hosted platforms, where the operator chooses practical limits. */
+const UNBOUNDED_LIMITS: PlatformLimits = {
+  // Leave room for protocol overhead while staying within safe integers.
+  maxFileBytes: Number.MAX_SAFE_INTEGER - 1_000_000,
+  maxTextBytes: Number.MAX_SAFE_INTEGER - 1_000_000,
+  maxInlineTextBytes: Number.MAX_SAFE_INTEGER - 1_000_000,
+};
 
 /** Long enough that guessing it, even without the login rate limit, is hopeless. */
 export const ADMIN_KEY_MIN_LENGTH = 32;
@@ -56,8 +71,22 @@ const adminKey = (vars: Vars): string | null => {
  * secrets). The defaults are the same everywhere; how far the sizes may go is
  * the platform's `limits`.
  */
-export const loadConfig = (env: object, limits: PlatformLimits): AppConfig => {
+export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMITS): AppConfig => {
   const vars = env as Vars;
+  const maxTextBytes = integer(
+    vars,
+    "MAX_TEXT_BYTES",
+    Math.min(256_000, limits.maxTextBytes),
+    1,
+    limits.maxTextBytes,
+  );
+  const inlineTextBytes = integer(
+    vars,
+    "INLINE_TEXT_BYTES",
+    Math.min(64_000, maxTextBytes, limits.maxInlineTextBytes),
+    1,
+    Math.min(maxTextBytes, limits.maxInlineTextBytes),
+  );
   return {
     maxFileBytes: integer(
       vars,
@@ -66,13 +95,8 @@ export const loadConfig = (env: object, limits: PlatformLimits): AppConfig => {
       1_000,
       limits.maxFileBytes,
     ),
-    maxTextBytes: integer(
-      vars,
-      "MAX_TEXT_BYTES",
-      Math.min(256_000, limits.maxTextBytes),
-      1,
-      limits.maxTextBytes,
-    ),
+    maxTextBytes,
+    inlineTextBytes,
     itemTtlMs: integer(vars, "ITEM_TTL_SECONDS", 24 * 60 * 60, 0, 30 * 24 * 60 * 60) * 1000,
     maxItems: integer(vars, "MAX_ITEMS", 20, 1, 1_000),
     maxLiveConnections: integer(vars, "MAX_LIVE_CONNECTIONS", 100, 1, 10_000),

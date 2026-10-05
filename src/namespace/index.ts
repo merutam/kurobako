@@ -7,6 +7,7 @@
 import type { AppConfig } from "../config";
 import {
   hasObject,
+  type InlineTextItem,
   type NamespaceRef,
   type ObjectItem,
   type StoredItem,
@@ -301,11 +302,11 @@ export class NamespaceCore {
    * A text item, or null for anything else. A burn-after-reading text is
    * deleted by this read.
    */
-  async readText(ref: ItemRef, visit?: AccessEvent): Promise<StoredItem | null> {
+  async readText(ref: ItemRef, visit?: AccessEvent): Promise<InlineTextItem | null> {
     if (!this.exists()) return null;
     await this.enter(visit);
     const item = this.queue.find(ref);
-    if (item?.kind !== "text") return null;
+    if (item?.kind !== "text" || hasObject(item)) return null;
     if (item.burn) {
       this.queue.remove(item.id);
       await this.changed();

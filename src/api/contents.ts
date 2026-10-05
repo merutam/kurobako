@@ -33,12 +33,19 @@ const objectResponse = (
   body: ReadableStream | ArrayBuffer,
   size: number,
   inline: boolean,
+  fallbackName: (id: string) => string,
 ) => {
   const disposition = inline
     ? "inline"
     : item.kind === "sealed"
       ? "attachment"
-      : attachment(item.filename);
+      : attachment(
+          item.kind === "text"
+            ? item.name
+              ? safeFileName(`${item.name}.txt`)
+              : fallbackName(item.id)
+            : item.filename,
+        );
   return new Response(body, {
     headers: {
       "Content-Type": contentTypeOf(item),
@@ -66,6 +73,7 @@ export const createContents = (api: Api) => {
     ref: NamespaceRef,
     selector: ItemRef,
     inline: boolean,
+    fallbackName: (id: string) => string,
   ): Promise<Response | null> => {
     const ns = namespace(c, ref);
     const item = (await ns.claimObject(selector, visit(c))) as ObjectItem | null;
@@ -90,9 +98,9 @@ export const createContents = (api: Api) => {
           })
           .finally(() => blobs.delete([item.object])),
       );
-      return objectResponse(item, readable, object.size, inline);
+      return objectResponse(item, readable, object.size, inline, fallbackName);
     }
-    return objectResponse(item, object.body, object.size, inline);
+    return objectResponse(item, object.body, object.size, inline, fallbackName);
   };
 
   /**
@@ -107,8 +115,8 @@ export const createContents = (api: Api) => {
     inline: boolean,
     fallbackName: (id: string) => string = (id) => `text-${id}.txt`,
   ): Promise<Response | null> => {
-    const text = (await namespace(c, ref).readText(selector, visit(c))) as StoredItem | null;
-    if (text?.kind === "text") {
+    const text = await namespace(c, ref).readText(selector, visit(c));
+    if (text) {
       noteRead(c, text);
       return c.body(text.text, 200, {
         "Content-Type": text.mime,
@@ -122,7 +130,7 @@ export const createContents = (api: Api) => {
             }),
       });
     }
-    return serveObject(c, ref, selector, inline);
+    return serveObject(c, ref, selector, inline, fallbackName);
   };
 
   return { serveItem };

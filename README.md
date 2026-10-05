@@ -73,8 +73,9 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 
 | Variable | Default | Notes |
 | --- | ---: | --- |
-| `MAX_FILE_BYTES` | `100000000` | at most 100 MB on Cloudflare (its request size on the Free and Pro plans), 10 GB self-hosted |
-| `MAX_TEXT_BYTES` | `256000` | at most 1 MB on Cloudflare (a text is kept in a database row, capped there at 2 MB), 16 MB self-hosted |
+| `MAX_FILE_BYTES` | `100000000` | at most 100 MB on Cloudflare Free and Pro; self-hosted has no application cap |
+| `MAX_TEXT_BYTES` | `256000` | at most 100 MB on Cloudflare Free and Pro; self-hosted has no application cap |
+| `INLINE_TEXT_BYTES` | `64000` | texts above this size go to R2/S3 instead of SQLite; at most 2 MB on Cloudflare and no application cap self-hosted |
 | `ITEM_TTL_SECONDS` | `86400` | `0`: no expiry; 30 days at most |
 | `MAX_ITEMS` | `20` | per namespace; 1,000 at most |
 | `EMPTY_NAMESPACE_TTL_SECONDS` | `3600` | before an empty namespace is deleted |
@@ -82,7 +83,7 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 | `ADMIN_KEY` | unset | enables `/a`; 32 characters or more |
 | `ADMIN_SESSION_HOURS` | `12` | |
 
-Larger values are refused at start.
+Values beyond a platform's technical limits are refused at start.
 
 **Cloudflare Workers.** Namespaces are Durable Objects and files live in a
 private R2 bucket. Set `account_id`, `routes` and `bucket_name` in
@@ -90,7 +91,10 @@ private R2 bucket. Set `account_id`, `routes` and `bucket_name` in
 `bun run deploy`.
 
 **Self-hosted.** `src/bun/server.ts` keeps one SQLite file per namespace and
-files in any S3-compatible store. `compose.yaml` runs it with
+larger texts and files in any S3-compatible store. Namespace databases open
+lazily; the least recently used connections are closed after reaching
+`SQLITE_MAX_OPEN` (default `100`), and idle connections close after
+`SQLITE_IDLE_SECONDS` (default `60`). `compose.yaml` runs it with
 [Garage](https://garagehq.deuxfleurs.fr/):
 
 ```sh
@@ -101,7 +105,8 @@ podman compose up -d --build   # or docker compose
 It listens on `127.0.0.1:3000`; put a reverse proxy with HTTPS in front.
 Besides the settings above it takes `S3_ENDPOINT`, `S3_BUCKET`,
 `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `DATA_DIR`, `PORT`,
-`HOST`, `SENDS_PER_MINUTE`, `PUBLIC_URL` and, behind a proxy,
+`HOST`, `SENDS_PER_MINUTE`, `SQLITE_MAX_OPEN`, `SQLITE_IDLE_SECONDS`,
+`PUBLIC_URL` and, behind a proxy,
 `CLIENT_IP_HEADER` (e.g. `x-forwarded-for`). It logs one JSON line per
 request, and its errors, to standard output: `podman compose logs -f kurobako`.
 

@@ -20,6 +20,7 @@ import type { Sql } from "../platform";
  */
 export type SaveInput = (
   | { kind: "text"; text: string; size: number }
+  | { kind: "text"; preview: string; object: string; size: number }
   | {
       kind: "image" | "file";
       mime: string;
@@ -178,14 +179,17 @@ export const newItem = (
     ...(sha256 ? { sha256 } : {}),
   };
   if (input.kind === "text") {
+    const start = "text" in input ? input.text : input.preview;
     return {
       ...common,
       kind: "text",
       mime: "text/plain; charset=utf-8",
-      text: input.text,
       size: input.size,
+      ...("text" in input
+        ? { text: input.text }
+        : { object: input.object, ...(burn ? {} : { preview: input.preview }) }),
       // Its start names it, which would give away a burn-after-reading text.
-      ...(burn ? {} : { name: defaultTextName(input.text) }),
+      ...(burn ? {} : { name: defaultTextName(start) }),
     };
   }
   if (input.kind === "sealed") {
@@ -228,7 +232,9 @@ export const renamedItem = (item: StoredItem, change: Rename): StoredItem | { er
   const name = change.name.replace(/\s+/g, " ").trim();
   if (item.kind === "text") {
     const { name: _old, ...rest } = item;
-    const fallback = item.burn ? "" : defaultTextName(item.text);
+    const fallback = item.burn
+      ? ""
+      : defaultTextName("text" in item ? item.text : (item.preview ?? ""));
     const chosen = name ? name.slice(0, TEXT_NAME_MAX_CHARS) : fallback;
     return chosen ? { ...rest, name: chosen } : rest;
   }

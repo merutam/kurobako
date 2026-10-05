@@ -11,12 +11,11 @@ import { createApp } from "../app";
 import { type AppConfig, loadConfig } from "../config";
 import { ICON_FILES, loadAssets, STATIC_FILES } from "../pages";
 import type { BlobStore } from "../platform";
-import { BUN_LIMITS } from "./limits";
 import { type BunEnv, createBunPlatform } from "./platform";
 import { s3Store } from "./s3";
 
 const PUBLIC_DIR = join(import.meta.dir, "../../public");
-const HOUR_MS = 3_600_000;
+const MAINTENANCE_MS = 30_000;
 const CONTENT_TYPES: Record<string, string> = {
   js: "text/javascript; charset=utf-8",
   mjs: "text/javascript; charset=utf-8",
@@ -35,19 +34,23 @@ export type ServerOptions = {
   clientIpHeader?: string | null;
   sendsPerMinute?: number;
   publicUrl?: string | null;
+  maxOpenDatabases?: number;
+  databaseIdleMs?: number;
   /** One log line per request; on unless turned off (tests do). */
   logRequests?: boolean;
 };
 
 /** Starts the server; returns it once timers are restored. */
 export const startServer = async (options: ServerOptions) => {
-  const { platform, websocket, resume, prune } = createBunPlatform({
+  const { platform, websocket, resume, prune, close } = createBunPlatform({
     config: options.config,
     dataDir: options.dataDir,
     blobs: options.blobs,
     clientIpHeader: options.clientIpHeader ?? null,
     sendsPerMinute: options.sendsPerMinute ?? 30,
     publicUrl: options.publicUrl ?? null,
+    maxOpenDatabases: options.maxOpenDatabases,
+    databaseIdleMs: options.databaseIdleMs,
   });
   const assets = await loadAssets((path) => Bun.file(join(PUBLIC_DIR, path)).text());
   const app = createApp(options.config, assets, () => platform);
@@ -100,12 +103,13 @@ export const startServer = async (options: ServerOptions) => {
   };
 
   await resume();
-  const pruning = setInterval(prune, HOUR_MS);
+  const pruning = setInterval(prune, MAINTENANCE_MS);
+  const largestBody = Math.max(options.config.maxFileBytes, options.config.maxTextBytes);
   const server = Bun.serve({
     port: options.port,
     hostname: options.hostname,
     // Room for the largest file plus the request around it.
-    maxRequestBodySize: options.config.maxFileBytes + 1_000_000,
+    maxRequestBodySize: Math.min(Number.MAX_SAFE_INTEGER, largestBody + 1_000_000),
     async fetch(request, server) {
       const url = new URL(request.url);
       if (request.method === "GET") {
@@ -123,7 +127,11 @@ export const startServer = async (options: ServerOptions) => {
     server,
     stop: async () => {
       clearInterval(pruning);
-      await server.stop(true);
+      try {
+        await server.stop(true);
+      } finally {
+        close();
+      }
     },
   };
 };
@@ -131,6 +139,16 @@ export const startServer = async (options: ServerOptions) => {
 const required = (name: string) => {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required.`);
+  return value;
+};
+
+const positiveInteger = (name: string, fallback: number) => {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
   return value;
 };
 
@@ -146,7 +164,7 @@ if (import.meta.main) {
     }),
   );
   const { server } = await startServer({
-    config: loadConfig(env, BUN_LIMITS),
+    config: loadConfig(env),
     dataDir: env.DATA_DIR || "data",
     blobs,
     port: Number(env.PORT || 3000),
@@ -154,6 +172,8 @@ if (import.meta.main) {
     clientIpHeader: env.CLIENT_IP_HEADER?.toLowerCase() || null,
     sendsPerMinute: Number(env.SENDS_PER_MINUTE || 30),
     publicUrl: env.PUBLIC_URL ? new URL(env.PUBLIC_URL).origin : null,
+    maxOpenDatabases: positiveInteger("SQLITE_MAX_OPEN", 100),
+    databaseIdleMs: positiveInteger("SQLITE_IDLE_SECONDS", 60) * 1000,
   });
   console.info({ message: `Listening on ${server.url}` });
 }
