@@ -232,7 +232,7 @@ describe("bun server", () => {
     const page = await (await call(url)).text();
     expect(page).not.toContain(space.id);
     const shared = await json<SharedItem>(`${url}.json`);
-    const { open } = await openSharedItem(keyText, shared.metadata);
+    const { open } = await openSharedItem(keyText, shared.metadata, shared.size);
     const bytes = await open(await (await call(`${url}/c`)).arrayBuffer());
     expect(new TextDecoder().decode(bytes)).toBe("sealed");
   });
@@ -585,9 +585,9 @@ describe("rules kept in two places", () => {
     const name = Buffer.from(vector("name"), "hex");
     expect(name.toString("utf8")).toBe(typed.normalize("NFC").trim());
 
-    const bits = pbkdf2Sync(name, "kurobako/sealed/v2", 600_000, 32, "sha256");
+    const bits = pbkdf2Sync(name, "kurobako/sealed/v3", 600_000, 32, "sha256");
     expect(bits.toString("hex")).toBe(vector("pbkdf2"));
-    expect(bits.subarray(0, 16).toString("hex")).toBe(vector("id"));
+    expect(bits.subarray(0, 16).toString("base64url")).toBe(vector("id"));
     expect(bits.subarray(16).toString("hex")).toBe(vector("namespace-key"));
 
     const seal = (key: Uint8Array, ivStart: number, plain: Uint8Array) => {
@@ -602,7 +602,13 @@ describe("rules kept in two places", () => {
     };
     const itemKey = Buffer.from(vector("item-key"), "hex");
     expect(itemKey.toString("base64url")).toBe(vector("item-key-text"));
-    expect(seal(bits.subarray(16), 0x00, itemKey)).toBe(vector("wrapped"));
+    // AES-KW (RFC 3394), through Web Crypto: Bun's node:crypto has no key wrap.
+    const kek = await crypto.subtle.importKey("raw", bits.subarray(16), "AES-KW", false, [
+      "wrapKey",
+    ]);
+    const plainKey = await crypto.subtle.importKey("raw", itemKey, "AES-GCM", true, ["encrypt"]);
+    const wrapped = await crypto.subtle.wrapKey("raw", plainKey, kek, "AES-KW");
+    expect(Buffer.from(wrapped).toString("base64url")).toBe(vector("wrapped"));
     expect(seal(itemKey, 0x20, Buffer.from(vector("metadata")))).toBe(vector("sealed-metadata"));
     expect(seal(itemKey, 0x30, Buffer.from("hello"))).toBe(vector("body"));
 
@@ -610,10 +616,12 @@ describe("rules kept in two places", () => {
     const space = await openSealedSpace(typed);
     expect(space.id).toBe(vector("id"));
     const header = `${vector("wrapped")}.${vector("sealed-metadata")}`;
-    const item = await space.openItem(header);
+    const sealedSize = Buffer.from(vector("body"), "base64url").byteLength;
+    expect(sealedSize).toBe(33);
+    const item = await space.openItem(header, sealedSize);
     expect(item.keyText).toBe(vector("item-key-text"));
-    expect(item.metadata).toEqual(JSON.parse(vector("metadata")));
-    const opened = await openSharedItem(vector("item-key-text"), header);
+    expect(item.metadata).toEqual({ kind: "text", title: "hello", size: 5 });
+    const opened = await openSharedItem(vector("item-key-text"), header, sealedSize);
     const body = await opened.open(Buffer.from(vector("body"), "base64url"));
     expect(new TextDecoder().decode(body)).toBe("hello");
   });
@@ -834,7 +842,7 @@ describe("slots", () => {
   });
 
   test("routes requests by path", () => {
-    const sealed = "0123456789abcdef0123456789abcdef";
+    const sealed = "AAECAwQFBgcICQoLDA0ODw";
     expect(routeOf("/notes/ls")).toBe(slotOf({ space: "plain", name: "notes" }));
     expect(routeOf("/notes")).toBe(routeOf("/notes/1/d"));
     expect(routeOf(`/e/${sealed}/live`)).toBe(slotOf({ space: "sealed", name: sealed }));

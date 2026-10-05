@@ -19,9 +19,9 @@
 // protocol: changing them makes every existing encrypted namespace unreadable.
 //
 // Each item gets its own random AES-GCM key, which encrypts its contents and
-// its metadata. The namespace key only wraps that item key, so handing out an
+// its metadata. The namespace key only wraps that item key (AES-KW), so handing out an
 // item key (in a share link) reveals that one item and nothing else.
-const PROTOCOL_SALT = "kurobako/sealed/v2";
+const PROTOCOL_SALT = "kurobako/sealed/v3";
 const PBKDF2_ITERATIONS = 600_000;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
@@ -41,8 +41,6 @@ const ITEM_KEY_BYTES = 16;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-const toHex = (bytes) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-
 const toBase64Url = (bytes) => {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -54,8 +52,41 @@ const fromBase64Url = (text) => {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 };
 
+/** Item keys are extractable: a share link carries one, and the namespace key wraps them. */
 const importKey = (raw) =>
-  crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+  crypto.subtle.importKey("raw", raw, "AES-GCM", true, ["encrypt", "decrypt"]);
+
+/** The namespace key only wraps and unwraps item keys (AES-KW, RFC 3394). */
+const importWrappingKey = (raw) =>
+  crypto.subtle.importKey("raw", raw, "AES-KW", false, ["wrapKey", "unwrapKey"]);
+
+/**
+ * Metadata as it is sealed: only what cannot be told otherwise. A file has
+ * `filename` and, unless it is application/octet-stream, `mime`; a text has
+ * `title`, left out when empty. The size is the sealed body's, less
+ * SEALED_OVERHEAD_BYTES.
+ */
+const packMetadata = ({ kind, title, filename, mime }) =>
+  kind === "file"
+    ? { filename, ...(mime && mime !== OCTET_STREAM ? { mime } : {}) }
+    : title
+      ? { title }
+      : {};
+
+/** Metadata as clients use it: { kind, title, filename?, mime?, size }. */
+const unpackMetadata = (packed, sealedSize) => {
+  const size = Math.max(0, (sealedSize ?? SEALED_OVERHEAD_BYTES) - SEALED_OVERHEAD_BYTES);
+  return typeof packed.filename === "string"
+    ? {
+        kind: "file",
+        title: packed.filename,
+        filename: packed.filename,
+        mime: packed.mime ?? OCTET_STREAM,
+        size,
+      }
+    : { kind: "text", title: packed.title ?? "", size };
+};
+const OCTET_STREAM = "application/octet-stream";
 
 /** IV followed by the AES-GCM ciphertext and tag. */
 const sealWith = async (key, bytes) => {
@@ -149,20 +180,26 @@ export const openSealedSpace = async (secretName) => {
       DERIVED_BITS,
     ),
   );
-  const namespaceKey = await importKey(bits.subarray(ID_BYTES));
+  const namespaceKey = await importWrappingKey(bits.subarray(ID_BYTES));
 
   return {
-    id: toHex(bits.subarray(0, ID_BYTES)),
+    id: toBase64Url(bits.subarray(0, ID_BYTES)),
 
     /**
      * Encrypts one item; `header` goes in X-Sealed-Metadata, `body` is
      * uploaded, and `keyText` (the item key) is what a share link carries.
+     * `metadata` is { kind, title, filename?, mime? }; see packMetadata.
      */
     sealItem: async (bytes, metadata) => {
       const rawKey = crypto.getRandomValues(new Uint8Array(ITEM_KEY_BYTES));
       const itemKey = await importKey(rawKey);
-      const wrappedKey = await sealWith(namespaceKey, rawKey);
-      const sealedMetadata = await sealWith(itemKey, encoder.encode(JSON.stringify(metadata)));
+      const wrappedKey = new Uint8Array(
+        await crypto.subtle.wrapKey("raw", itemKey, namespaceKey, "AES-KW"),
+      );
+      const sealedMetadata = await sealWith(
+        itemKey,
+        encoder.encode(JSON.stringify(packMetadata(metadata))),
+      );
       return {
         header: `${toBase64Url(wrappedKey)}.${toBase64Url(sealedMetadata)}`,
         body: await sealWith(itemKey, bytes),
@@ -171,14 +208,29 @@ export const openSealedSpace = async (secretName) => {
     },
 
     /**
-     * Unwraps an item's key and reads its metadata. `withMetadata(changes)`
-     * gives the item's X-Sealed-Metadata with its metadata changed (to rename
-     * it), under the same key.
+     * Unwraps an item's key and reads its metadata; `sealedSize` is the
+     * item's size as the server lists it. `withMetadata(changes)` gives the
+     * item's X-Sealed-Metadata with its metadata changed (to rename it),
+     * under the same key.
      */
-    openItem: async (header) => {
+    openItem: async (header, sealedSize) => {
       const [wrappedKey = "", sealedMetadata = ""] = header.split(".");
-      const rawKey = await openWith(namespaceKey, fromBase64Url(wrappedKey));
-      const opened = await openItemWithKey(toBase64Url(rawKey), sealedMetadata);
+      let itemKey;
+      try {
+        itemKey = await crypto.subtle.unwrapKey(
+          "raw",
+          fromBase64Url(wrappedKey),
+          namespaceKey,
+          "AES-KW",
+          "AES-GCM",
+          true,
+          ["encrypt", "decrypt"],
+        );
+      } catch {
+        throw new Error("This item could not be decrypted.");
+      }
+      const rawKey = new Uint8Array(await crypto.subtle.exportKey("raw", itemKey));
+      const opened = await openItemWithKey(toBase64Url(rawKey), sealedMetadata, sealedSize);
       return {
         ...opened,
         withMetadata: async (changes) =>
@@ -191,24 +243,23 @@ export const openSealedSpace = async (secretName) => {
 /**
  * Opens an item with its own key, as a share link carries it after the #.
  * Returns its metadata, a decrypt function for its contents, and the key.
+ * `sealedSize` is the item's size as the server lists it.
  */
-export const openSharedItem = (keyText, header) =>
-  openItemWithKey(keyText, header.split(".")[1] ?? "");
+export const openSharedItem = (keyText, header, sealedSize) =>
+  openItemWithKey(keyText, header.split(".")[1] ?? "", sealedSize);
 
-const openItemWithKey = async (keyText, sealedMetadata) => {
+const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
   if (!encryptionAvailable()) {
     throw new Error("Encryption needs a secure (https) connection.");
   }
   const itemKey = await importKey(fromBase64Url(keyText));
-  const metadata = JSON.parse(
-    decoder.decode(await openWith(itemKey, fromBase64Url(sealedMetadata))),
-  );
+  const packed = JSON.parse(decoder.decode(await openWith(itemKey, fromBase64Url(sealedMetadata))));
   return {
-    metadata,
+    metadata: unpackMetadata(packed, sealedSize),
     keyText,
     open: (bytes) => openWith(itemKey, bytes),
     sealMetadata: async (changed) =>
-      toBase64Url(await sealWith(itemKey, encoder.encode(JSON.stringify(changed)))),
+      toBase64Url(await sealWith(itemKey, encoder.encode(JSON.stringify(packMetadata(changed))))),
   };
 };
 
@@ -615,7 +666,7 @@ const openList = async (space, site) => {
   const items = await (await call(`${site}/e/${space.id}/ls`)).json();
   return Promise.all(
     items.map(async (item, index) => {
-      const opened = await space.openItem(item.metadata).catch(() => null);
+      const opened = await space.openItem(item.metadata, item.size).catch(() => null);
       return {
         number: index + 1,
         item,
@@ -990,7 +1041,7 @@ const sealedRequest = async ({ site, name, path: fullPath }, options) => {
 const sharedRequest = async ({ base, suffix, keyText }, options) => {
   if (options.method !== "GET") throw new Error("A shared item can only be read.");
   const item = await (await call(`${base}.json`)).json();
-  const opened = await openSharedItem(keyText, item.metadata);
+  const opened = await openSharedItem(keyText, item.metadata, item.size);
   if (suffix === ".json") return printJson(itemJson(item, opened.metadata));
   if (!["", "/c", "/d"].includes(suffix)) throw new Error(`Unknown path "${suffix}".`);
   const entry = { item, opened, contentUrl: `${base}/c` };

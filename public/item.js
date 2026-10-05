@@ -44,7 +44,7 @@ const describe = async (item) => {
     };
   }
   if (!keyText) throw new Error("Incomplete link: the part after # is missing.");
-  const { metadata, open } = await openSharedItem(keyText, item.metadata);
+  const { metadata, open } = await openSharedItem(keyText, item.metadata, item.size);
   return {
     ...metadata,
     title: metadata.title || HIDDEN_TITLE,
