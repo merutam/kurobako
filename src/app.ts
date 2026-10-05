@@ -9,7 +9,7 @@
 //   GET    /<ns>/ls           the queue as JSON
 //   POST   /<ns>/new          sends an item
 //   PUT    /<ns>/<name>       sends a file under that name (`curl -T file /<ns>/`)
-//   GET    /<ns>/<item>       one item's contents; /d downloads it
+//   GET    /<ns>/<item>       one item's contents (/c too); /d downloads it
 //   GET    /<ns>/<item>.json  its details and a link to share it
 //   GET    /<ns>/<item>/s     a link to share it, as text (POST works too)
 //   POST   /<ns>/<item>/n     renames it

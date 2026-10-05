@@ -167,6 +167,7 @@ describe("bun server", () => {
     const ns = fresh();
     expect(await typed(ns, "hello")).toMatchObject({ kind: "text", text: "hello" });
     expect(await (await call(`/${ns}/1`)).text()).toBe("hello");
+    expect(await (await call(`/${ns}/1/c`)).text()).toBe("hello");
 
     const image = await json<FileItem>(`/${ns}/photo.png`, { method: "PUT", body: png });
     expect(image).toMatchObject({ kind: "image", filename: "photo.png" });
@@ -278,6 +279,7 @@ describe("bun server", () => {
 
     // Items by position: 1 is the newest. Reading a burn-after-reading item consumes it.
     expect(await k(`${link}/2`)).toBe("first text");
+    expect(await k(`${link}/2/c`)).toBe("first text");
     expect(await k(`${link}/1`)).toBe("second text");
     expect(JSON.parse(await k(`${link}/ls`))).toHaveLength(1);
 

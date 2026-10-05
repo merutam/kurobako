@@ -70,7 +70,7 @@
         </tr>
         <tr>
           <td><code>GET &lt;ns&gt;/&lt;item&gt;</code></td>
-          <td>its contents; <code>/d</code> as a download (under its name, in a plain namespace)</td>
+          <td>its contents (<code>/c</code> too, as on a share link); <code>/d</code> as a download (under its name, in a plain namespace)</td>
         </tr>
         <tr>
           <td><code>GET &lt;ns&gt;/&lt;item&gt;.json</code></td>
@@ -103,7 +103,8 @@
     Each item has <code>id</code>, <code>kind</code>, <code>size</code>
     (bytes), <code>createdAt</code> and <code>expiresAt</code>
     (<code>null</code> without expiry). Its contents are at
-    <code>&lt;ns&gt;/&lt;id&gt;</code>, as the table above shows; the JSON
+    <code>&lt;ns&gt;/&lt;id&gt;/c</code> and a download at
+    <code>&lt;ns&gt;/&lt;id&gt;/d</code>, as on a share link; the JSON
     carries no links. <code>burn: true</code> marks one deleted by its first read. Sending
     with the header <code>Burn: 1</code> makes one; reading its contents
     consumes it, while <code>ls</code>, <code>.json</code> and

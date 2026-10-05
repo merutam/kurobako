@@ -489,6 +489,9 @@ export const sharedTests = (harness: Harness) => {
       const content = await call(`/e/${id}/${item.id}`);
       expect(content.headers.get("content-type")).toBe("application/octet-stream");
       expect(new Uint8Array(await content.arrayBuffer())).toEqual(ciphertext);
+      // /c is the same, as on a share link.
+      const viaC = await call(`/e/${id}/${item.id}/c`);
+      expect(new Uint8Array(await viaC.arrayBuffer())).toEqual(ciphertext);
       // A plain namespace with a similar name holds nothing of it.
       const twin = id.toLowerCase().replace(/[^a-z0-9]/g, "0");
       expect(await json<Item[]>(`/${twin}/ls`)).toEqual([]);

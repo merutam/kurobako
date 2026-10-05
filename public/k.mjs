@@ -1008,7 +1008,7 @@ const sealedRequest = async ({ site, name, path: fullPath }, options) => {
   if (
     FIXED.has(first) ||
     extra.length ||
-    (second !== undefined && second !== "d" && second !== "s")
+    (second !== undefined && !["c", "d", "s"].includes(second))
   ) {
     throw new Error(`Unknown path "${path}". See: node k.mjs`);
   }
