@@ -33,19 +33,20 @@ const objectResponse = (
   body: ReadableStream | ArrayBuffer,
   size: number,
   inline: boolean,
-  fallbackName: (id: string) => string,
+  unnamed: (id: string) => string,
 ) => {
   const disposition = inline
     ? "inline"
-    : item.kind === "sealed"
-      ? "attachment"
-      : attachment(
-          item.kind === "text"
+    : attachment(
+        item.kind === "sealed"
+          ? // Its name is sealed too: the server can only give it one of its own.
+            `${unnamed(item.id)}.sealed`
+          : item.kind === "text"
             ? item.name
               ? safeFileName(`${item.name}.txt`)
-              : fallbackName(item.id)
+              : `text-${unnamed(item.id)}.txt`
             : item.filename,
-        );
+      );
   return new Response(body, {
     headers: {
       "Content-Type": contentTypeOf(item),
@@ -73,7 +74,7 @@ export const createContents = (api: Api) => {
     ref: NamespaceRef,
     selector: ItemRef,
     inline: boolean,
-    fallbackName: (id: string) => string,
+    unnamed: (id: string) => string,
   ): Promise<Response | null> => {
     const ns = namespace(c, ref);
     const item = (await ns.claimObject(selector, visit(c))) as ObjectItem | null;
@@ -98,22 +99,23 @@ export const createContents = (api: Api) => {
           })
           .finally(() => blobs.delete([item.object])),
       );
-      return objectResponse(item, readable, object.size, inline, fallbackName);
+      return objectResponse(item, readable, object.size, inline, unnamed);
     }
-    return objectResponse(item, object.body, object.size, inline, fallbackName);
+    return objectResponse(item, object.body, object.size, inline, unnamed);
   };
 
   /**
    * Any item's contents: texts as text, files from the blob store. As a
-   * download, a text goes by its name, or by `fallbackName(id)` without one,
-   * so `curl -OJ` saves it under a sensible name.
+   * download, an item goes by its name, so `curl -OJ` saves it sensibly; one
+   * without (a text never named, an encrypted item) by `unnamed(id)`:
+   * text-<it>.txt or <it>.sealed.
    */
   const serveItem = async (
     c: AppContext,
     ref: NamespaceRef,
     selector: ItemRef,
     inline: boolean,
-    fallbackName: (id: string) => string = (id) => `text-${id}.txt`,
+    unnamed: (id: string) => string = (id) => id,
   ): Promise<Response | null> => {
     const text = await namespace(c, ref).readText(selector, visit(c));
     if (text) {
@@ -125,12 +127,12 @@ export const createContents = (api: Api) => {
           ? {}
           : {
               "Content-Disposition": attachment(
-                text.name ? safeFileName(`${text.name}.txt`) : fallbackName(text.id),
+                text.name ? safeFileName(`${text.name}.txt`) : `text-${unnamed(text.id)}.txt`,
               ),
             }),
       });
     }
-    return serveObject(c, ref, selector, inline, fallbackName);
+    return serveObject(c, ref, selector, inline, unnamed);
   };
 
   return { serveItem };

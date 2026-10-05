@@ -86,13 +86,7 @@ export const mountShares = (
       const share = await resolveShare(c, c.req.param("token"));
       if (!share) return jsonError(c, 404, SHARE_GONE);
       // Named after the token, which the URL already shows, never the item's ID.
-      const response = await serveItem(
-        c,
-        share.ref,
-        share.itemId,
-        inline,
-        () => `text-${share.token}.txt`,
-      );
+      const response = await serveItem(c, share.ref, share.itemId, inline, () => share.token);
       if (response) return response;
       forgetShare(c, share.token);
       return jsonError(c, 404, SHARE_GONE);
