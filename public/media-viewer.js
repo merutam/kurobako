@@ -3,8 +3,10 @@
 
 // The namespace's full-screen image/video gallery: keyboard and swipe
 // navigation, bounded neighbor prefetch, and cleanup of temporary Blob URLs.
+// Its videos take taps (play, pause, double-tap to seek) and J and L (seek):
+// gestures live here only, where the screen is the gallery's.
 import { el, element } from "./common.js";
-import { videoPlayer } from "./items.js";
+import { gestureVideo, seekVideo } from "./items.js";
 
 export const createMediaViewer = (sourceOf) => {
   const dialog = element("#media-viewer");
@@ -22,7 +24,7 @@ export const createMediaViewer = (sourceOf) => {
 
   const releaseMedium = ({ source, preloader, medium }) => {
     for (const node of new Set([preloader, medium].filter(Boolean))) {
-      // A video comes in its player (see videoPlayer).
+      // A video comes in its player (see gestureVideo).
       const video = node.localName === "video" ? node : node.querySelector?.("video");
       if (video) {
         video.pause();
@@ -126,7 +128,7 @@ export const createMediaViewer = (sourceOf) => {
       const cached = await preloadNeighbors();
       if (requested !== load || !dialog.open) return;
       if (cached.preloader.localName === "img") cached.preloader.alt = entry.info.title;
-      cached.medium ??= videoPlayer(cached.source.src);
+      cached.medium ??= gestureVideo(cached.source.src);
       content.replaceChildren(cached.medium);
     } catch (error) {
       if (requested === load) {
@@ -164,7 +166,33 @@ export const createMediaViewer = (sourceOf) => {
     }
   };
 
+  // The whole gallery in full screen, its gestures and bar included (a
+  // video's own full screen button shows the bare video, without them).
+  // A modal dialog cannot itself be in full screen: its frame, all it shows, is.
+  const frame = element("#media-viewer-frame");
+  const fullscreen = element("#media-viewer-fullscreen");
+  fullscreen.addEventListener("click", async () => {
+    try {
+      if (document.fullscreenElement === frame) await document.exitFullscreen();
+      else await frame.requestFullscreen();
+    } catch {
+      // Refused (an iframe, an old browser): the gallery fills the window anyway.
+    }
+  });
+  document.addEventListener("fullscreenchange", () => {
+    const on = document.fullscreenElement === frame;
+    fullscreen.setAttribute("aria-pressed", String(on));
+    fullscreen.title = on ? "Exit full screen" : "Full screen";
+    fullscreen.setAttribute("aria-label", fullscreen.title);
+  });
+
   dialog.addEventListener("keydown", (event) => {
+    const video = content.querySelector("video");
+    if (video && (event.key === "j" || event.key === "l") && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      seekVideo(video, event.key === "j" ? -1 : 1);
+      return;
+    }
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       move(-1);
@@ -180,6 +208,7 @@ export const createMediaViewer = (sourceOf) => {
     }
   });
   dialog.addEventListener("close", () => {
+    if (document.fullscreenElement === frame) void document.exitFullscreen().catch(() => {});
     load += 1;
     content.querySelector("video")?.pause();
     content.replaceChildren();

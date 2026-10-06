@@ -641,8 +641,13 @@ body:has(.media-viewer[open]) {
   color: var(--text);
 }
 .media-viewer[open] {
+  display: block;
+}
+.media-viewer-frame {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  background: var(--background);
 }
 .media-viewer::backdrop {
   background: rgb(0 0 0 / 75%);
@@ -918,21 +923,73 @@ a.icon-button:hover {
   width: auto;
   max-width: 16rem;
 }
+/* Full screen is for writing, like a plain text editor: the text takes the
+   whole screen, its lines numbered and unwrapped; what the form holds
+   besides (language, size, buttons) sits in a thin bar below. */
+.text-editor-gutter {
+  display: none;
+}
 .text-editor-fullscreen:fullscreen {
   display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  align-content: flex-start;
   width: 100%;
   height: 100%;
   margin: 0;
-  padding: var(--space-3);
-  flex-direction: column;
+  padding: 0;
+  border: 0;
   background: var(--background);
   color: var(--text);
 }
+.text-editor-fullscreen:fullscreen > legend {
+  display: none;
+}
 .text-editor-fullscreen:fullscreen > .text-editor {
-  height: auto;
+  flex: 0 0 100%;
+  height: calc(100dvh - 2.75rem);
   min-height: 0;
-  flex: 1 1 auto;
   resize: none;
+}
+.text-editor-fullscreen:fullscreen > :not(.text-editor) {
+  flex: none;
+  margin: 0 0 0 var(--space-3);
+}
+.text-editor-fullscreen:fullscreen > :not(.text-editor):last-child {
+  margin-left: auto;
+  margin-right: var(--space-3);
+}
+.text-editor-fullscreen:fullscreen :where(button, select) {
+  min-height: 28px;
+  padding: 2px var(--space-2);
+  font-size: var(--text-small);
+}
+.text-editor-fullscreen:fullscreen .text-editor > textarea,
+.text-editor-fullscreen:fullscreen .text-editor > pre.text-editor-highlight {
+  padding-left: calc(var(--gutter-digits, 2) * 1ch + 2ch + var(--space-2));
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  overflow-wrap: normal;
+  white-space: pre;
+}
+.text-editor-fullscreen:fullscreen .text-editor-gutter {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 2;
+  display: block;
+  width: calc(var(--gutter-digits, 2) * 1ch + 2ch);
+  overflow: hidden;
+  padding: 6px 1ch 6px 0;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  text-align: right;
+  white-space: pre;
+  user-select: none;
 }
 .error-text {
   color: var(--error-text);
@@ -1049,13 +1106,28 @@ button.media-preview img {
 
 /* --- Long-form pages (the protocol): readable line length ------------------- */
 
+/* About 70 characters a line, with room between paragraphs: long lines
+   and solid blocks are what make a page of text hard to read. */
 .prose > p,
 .prose > ul,
 .prose > ol {
-  max-width: var(--prose-width);
+  max-width: 42rem;
+  line-height: 1.7;
+}
+.prose > p {
+  margin-bottom: var(--space-4);
 }
 .prose li {
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
+}
+/* Justified where lines are long enough for it, hyphenated so that words
+   do not drift apart; on a phone, a ragged edge reads better. */
+@media (min-width: 800px) {
+  .prose > p,
+  .prose li {
+    text-align: justify;
+    hyphens: auto;
+  }
 }
 /* Inline code on text pages reads like Markdown's: a small tinted box. */
 .prose code {
