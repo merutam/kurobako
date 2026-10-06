@@ -6,3 +6,5 @@ coverage/
 .wrangler/
 .dev.vars*
 clients/
+# nix build
+/result*
