@@ -3,18 +3,15 @@
 
 // The page behind a share link, /i/<token>: one item, and nothing that leads
 // back to its namespace. Encrypted items carry their own key after the #.
+import { button, compactText, copyText, el, element, formatExpiry, request } from "./common.js";
 import {
-  asPng,
-  button,
-  compactText,
-  copyText,
-  dateFormatter,
-  element,
-  formatBytes,
-  formatExpiry,
-  HIDDEN_TITLE,
-  request,
-} from "./common.js";
+  canCopyImages,
+  copyImage,
+  describeOpened,
+  describePlain,
+  downloadBlob,
+  itemSummary,
+} from "./items.js";
 import { openSharedItem } from "./k.mjs";
 import { createStatus } from "./status.js";
 
@@ -32,25 +29,10 @@ const GONE = "This item is no longer available.";
 
 /** The same description the namespace page uses, plus how to read the contents. */
 const describe = async (item) => {
-  if (item.kind !== "sealed") {
-    return {
-      kind: item.kind === "text" ? "text" : "file",
-      title:
-        item.kind === "text" ? (item.burn ? HIDDEN_TITLE : compactText(item.text)) : item.filename,
-      filename: item.filename,
-      mime: item.mime,
-      isImage: item.kind === "image",
-      decrypt: null,
-    };
-  }
+  if (item.kind !== "sealed") return { ...describePlain(item), decrypt: null };
   if (!keyText) throw new Error("Incomplete link: the part after # is missing.");
   const { metadata, open } = await openSharedItem(keyText, item.metadata, item.size);
-  return {
-    ...metadata,
-    title: metadata.title || HIDDEN_TITLE,
-    isImage: metadata.mime?.startsWith("image/") ?? false,
-    decrypt: open,
-  };
+  return { ...describeOpened(metadata), decrypt: open };
 };
 
 const fetchBytes = async (url, info) => {
@@ -70,15 +52,10 @@ const loadContent = async (item, info) => {
 
 const showContent = (info, content) => {
   if (content.text !== undefined) {
-    const pre = document.createElement("pre");
-    pre.textContent = content.text;
-    body.replaceChildren(pre);
+    body.replaceChildren(el("pre", { textContent: content.text }));
     title.textContent = compactText(content.text).slice(0, 120);
   } else if (info.isImage) {
-    const image = document.createElement("img");
-    image.alt = info.title;
-    image.src = URL.createObjectURL(content.blob);
-    body.replaceChildren(image);
+    body.replaceChildren(el("img", { alt: info.title, src: URL.createObjectURL(content.blob) }));
   } else {
     body.replaceChildren();
   }
@@ -96,12 +73,11 @@ const showContent = (info, content) => {
       }),
     );
   }
-  if (info.isImage && navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+  if (info.isImage && canCopyImages()) {
     actions.append(
       button("Copy", async () => {
         try {
-          const png = await asPng(content.blob);
-          await navigator.clipboard.write([new ClipboardItem({ [png.type]: png })]);
+          await copyImage(content.blob);
           status.success("Copied.");
         } catch (error) {
           status.error(error.message);
@@ -110,22 +86,12 @@ const showContent = (info, content) => {
     );
   }
   if (content.blob) {
-    const download = document.createElement("a");
-    download.href = URL.createObjectURL(content.blob);
-    download.download = info.filename || "file";
-    download.textContent = "Download";
-    download.className = "button";
-    actions.append(download);
+    actions.append(button("Download", () => downloadBlob(content.blob, info.filename)));
   }
 };
 
 const describeMeta = (item, info, opened) => {
-  const kindLabel = info.kind === "text" ? "Text" : info.isImage ? "Image" : "File";
-  const parts = [
-    kindLabel,
-    formatBytes(info.size ?? item.size),
-    dateFormatter.format(new Date(item.createdAt)),
-  ];
+  const parts = [itemSummary(item, info)];
   if (opened && item.burn) parts.push("deleted from the server");
   else if (item.burn) parts.push("deletes when opened");
   if (!opened && item.expiresAt) parts.push(formatExpiry(item.expiresAt));
@@ -161,11 +127,9 @@ try {
     );
   } else if (item.kind === "file" && !item.burn) {
     // A plain file: link to it rather than fetching it all just for a button.
-    const download = document.createElement("a");
-    download.href = `${here}/d`;
-    download.textContent = "Download";
-    download.className = "button";
-    actions.replaceChildren(download);
+    actions.replaceChildren(
+      el("a", { className: "button", href: `${here}/d`, textContent: "Download" }),
+    );
   } else {
     showContent(info, await loadContent(item, info));
   }

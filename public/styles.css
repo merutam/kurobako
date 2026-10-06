@@ -2,38 +2,10 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (C) 2026 Kurobako contributors
  */
-/* Colors follow Wikipedia's Codex tokens, each as light-dark(light, dark).
-   "Automatic" follows the system through color-scheme; theme.js sets
-   data-theme="light" or "dark" when the visitor picks one, which fixes it. */
-:root {
-  color-scheme: light dark;
-  --text: light-dark(#202122, #eaecf0);
-  --text-subtle: light-dark(#54595d, #a2a9b1);
-  --background: light-dark(#ffffff, #101418);
-  --surface: light-dark(#f8f9fa, #202122);
-  --surface-strong: light-dark(#eaecf0, #27292d);
-  --border: light-dark(#a2a9b1, #72777d);
-  --border-subtle: light-dark(#c8ccd1, #54595d);
-  --link: light-dark(#36c, #88a3e8);
-  --link-visited: light-dark(#6a60b0, #a799cd);
-  --link-hover: light-dark(#3056a9, #a6bbf5);
-  --progressive: light-dark(#36c, #6485d1);
-  --progressive-hover: light-dark(#3056a9, #88a3e8);
-  --on-progressive: light-dark(#ffffff, #101418);
-  --destructive: light-dark(#bf3c2c, #fd7865);
-  --error-text: light-dark(#bf3c2c, #fd7865);
-  --error-surface: light-dark(#ffe9e5, #3c1a19);
-  --success-text: light-dark(#14866d, #4dc49c);
-  --success-surface: light-dark(#dff2eb, #11302a);
-  --warning-text: light-dark(#996000, #e9b44c);
-  --focus: light-dark(#36c, #88a3e8);
-}
-:root[data-theme="light"] {
-  color-scheme: light;
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
-}
+/* The site's styles, on the design tokens of tokens.css. */
+@import url("tokens.css");
+
+/* --- Base ----------------------------------------------------------------- */
 
 * {
   box-sizing: border-box;
@@ -43,31 +15,17 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--text);
-  font-family: sans-serif;
+  font-family: var(--font-sans);
   font-size: 1rem;
   line-height: 1.6;
 }
 
 main {
-  max-width: 72rem;
+  max-width: var(--page-width);
   margin: 0 auto;
-  padding: 0 16px 48px;
+  padding: 0 var(--page-gutter) var(--space-7);
 }
 
-/* Header */
-.site-header {
-  display: flex;
-  flex-wrap: wrap;
-  /* The title and the theme picker share a baseline: centering their boxes
-     leaves a serif title looking higher than the text beside it. */
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px 24px;
-  padding: 12px 0;
-  margin-bottom: 24px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-/* Links */
 a {
   color: var(--link);
   text-decoration: none;
@@ -81,106 +39,68 @@ a:hover {
 }
 /* Navigation shortcuts (See JSON, Access log, Back, Download) are reopened
    all the time; "already visited" tells nothing there. */
-.lead a:visited,
+.intro a:visited,
 .actions a:visited {
   color: var(--link);
 }
-.lead a:hover,
+.intro a:hover,
 .actions a:hover {
   color: var(--link-hover);
 }
 
-.site-name {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  font-family: "Linux Libertine", Georgia, Times, serif;
-  font-size: 1.5rem;
-  font-weight: normal;
-  line-height: 1.3;
-}
-.site-name a,
-.site-name a:visited {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4em;
-  color: var(--text);
-  text-decoration: none;
-}
-.site-name img {
-  /* Centered on the title, out of the baseline the header lines up with. */
-  align-self: center;
-  width: 1.3em;
-  height: 1.3em;
-  border-radius: 20%;
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
-fieldset {
-  margin: 0;
-  padding: 12px 16px 16px;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface);
-}
-legend {
-  padding: 0 6px;
-  font-weight: bold;
-}
-label {
-  display: block;
-  margin-bottom: 6px;
+/* Hidden from sight, still there for keyboards and screen readers. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.appearance {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 16px;
-  font-size: 0.875rem;
-}
-.appearance-label {
-  font-weight: bold;
-}
-.appearance label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0;
-  font-weight: normal;
-  cursor: pointer;
-}
+/* --- Type ----------------------------------------------------------------- */
 
-/* Typography */
 h1,
 h2 {
-  margin: 0 0 12px;
-  padding-bottom: 4px;
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-1);
   border-bottom: 1px solid var(--border);
-  font-family: "Linux Libertine", Georgia, Times, serif;
+  font-family: var(--font-serif);
   font-weight: normal;
   line-height: 1.3;
 }
 h1 {
-  font-size: 1.8rem;
+  font-size: var(--text-h1);
   overflow-wrap: anywhere;
 }
 h2 {
-  font-size: 1.5rem;
+  font-size: var(--text-h2);
 }
 h2 small {
   color: var(--text-subtle);
-  font-family: sans-serif;
-  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
 }
 p {
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-3);
 }
-.lead {
-  margin-bottom: 24px;
+.intro {
+  margin-bottom: var(--space-5);
 }
+/* Small print under a field or a heading. */
 .hint {
-  margin: 4px 0 12px;
+  margin: var(--space-1) 0 var(--space-3);
   color: var(--text-subtle);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
+}
+/* The text's size, under it: red once past the limit. */
+.hint.over {
+  color: var(--error-text);
 }
 /* A name's strength: a colored dot and text, red to green. */
 .hint[data-level] {
@@ -198,52 +118,89 @@ p {
 .hint[data-level="strong"] {
   color: var(--success-text);
 }
-
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
+.empty {
+  color: var(--text-subtle);
+  font-style: italic;
 }
 
-/* Layout: one column on phones, two on wider screens */
+/* --- Layout --------------------------------------------------------------- */
+
+/* One column on phones, two on wider screens. */
 .columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 32px;
+  gap: var(--space-6);
 }
 @media (min-width: 800px) {
   .columns {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 48px;
+    gap: var(--space-7);
   }
 }
 
-/* Forms */
-form + form {
-  margin-top: 24px;
+/* Sections after the main columns stand apart from them. */
+.page-section {
+  margin-top: var(--space-7);
 }
 
-label.checkbox {
+/* A row of controls that wraps on narrow screens. */
+.actions,
+.toolbar,
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.actions {
+  margin: 0;
+}
+
+/* --- Forms ---------------------------------------------------------------- */
+
+fieldset {
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+legend {
+  padding: 0 6px;
+  font-weight: bold;
+}
+label {
+  display: block;
+  margin-bottom: 6px;
+}
+form + form {
+  margin-top: var(--space-5);
+}
+
+label.checkbox-label {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 12px 0 0;
+  margin: var(--space-3) 0 0;
   cursor: pointer;
 }
-.checkbox input {
+.checkbox-label input {
   width: 18px;
   height: 18px;
   margin: 0;
 }
 
+/* Text fields: the same box wherever they are. */
 textarea,
+select,
 input[type="text"],
 input[type="password"],
 input[type="search"],
-select {
+.rename-input,
+.copy-link input {
   width: 100%;
-  padding: 6px 8px;
+  padding: 6px var(--space-2);
   border: 1px solid var(--border);
-  border-radius: 2px;
+  border-radius: var(--radius);
   background: var(--background);
   color: var(--text);
   font: inherit;
@@ -251,30 +208,26 @@ select {
 textarea {
   min-height: 10rem;
   resize: vertical;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 0.9375rem;
 }
 textarea:focus,
+select:focus,
 input[type="text"]:focus,
 input[type="password"]:focus,
-input[type="search"]:focus,
-select:focus {
+input[type="search"]:focus {
   border-color: var(--focus);
   outline: 1px solid var(--focus);
-}
-input[type="file"] {
-  max-width: 100%;
-  font: inherit;
 }
 
 .namespace-input {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-family: monospace;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
 }
 .namespace-input input {
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 /* Wide enough for "/e#", so toggling Encrypted never resizes the field. */
 .namespace-input span {
@@ -284,12 +237,45 @@ input[type="file"] {
   white-space: nowrap;
 }
 
+/* Where a file is dropped or, clicked, picked (see fileField). */
+.dropzone {
+  display: block;
+  margin-bottom: var(--space-2);
+  padding: 20px var(--space-3);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-large);
+  color: var(--text-subtle);
+  text-align: center;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.dropzone:hover,
+.dropzone.dropping {
+  border-color: var(--link);
+  color: var(--text);
+}
+.dropzone.chosen {
+  border-style: solid;
+  color: var(--text);
+}
+input:disabled + .dropzone {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+/* The hidden input has the focus: show it on its zone. */
+.visually-hidden:focus-visible + .dropzone {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
 button,
 a.button {
-  min-height: 32px;
-  padding: 4px 12px;
+  min-height: var(--control-height);
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--border);
-  border-radius: 2px;
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
   font: inherit;
@@ -334,13 +320,13 @@ button.destructive {
 
 /* The button sits over the heading's border so this heading keeps the same
    height as its neighbor in the other column. */
-.section-title {
+.section-heading {
   position: relative;
 }
-.section-title h2 {
+.section-heading h2 {
   padding-right: 7rem;
 }
-.section-title button {
+.section-heading button {
   position: absolute;
   right: 0;
   bottom: 5px;
@@ -348,32 +334,89 @@ button.destructive {
   padding: 2px 10px;
 }
 
-/* Renaming an item in place, where its name was. */
-.rename-input {
-  width: 100%;
-  margin: 0 0 4px;
-  padding: 2px 6px;
-  border: 1px solid var(--focus);
-  border-radius: 2px;
-  background: var(--background);
+/* --- Header and footer ---------------------------------------------------- */
+
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  /* The title and the theme picker share a baseline: centering their boxes
+     leaves a serif title looking higher than the text beside it. */
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-3) 0;
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.site-name {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-h2);
+  font-weight: normal;
+  line-height: 1.3;
+}
+.site-name a,
+.site-name a:visited {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
   color: var(--text);
-  font: inherit;
+  text-decoration: none;
+}
+.site-name img {
+  /* Centered on the title, out of the baseline the header lines up with. */
+  align-self: center;
+  width: 1.3em;
+  height: 1.3em;
+  border-radius: 20%;
 }
 
-/* Status messages */
+.theme-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--text-small);
+}
+.theme-picker-label {
+  font-weight: bold;
+}
+.theme-picker label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.site-footer {
+  width: calc(100% - 2 * var(--page-gutter));
+  max-width: calc(var(--page-width) - 2 * var(--page-gutter));
+  margin: 0 auto;
+  padding: var(--space-4) 0 var(--space-6);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-subtle);
+  font-size: var(--text-small);
+}
+
+/* --- Status messages ------------------------------------------------------ */
+
 .status:empty {
   display: none;
 }
 .status {
   position: sticky;
-  top: 8px;
+  top: var(--space-2);
   z-index: 1;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 24px;
-  padding: 8px 12px;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--success-text);
   background: var(--success-surface);
   color: var(--text);
@@ -402,20 +445,46 @@ button.destructive {
 }
 fieldset .status {
   position: static;
-  margin: 12px 0 0;
+  margin: var(--space-3) 0 0;
 }
 
-/* Item list */
+/* --- Contents: code and images --------------------------------------------- */
+
+/* A text shown whole, or a block of code. */
+.item pre,
+.shared-item pre,
+.prose pre {
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  font-size: var(--text-small);
+}
+.item pre,
+.shared-item pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.item img,
+.shared-item img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border-subtle);
+}
+
+/* --- Item list ------------------------------------------------------------ */
+
 .items {
   margin: 0;
   padding: 0 0 0 1.75em;
 }
 .item {
-  padding: 12px 0;
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--border-subtle);
 }
 .item:first-child {
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 .item summary {
   display: flex;
@@ -449,40 +518,26 @@ fieldset .status {
   padding-left: calc(1ch + 6px);
 }
 .item-meta {
-  margin: 4px 0 8px;
+  margin: var(--space-1) 0 var(--space-2);
   color: var(--text-subtle);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
 }
 .item pre {
   max-height: 24rem;
-  overflow: auto;
-  margin: 8px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface);
-  font-size: 0.875rem;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  margin: var(--space-2) 0;
 }
 .item img {
-  display: block;
-  max-width: 100%;
   max-height: 30rem;
-  height: auto;
-  margin: 8px 0;
-  border: 1px solid var(--border-subtle);
+  margin: var(--space-2) 0;
 }
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  margin: 0;
+/* Renaming an item in place, where its name was. */
+.rename-input {
+  margin: 0 0 var(--space-1);
+  padding: 2px 6px;
+  border-color: var(--focus);
 }
-.empty {
-  color: var(--text-subtle);
-  font-style: italic;
-}
+
+/* The text being copied without the Clipboard API (see copyText), out of sight. */
 .clipboard-fallback {
   position: fixed;
   top: 0;
@@ -496,67 +551,53 @@ fieldset .status {
   color: var(--error-text);
 }
 
-/* Open on another device */
-.open-elsewhere {
-  margin-top: 48px;
-}
-.qr {
-  display: block;
-  width: 160px;
-  height: 160px;
-  margin-bottom: 8px;
-  /* QR codes must stay dark-on-light to scan, even in dark mode. */
-  background: #ffffff;
-  image-rendering: pixelated;
-}
-.copy-link {
-  display: flex;
-  gap: 8px;
-  max-width: 40rem;
-}
-/* Looks like a field, not a link: clicking copies instead of navigating. */
-.copy-link input {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  background: var(--surface);
-  color: var(--text);
-  font: 0.875rem monospace;
-  cursor: copy;
-}
-
-.send-options {
-  margin: 0 0 16px;
-}
-.send-options label.checkbox {
+.send-options label.checkbox-label {
   margin: 0;
 }
 .burn-note {
   color: var(--destructive);
 }
 
-/* Footer */
-.site-footer {
-  width: calc(100% - 32px);
-  max-width: calc(72rem - 32px);
-  margin: 0 auto;
-  padding: 16px 0 32px;
-  border-top: 1px solid var(--border-subtle);
-  color: var(--text-subtle);
-  font-size: 0.875rem;
+/* --- Open on another device ----------------------------------------------- */
+
+.qr-code {
+  display: block;
+  width: 160px;
+  height: 160px;
+  /* QR codes must stay dark-on-light to scan, even in dark mode. */
+  background: #ffffff;
+  image-rendering: pixelated;
+}
+.copy-link {
+  display: flex;
+  gap: var(--space-2);
+  max-width: 40rem;
+}
+/* Looks like a field, not a link: clicking copies instead of navigating. */
+.copy-link input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface);
+  font: var(--text-small) var(--font-mono);
+  cursor: copy;
 }
 
-/* Tables */
-.table-scroll {
-  overflow-x: auto;
+/* --- Long-form pages (the protocol): readable line length ------------------- */
+
+.prose > p,
+.prose > ul,
+.prose > ol {
+  max-width: var(--prose-width);
+}
+.prose li {
+  margin-bottom: 6px;
 }
 /* Inline code on text pages reads like Markdown's: a small tinted box. */
 .prose code {
   padding: 1px 5px;
   border: 1px solid var(--border-subtle);
-  border-radius: 4px;
+  border-radius: var(--radius-large);
   background: var(--surface-strong);
   font-size: 0.875em;
   -webkit-box-decoration-break: clone;
@@ -569,39 +610,48 @@ fieldset .status {
   font-size: inherit;
 }
 
-.wikitable {
-  margin: 0 0 12px;
+/* --- Tables --------------------------------------------------------------- */
+
+.table-scroll {
+  overflow-x: auto;
+}
+.data-table {
+  margin: 0 0 var(--space-3);
   border: 1px solid var(--border);
   border-collapse: collapse;
   background: var(--surface);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
 }
-.wikitable th,
-.wikitable td {
+.data-table th,
+.data-table td {
   padding: 6px 10px;
   border: 1px solid var(--border);
   text-align: left;
   vertical-align: top;
 }
-.wikitable th {
+.data-table th {
   background: var(--surface-strong);
 }
-.wikitable td code {
+.data-table td code {
   overflow-wrap: anywhere;
 }
-.wikitable td:nth-child(-n + 2) {
+.data-table td:nth-child(-n + 2) {
   white-space: nowrap;
 }
+/* A table inside a step of a list, on text pages. */
+.prose li > .data-table {
+  margin-top: var(--space-2);
+}
 /* On text pages only the first column (a command or a route) stays on one line. */
-.prose .wikitable td:nth-child(2) {
+.prose .data-table td:nth-child(2) {
   white-space: normal;
 }
-.wikitable td small {
+.data-table td small {
   display: block;
   color: var(--text-subtle);
 }
 /* Method above, path below on one line; long paths end in "…" (full path on hover). */
-.wikitable td.route code {
+.data-table td.route code {
   display: block;
   max-width: 20rem;
   overflow: hidden;
@@ -609,11 +659,11 @@ fieldset .status {
   white-space: nowrap;
   overflow-wrap: normal;
 }
-.wikitable td.agent {
+.data-table td.agent {
   min-width: 20rem;
   color: var(--text-subtle);
 }
-.wikitable td.agent span {
+.data-table td.agent span {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -621,36 +671,33 @@ fieldset .status {
   overflow-wrap: anywhere;
 }
 
-/* Admin dashboard */
-.login {
+/* --- Admin dashboard and logins ------------------------------------------- */
+
+.login-form {
   max-width: 28rem;
 }
-.login input {
-  font-family: monospace;
+.login-form input {
+  font-family: var(--font-mono);
 }
-.login .actions {
-  margin-top: 12px;
+.login-form .actions {
+  margin-top: var(--space-3);
 }
-.admin-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin: 0 0 16px;
+.toolbar {
+  margin: 0 0 var(--space-4);
 }
-.admin-controls label {
+.toolbar label {
   margin: 0;
 }
-.admin-controls select {
+.toolbar select {
   width: auto;
 }
-.admin-controls input[type="search"] {
+.toolbar input[type="search"] {
   flex: 1;
   min-width: 12rem;
   width: auto;
 }
-#dashboard section {
-  margin-bottom: 32px;
+#dashboard > :is(section, .columns) + :is(section, .columns) {
+  margin-top: var(--space-6);
 }
 .stats-table {
   width: 100%;
@@ -658,58 +705,40 @@ fieldset .status {
 .stats-table th {
   width: 50%;
 }
-
-.pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin: 12px 0 0;
+.pagination {
+  margin: var(--space-3) 0 0;
   color: var(--text-subtle);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
 }
-.pager:empty {
+.pagination:empty {
   display: none;
 }
 
-/* Shared item page */
-.shared-item pre,
-.shared-item img {
-  margin: 0 0 16px;
-}
-.shared-item img {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  border: 1px solid var(--border-subtle);
-}
+/* --- Shared item page ----------------------------------------------------- */
+
 .shared-item pre {
   max-height: 32rem;
-  overflow: auto;
-  padding: 8px 12px;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface);
-  font-size: 0.875rem;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
-/* Long-form pages (the encryption spec): readable line length. */
-.prose > p,
-.prose > ul,
-.prose > ol {
-  max-width: 48rem;
+/* --- Stacks --------------------------------------------------------------- */
+
+/* A section's blocks, one under the other with the same rhythm everywhere:
+   a small gap between text and rows of buttons, a larger one before a form,
+   a table or a box. The heading keeps its own spacing. Last in this file, so
+   it wins over the blocks' own margins. */
+.stack > :not(h1, h2) {
+  margin-bottom: 0;
 }
-.prose li {
-  margin-bottom: 6px;
+.stack > * + * {
+  margin-top: var(--space-3);
 }
-.prose li > .wikitable {
-  margin-top: 8px;
+.stack > * + :is(form, fieldset, .table-scroll, .data-table, .copy-link, .items) {
+  margin-top: var(--space-5);
 }
-.prose pre {
-  overflow-x: auto;
-  padding: 8px 12px;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface);
-  font-size: 0.875rem;
+.stack > :is(h1, h2, .section-heading) + * {
+  margin-top: 0;
+}
+/* A QR code and the link it encodes belong together. */
+.stack > .qr-code + .copy-link {
+  margin-top: var(--space-2);
 }

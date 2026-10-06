@@ -83,8 +83,7 @@ export class HubCore {
       "CREATE TABLE IF NOT EXISTS login_failures (ip TEXT PRIMARY KEY, count INTEGER NOT NULL, reset_at INTEGER NOT NULL)",
     );
     // Item IDs are unique within their namespace only, so a link is per
-    // namespace and item. (Replaces an older table keyed on the item alone.)
-    this.sql.exec("DROP TABLE IF EXISTS shares");
+    // namespace and item.
     this.sql.exec(
       `CREATE TABLE IF NOT EXISTS item_shares (
         token TEXT PRIMARY KEY,
@@ -371,6 +370,16 @@ export class HubCore {
       namespaces: { count: plain.namespaces },
       encryptedNamespaces: { count: sealed.namespaces, items: sealed.items },
     };
+  }
+
+  /** What every item together takes, in bytes. */
+  async storedBytes(): Promise<number> {
+    return this.count("SELECT COALESCE(SUM(bytes), 0) AS total FROM namespaces");
+  }
+
+  /** Every namespace this hub knows, plain and encrypted: what a full backup covers. */
+  async allNamespaces(): Promise<NamespaceRef[]> {
+    return this.sql.exec<NamespaceRef>("SELECT space, name FROM namespaces ORDER BY space, name");
   }
 
   async namespacesPage(query: PageQuery): Promise<Page<{ name: string; items: number }>> {

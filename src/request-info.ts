@@ -35,3 +35,10 @@ export const accessEvent = (
 
 export const locationOf = (entry: Pick<AccessEvent, "city" | "region" | "country">) =>
   [entry.city, entry.region, entry.country].filter(Boolean).join(", ");
+
+/**
+ * The first of a header's comma-separated values, or undefined: proxies add
+ * theirs after the original one (X-Forwarded-For: client, proxy, …).
+ */
+export const firstValue = (value: string | null | undefined) =>
+  value?.split(",")[0]?.trim() || undefined;

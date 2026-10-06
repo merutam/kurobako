@@ -1,9 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The admin dashboard: storage and activity numbers, the namespace list, and
-// a link to the request logs where the platform keeps them.
-import { element, formatBytes, formatDuration, SITE } from "./common.js";
+// The admin dashboard: storage and activity numbers, the namespace list, a
+// link to the request logs where the platform keeps them, and backups of the
+// whole instance.
+import {
+  el,
+  element,
+  formatBytes,
+  formatDuration,
+  ignoreStrayDrops,
+  numberFormatter,
+  request,
+  restoreForm,
+  SITE,
+  storage,
+} from "./common.js";
 import { createStatus } from "./status.js";
 
 const status = createStatus(element("#status"));
@@ -18,25 +30,24 @@ const systemStats = element("#system-stats");
 const logsLink = element("#logs-link");
 const logsSection = element("#logs");
 const namespacesBody = element("#namespaces");
-const namespacesPager = element("#namespaces-pager");
+const namespacesPagination = element("#namespaces-pagination");
 const namespaceSearch = element("#namespace-search");
 const serverSelect = element("#server");
+const backupZip = element("#backup-zip");
+const backupTar = element("#backup-tar");
 const serverLabel = element('label[for="server"]');
 
 const INTERVAL_STORAGE_KEY = "kurobako-admin-refresh";
-const numberFormatter = new Intl.NumberFormat();
-
-/** Builds an element: el("td", { className: "x" }, "text", child). */
-const el = (tag, properties = {}, ...children) => {
-  const node = Object.assign(document.createElement(tag), properties);
-  node.append(...children.filter((child) => child !== null && child !== undefined));
-  return node;
-};
 const row = (...cells) => el("tr", {}, ...cells.map((cell) => el("td", {}, cell)));
 const statRow = (label, value) =>
   el("tr", {}, el("th", { scope: "row" }, label), el("td", {}, value));
 
-class Unauthorized extends Error {}
+/** The session is gone (or the key was wrong): the login comes back. */
+class Unauthorized extends Error {
+  constructor() {
+    super("Log in again.");
+  }
+}
 
 /**
  * Behind a router for several servers, the dashboard shows one at a time,
@@ -45,19 +56,27 @@ class Unauthorized extends Error {}
 let server = new URLSearchParams(location.search).get("server") ?? "";
 let servers = 0;
 
-const api = async (path, options) => {
+/** An admin URL, for the server the dashboard is looking at. */
+const adminUrl = (path) => {
   const url = new URL(`${SITE}/a/${path}`, location.origin);
   if (server) url.searchParams.set("server", server);
-  const response = await fetch(url, { cache: "no-store", ...options });
-  if (response.status === 401) throw new Unauthorized();
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Server error (${response.status}).`);
+  return url;
+};
+
+/** An admin request; its JSON answer, or Unauthorized once the session is gone. */
+const api = async (path, options) => {
+  let response;
+  try {
+    response = await request(adminUrl(path), { cache: "no-store", ...options });
+  } catch (error) {
+    throw error.status === 401 ? new Unauthorized() : error;
+  }
   const count = Number(response.headers.get("X-Kurobako-Servers"));
   if (count > 1) {
     servers = count;
     server = response.headers.get("X-Kurobako-Server") ?? server;
   }
-  return body;
+  return response.json();
 };
 
 const renderServers = () => {
@@ -91,7 +110,12 @@ const renderOverview = (overview) => {
   const sent = (counts) => counts.sentText + counts.sentFile + counts.sentEncrypted;
   systemStats.replaceChildren(
     statRow("Version ID", el("code", {}, overview.versionId || "—")),
-    statRow("Stored files", formatBytes(overview.storedBytes)),
+    statRow(
+      "Stored",
+      overview.maxStorageBytes
+        ? `${formatBytes(overview.storedBytes)} of ${formatBytes(overview.maxStorageBytes)}`
+        : formatBytes(overview.storedBytes),
+    ),
     statRow("Live connections", numberFormatter.format(overview.liveConnections)),
     statRow("Namespaces", numberFormatter.format(overview.namespaces.count)),
     statRow(
@@ -130,7 +154,7 @@ const renderNamespaces = (namespaces) => {
 let offset = 0;
 const renderPager = (page) => {
   if (page.total <= page.limit && page.offset === 0) {
-    namespacesPager.replaceChildren();
+    namespacesPagination.replaceChildren();
     return;
   }
   const last = Math.min(page.offset + page.items.length, page.total);
@@ -142,7 +166,7 @@ const renderPager = (page) => {
   back.addEventListener("click", () => go(page.offset - page.limit));
   const forward = el("button", { type: "button", disabled: last >= page.total }, "Next →");
   forward.addEventListener("click", () => go(page.offset + page.limit));
-  namespacesPager.replaceChildren(
+  namespacesPagination.replaceChildren(
     back,
     el(
       "span",
@@ -189,11 +213,7 @@ let timer = null;
 const schedule = () => {
   clearInterval(timer);
   const seconds = Number(refreshInterval.value);
-  try {
-    localStorage.setItem(INTERVAL_STORAGE_KEY, refreshInterval.value);
-  } catch {
-    // The choice still applies to this page view.
-  }
+  storage.set(INTERVAL_STORAGE_KEY, refreshInterval.value);
   if (seconds > 0) {
     timer = setInterval(() => {
       if (document.visibilityState === "visible" && !dashboard.hidden) void load();
@@ -222,6 +242,18 @@ logoutButton.addEventListener("click", async () => {
   showLogin();
 });
 refreshButton.addEventListener("click", load);
+
+ignoreStrayDrops();
+backupZip.addEventListener("click", () => location.assign(adminUrl("zip")));
+backupTar.addEventListener("click", () => location.assign(adminUrl("tar")));
+restoreForm({
+  form: element("#restore-form"),
+  input: element("#restore-file"),
+  zone: element("#restore-zone"),
+  status,
+  send: (file) => api("import", { method: "POST", body: file }),
+  done: load,
+});
 serverSelect.addEventListener("change", () => {
   server = serverSelect.value;
   const url = new URL(location.href);
@@ -241,13 +273,9 @@ namespaceSearch.addEventListener("input", () => {
   }, 300);
 });
 
-try {
-  const saved = localStorage.getItem(INTERVAL_STORAGE_KEY);
-  if (saved !== null && [...refreshInterval.options].some((option) => option.value === saved)) {
-    refreshInterval.value = saved;
-  }
-} catch {
-  // Falls back to the default interval.
+const savedInterval = storage.get(INTERVAL_STORAGE_KEY);
+if ([...refreshInterval.options].some((option) => option.value === savedInterval)) {
+  refreshInterval.value = savedInterval;
 }
 schedule();
 await load();

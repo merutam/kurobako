@@ -7,7 +7,14 @@
 import { nameOf, publicItem, type StoredItem } from "../model";
 import type { ItemRef } from "../namespace";
 import type { createContents } from "./contents";
-import { type Api, type App, type AppContext, jsonError, TOO_MANY_SENDS } from "./context";
+import {
+  type Api,
+  type App,
+  type AppContext,
+  jsonError,
+  readLimited,
+  TOO_MANY_SENDS,
+} from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
 
 /** Longest body a rename takes; names themselves are cut much shorter. */
@@ -105,15 +112,9 @@ export const mountItems = (
         if (space.kind === "sealed") {
           change = { metadata: c.req.header("x-sealed-metadata") ?? "" };
         } else {
-          const declared = Number(c.req.header("content-length") ?? 0);
-          if (declared > MAX_NAME_BYTES) {
-            return jsonError(c, 413, `The limit is ${MAX_NAME_BYTES} bytes.`);
-          }
-          const name = await c.req.text();
-          if (name.length > MAX_NAME_BYTES) {
-            return jsonError(c, 413, `The limit is ${MAX_NAME_BYTES} bytes.`);
-          }
-          change = { name };
+          const bytes = await readLimited(c, MAX_NAME_BYTES);
+          if (!bytes) return jsonError(c, 413, `The limit is ${MAX_NAME_BYTES} bytes.`);
+          change = { name: new TextDecoder().decode(bytes) };
         }
         const result = (await namespace(c, ref).rename(itemRef(c), change, visit(c))) as
           | { item: StoredItem }

@@ -19,9 +19,16 @@ export type AppConfig = {
   maxLiveConnections: number;
   /** Sends allowed per client address per minute. */
   sendsPerMinute: number;
+  /** The most every item together may take, in bytes; null for no limit. */
+  maxStorageBytes: number | null;
   /** Unset disables the admin dashboard at /a. */
   adminKey: string | null;
   adminSessionHours: number;
+  /** Set, only those who know it can use the site: a private instance. */
+  accessKey: string | null;
+  accessSessionDays: number;
+  /** In a private instance, whether share links still open for anyone. */
+  publicShares: boolean;
 };
 
 /** The largest sizes a platform can take; each platform sets its own. */
@@ -42,6 +49,11 @@ const UNBOUNDED_LIMITS: PlatformLimits = {
 
 /** Long enough that guessing it, even without the login rate limit, is hopeless. */
 export const ADMIN_KEY_MIN_LENGTH = 32;
+/**
+ * The key to a private instance is typed on phones too, so it may be shorter;
+ * failed logins are limited per address all the same.
+ */
+export const ACCESS_KEY_MIN_LENGTH = 16;
 
 type Vars = Record<string, unknown>;
 
@@ -60,6 +72,23 @@ const integer = (
     throw new Error(`${name} must be an integer between ${minimum} and ${maximum}`);
   }
   return value;
+};
+
+const accessKey = (vars: Vars): string | null => {
+  const key = typeof vars.ACCESS_KEY === "string" ? vars.ACCESS_KEY.trim() : "";
+  if (!key) return null;
+  if (key.length < ACCESS_KEY_MIN_LENGTH) {
+    throw new Error(`ACCESS_KEY must have at least ${ACCESS_KEY_MIN_LENGTH} characters.`);
+  }
+  return key;
+};
+
+const flag = (vars: Vars, name: string, fallback: boolean): boolean => {
+  const raw = typeof vars[name] === "string" ? (vars[name] as string).trim().toLowerCase() : "";
+  if (!raw) return fallback;
+  if (["1", "true", "yes"].includes(raw)) return true;
+  if (["0", "false", "no"].includes(raw)) return false;
+  throw new Error(`${name} must be true or false.`);
 };
 
 const adminKey = (vars: Vars): string | null => {
@@ -120,9 +149,13 @@ export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMIT
     maxItems: integer(vars, "MAX_ITEMS", 20, 1, 1_000),
     maxLiveConnections: integer(vars, "MAX_LIVE_CONNECTIONS", 100, 1, 10_000),
     sendsPerMinute: integer(vars, "SENDS_PER_MINUTE", 30, 1, 100_000),
+    maxStorageBytes: integer(vars, "MAX_STORAGE_BYTES", 0, 0, Number.MAX_SAFE_INTEGER) || null,
     emptyNamespaceTtlMs:
       integer(vars, "EMPTY_NAMESPACE_TTL_SECONDS", 60 * 60, 60, 30 * 24 * 60 * 60) * 1000,
     adminKey: adminKey(vars),
     adminSessionHours: integer(vars, "ADMIN_SESSION_HOURS", 12, 1, 24 * 30),
+    accessKey: accessKey(vars),
+    accessSessionDays: integer(vars, "ACCESS_SESSION_DAYS", 30, 1, 365),
+    publicShares: flag(vars, "PUBLIC_SHARES", true),
   };
 };

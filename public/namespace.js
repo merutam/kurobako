@@ -1,20 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
+
+// A namespace's page, /<name> or /e#<secret name>: sending texts and files,
+// the queue kept live over a WebSocket, sharing, renaming and deleting
+// items, a link (and QR code) to open it elsewhere, and its backups. In an
+// encrypted namespace everything is encrypted and decrypted here, by k.mjs.
 import {
-  asPng,
   button,
   compactText,
   copyText,
-  dateFormatter,
   element,
+  fileField,
   formatBytes,
   formatDuration,
   formatExpiry,
   HIDDEN_TITLE,
+  ignoreStrayDrops,
+  numberFormatter,
   readConfig,
   request,
+  restoreForm,
   SITE,
+  setBusy,
 } from "./common.js";
+import {
+  canCopyImages,
+  copyImage,
+  describeOpened,
+  describePlain,
+  downloadBlob,
+  itemSummary,
+} from "./items.js";
 import {
   defaultTextName,
   fileMetadata,
@@ -37,6 +53,10 @@ const fileInput = element("#file");
 const refreshButton = element("#refresh");
 const textLimit = element("#text-limit");
 const fileLimitLabel = element("#file-limit");
+const backupZip = element("#backup-zip");
+const backupTar = element("#backup-tar");
+const backupHint = element("#backup-hint");
+const restore = element("#restore-form");
 const modeLabel = element("#mode-label");
 const expiryLabel = element("#expiry-label");
 const pageTitle = element("#page-title");
@@ -77,24 +97,7 @@ const plainMode = (namespace) => {
     label: "",
     fileOverheadBytes: 0,
     shareUrl: `${window.location.origin}${basePath}`,
-    describe: async (item) =>
-      item.kind === "text"
-        ? {
-            kind: "text",
-            // A text goes by its name, or by its start (long texts arrive as a
-            // preview; the whole text is fetched when needed).
-            title: item.name ?? (item.burn ? HIDDEN_TITLE : compactText(item.text ?? item.preview)),
-            size: item.size,
-            isImage: false,
-          }
-        : {
-            kind: "file",
-            title: item.filename,
-            filename: item.filename,
-            mime: item.mime,
-            size: item.size,
-            isImage: item.kind === "image",
-          },
+    describe: async (item) => describePlain(item),
     loadText: async (item) =>
       item.text ?? (await request(`${basePath}/${item.id}`, { cache: "no-store" })).text(),
     loadBlob: async (item) =>
@@ -175,12 +178,7 @@ const sealedMode = async (secretName) => {
     describe: async (item) => {
       const opened = await openItem(item);
       if (!opened) return { kind: "unreadable", title: "(could not decrypt)", size: item.size };
-      const { metadata } = opened;
-      return {
-        ...metadata,
-        title: metadata.title || HIDDEN_TITLE,
-        isImage: metadata.mime?.startsWith("image/") ?? false,
-      };
+      return describeOpened(opened.metadata);
     },
     loadText: async (item) => new TextDecoder().decode(await loadBytes(item)),
     loadBlob: async (item) => {
@@ -252,11 +250,7 @@ const copyItem = async (entry) => {
     if (entry.info.kind === "text") {
       await copyText(await textOf(entry));
     } else {
-      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-        throw new Error("This browser can't copy images. Use Download.");
-      }
-      const blob = await asPng(await blobOf(entry));
-      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+      await copyImage(await blobOf(entry));
     }
     status.success("Copied.");
   } catch (error) {
@@ -266,10 +260,7 @@ const copyItem = async (entry) => {
 
 const downloadItem = async (entry) => {
   try {
-    const link = document.createElement("a");
-    link.href = objectUrl(await blobOf(entry));
-    link.download = entry.info.filename || "file";
-    link.click();
+    downloadBlob(await blobOf(entry), entry.info.filename);
   } catch (error) {
     status.error(error.message);
   }
@@ -478,8 +469,7 @@ const renderItem = (entry) => {
 
   const meta = document.createElement("p");
   meta.className = "item-meta";
-  const kindLabel = info.kind === "text" ? "Text" : info.isImage ? "Image" : "File";
-  meta.textContent = `${kindLabel} · ${formatBytes(info.size)} · ${dateFormatter.format(new Date(item.createdAt))}`;
+  meta.textContent = itemSummary(item, info);
   if (entry.opened) {
     meta.append(" · ", noteSpan("deleted from the server"));
   } else {
@@ -497,7 +487,7 @@ const renderItem = (entry) => {
   if (unopenedBurn) {
     actions.append(button("Open once", () => openOnce(entry)));
   } else {
-    if (info.kind === "text" || info.isImage) {
+    if (info.kind === "text" || (info.isImage && canCopyImages())) {
       actions.append(button("Copy", () => copyItem(entry)));
     }
     if (info.kind === "file") {
@@ -656,10 +646,6 @@ document.addEventListener("visibilitychange", () => {
   if (!socket || socket.readyState >= WebSocket.CLOSING) connectLive();
 });
 
-const setBusy = (form, busy) => {
-  for (const control of form.elements) control.disabled = busy;
-};
-
 textForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = textInput.value;
@@ -673,6 +659,7 @@ textForm.addEventListener("submit", async (event) => {
   try {
     const response = await mode.sendText(text, { burn: burnInput.checked });
     textInput.value = "";
+    showTextSize();
     status.success(await sentMessage(response));
     await refreshUnlessLive();
   } catch (error) {
@@ -713,6 +700,25 @@ fileForm.addEventListener("submit", async (event) => {
 
 refreshButton.addEventListener("click", loadItems);
 
+// File fields are drop zones that also open the picker when clicked.
+fileField(fileInput, element("#file-zone"));
+ignoreStrayDrops();
+
+// The server names the file and sends it as a download: the page stays.
+backupZip.addEventListener("click", () => window.location.assign(`${mode.basePath}/zip`));
+backupTar.addEventListener("click", () => window.location.assign(`${mode.basePath}/tar`));
+
+restoreForm({
+  form: restore,
+  input: element("#restore-file"),
+  zone: element("#restore-zone"),
+  status,
+  send: async (file) =>
+    (await request(`${mode.basePath}/import`, { method: "POST", body: file })).json(),
+  // The live connection brings the new queue; this is for when it is down.
+  done: refreshUnlessLive,
+});
+
 const copyLink = async () => {
   pageUrl.select();
   try {
@@ -745,11 +751,32 @@ const showPage = () => {
   // Drawn locally: an encrypted link must never be sent to the server.
   qrImage.src = `data:image/svg+xml,${encodeURIComponent(renderSVG(mode.shareUrl, { ecc: "M", border: 2 }))}`;
   pageUrl.value = mode.shareUrl;
+  if (mode.label) {
+    backupHint.textContent =
+      "Every item as a zip or a tar, still encrypted. Items that delete when opened are left out.";
+  }
 };
+
+/** Under the text: its characters and its size against the limit, red past it. */
+const encoder = new TextEncoder();
+let sizeFrame = null;
+const showTextSize = () => {
+  sizeFrame = null;
+  const text = textInput.value;
+  const bytes = encoder.encode(text).byteLength;
+  let characters = 0;
+  for (const _ of text) characters += 1;
+  textLimit.textContent = `${numberFormatter.format(characters)} character${characters === 1 ? "" : "s"} · ${formatBytes(bytes)} of ${formatBytes(config.maxTextBytes)}`;
+  textLimit.classList.toggle("over", bytes > config.maxTextBytes);
+};
+// At most once a frame: counting a long text on every key would lag typing.
+textInput.addEventListener("input", () => {
+  if (sizeFrame === null) sizeFrame = requestAnimationFrame(showTextSize);
+});
 
 const applyConfig = () => {
   textInput.maxLength = config.maxTextBytes;
-  textLimit.textContent = `Max ${formatBytes(config.maxTextBytes)}`;
+  showTextSize();
   expiryLabel.textContent = config.itemTtlSeconds
     ? `Expires after ${formatDuration(config.itemTtlSeconds)}`
     : "No expiration";
@@ -758,6 +785,9 @@ const applyConfig = () => {
 const disableAll = (message) => {
   setBusy(textForm, true);
   setBusy(fileForm, true);
+  setBusy(restore, true);
+  backupZip.disabled = true;
+  backupTar.disabled = true;
   refreshButton.disabled = true;
   status.error(message);
 };

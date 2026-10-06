@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Kurobako contributors
 
 // Loaded as a classic script in <head> so the saved theme applies before the
-// first paint. "auto" follows the browser's prefers-color-scheme.
+// first paint. "auto" follows the browser's prefers-color-scheme. Being no
+// module, it cannot import common.js, so it guards localStorage itself.
 (() => {
   const storageKey = "kurobako-theme";
   const themes = [
@@ -28,18 +29,18 @@
   applyTheme(readTheme());
 
   const renderPicker = () => {
-    const container = document.querySelector("#appearance");
+    const container = document.querySelector("#theme-picker");
     if (!container) return;
 
     // A plain group rather than a fieldset: browsers draw a <legend> on the
     // fieldset's border, which no flex layout can line up with the options.
     const group = document.createElement("div");
-    group.className = "appearance";
+    group.className = "theme-picker";
     group.setAttribute("role", "radiogroup");
-    group.setAttribute("aria-labelledby", "appearance-label");
+    group.setAttribute("aria-labelledby", "theme-picker-label");
     const title = document.createElement("span");
-    title.id = "appearance-label";
-    title.className = "appearance-label";
+    title.id = "theme-picker-label";
+    title.className = "theme-picker-label";
     title.textContent = "Theme";
     group.append(title);
 

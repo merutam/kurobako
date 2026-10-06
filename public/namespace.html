@@ -10,18 +10,18 @@
 </head>
 <main>
   <h1 id="page-title">Namespace</h1>
-  <p class="lead">
+  <p class="intro">
     <span id="mode-label"></span><span id="expiry-label"></span><span id="page-links"></span>
   </p>
 
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
   <div class="columns">
-    <section aria-labelledby="send-title">
+    <section class="stack" aria-labelledby="send-title">
       <h2 id="send-title">Send</h2>
 
       <p class="send-options">
-        <label class="checkbox">
+        <label class="checkbox-label">
           <input id="burn" name="burn" type="checkbox" />
           Delete after first open
         </label>
@@ -39,15 +39,16 @@
       <form id="file-form">
         <fieldset>
           <legend id="file-legend">File</legend>
-          <input id="file" name="file" type="file" aria-labelledby="file-legend" aria-describedby="file-limit" required />
+          <input id="file" class="visually-hidden" name="file" type="file" aria-labelledby="file-legend" aria-describedby="file-limit" required />
+          <label id="file-zone" class="dropzone" for="file">Drop a file here, or click to pick one</label>
           <p id="file-limit" class="hint"></p>
           <button type="submit" class="primary">Send</button>
         </fieldset>
       </form>
     </section>
 
-    <section aria-labelledby="queue-title">
-      <div class="section-title">
+    <section class="stack" aria-labelledby="queue-title">
+      <div class="section-heading">
         <h2 id="queue-title">Items <small id="item-count"></small> <small id="live-status" class="live-status"></small></h2>
         <button id="refresh" type="button">Refresh</button>
       </div>
@@ -56,12 +57,46 @@
     </section>
   </div>
 
-  <section class="open-elsewhere" aria-labelledby="qr-title">
+  <section class="page-section stack" aria-labelledby="qr-title">
     <h2 id="qr-title">Open on another device</h2>
-    <img id="qr" class="qr" width="160" height="160" alt="QR code linking to this page" />
+    <img id="qr" class="qr-code" width="160" height="160" alt="QR code linking to this page" />
     <div class="copy-link">
       <input id="page-url" type="text" readonly aria-label="Link to this page" />
       <button id="copy-link" type="button">Copy link</button>
     </div>
+  </section>
+
+  <section class="page-section stack" aria-labelledby="backup-title">
+    <h2 id="backup-title">Backup</h2>
+    <p id="backup-hint" class="hint">
+      Every item as a zip or a tar. Items that delete when opened are left out.
+    </p>
+    <p class="actions">
+      <button id="backup-zip" type="button">Download zip</button>
+      <button id="backup-tar" type="button">Download tar</button>
+    </p>
+    <form id="restore-form">
+      <fieldset>
+        <legend id="restore-legend">Restore</legend>
+        <input
+          id="restore-file"
+          class="visually-hidden"
+          type="file"
+          accept=".zip,.tar,application/zip,application/x-tar"
+          aria-labelledby="restore-legend"
+          aria-describedby="restore-hint"
+          required
+        />
+        <label id="restore-zone" class="dropzone" for="restore-file">
+          Drop a backup here, or click to pick one
+        </label>
+        <p id="restore-hint" class="hint">
+          A backup of a namespace (zip or tar); items already here are skipped.
+        </p>
+        <p class="actions">
+          <button type="submit" class="primary">Restore</button>
+        </p>
+      </fieldset>
+    </form>
   </section>
 </main>

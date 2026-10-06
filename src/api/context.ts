@@ -23,9 +23,40 @@ export type AppEnv = { Bindings: object };
 export type AppContext = Context<AppEnv>;
 export type App = Hono<AppEnv>;
 
+/**
+ * A request body of at most `limit` bytes, or null when it is larger: reading
+ * stops there, whatever Content-Length says or leaves out.
+ */
+export const readLimited = async (c: AppContext, limit: number): Promise<Uint8Array | null> => {
+  const declared = Number(c.req.header("content-length"));
+  if (Number.isFinite(declared) && declared > limit) return null;
+  const body = c.req.raw.body;
+  if (!body) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return bytes;
+};
+
 export const jsonError = (
   c: AppContext,
-  status: 400 | 401 | 404 | 411 | 413 | 415 | 426 | 429 | 500 | 503,
+  status: 400 | 401 | 404 | 411 | 413 | 415 | 426 | 429 | 500 | 503 | 507,
   error: string,
 ) => c.json({ error }, status);
 
@@ -53,6 +84,8 @@ export const createContext = (
   const publicConfig = () => ({
     /** Where the site lives under its domain: "" for the root, or e.g. "/k". */
     base: config.basePath,
+    /** Only those with the key may use it (see ACCESS_KEY). */
+    private: config.accessKey !== null,
     /** The server's version, which k.mjs compares with its own when a request fails. */
     version: assets.version,
     /** The protocol, plain and encrypted, complete enough to write a client from. */
@@ -66,6 +99,8 @@ export const createContext = (
     maxItems: config.maxItems,
     /** Sends per client address per minute; more get 429 until the minute is over. */
     sendsPerMinute: config.sendsPerMinute,
+    /** The most every item together may take, in bytes (null: no limit); more get 507. */
+    maxStorageBytes: config.maxStorageBytes,
     namespace: {
       pattern: NAMESPACE_PATTERN.source,
       maxLength: NAMESPACE_MAX_LENGTH,
@@ -97,6 +132,7 @@ export const createContext = (
     admin: build(assets.adminHtml),
     item: build(assets.itemHtml),
     protocol: build(assets.protocolHtml),
+    login: build(assets.loginHtml),
   };
   const page = (c: AppContext, html: string) => {
     c.header("Cache-Control", "no-cache");
@@ -119,6 +155,21 @@ export const createContext = (
     return false;
   };
 
+  /**
+   * Whether `bytes` more fit under MAX_STORAGE_BYTES; when they do not, the
+   * answer to send. Without a limit, nothing is asked of the hub.
+   */
+  const storageFull = async (c: AppContext, bytes: number) => {
+    const limit = config.maxStorageBytes;
+    if (limit === null) return null;
+    if ((await hub(c).storedBytes()) + bytes <= limit) return null;
+    return jsonError(
+      c,
+      507,
+      `This Kurobako is full: it keeps at most ${limit} bytes. Delete some items, or wait for them to expire.`,
+    );
+  };
+
   return {
     config,
     assets,
@@ -138,6 +189,7 @@ export const createContext = (
     countVisitor,
     pageView,
     sendAllowed,
+    storageFull,
   };
 };
 

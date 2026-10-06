@@ -18,6 +18,8 @@ export type WebAssets = {
   itemHtml: string;
   /** The protocol, plain and encrypted, /k/protocol. */
   protocolHtml: string;
+  /** A private instance's login, /k/login. */
+  loginHtml: string;
   /** Static files served from the site root, keyed by path. */
   files: Record<string, string>;
 };
@@ -28,6 +30,7 @@ const PAGES = {
   adminHtml: "admin.html",
   itemHtml: "item.html",
   protocolHtml: "protocol.html",
+  loginHtml: "login.html",
 } as const;
 
 /** Files in public/ that pages load, served as they are at /<path>. */
@@ -36,11 +39,14 @@ export const STATIC_FILES = [
   "home.js",
   "item.js",
   "common.js",
+  "items.js",
   "admin.js",
+  "login.js",
   "k.mjs",
   "status.js",
   "theme.js",
   "styles.css",
+  "tokens.css",
   "vendor/uqr.js",
 ];
 
@@ -91,6 +97,7 @@ export const loadAssets = async (read: (path: string) => Promise<string>): Promi
     adminHtml: page("adminHtml"),
     itemHtml: page("itemHtml"),
     protocolHtml: page("protocolHtml"),
+    loginHtml: page("loginHtml"),
     files,
   };
 };
@@ -156,13 +163,13 @@ export const renderLogPage = (
 </head>
 <main>
   <h1>Access log · ${escapeHtml(title)}</h1>
-  <p class="lead">
+  <p class="intro">
     ${entries.length} IP${entries.length === 1 ? "" : "s"}${backHref ? ` · <a href="${escapeHtml(backHref)}">Back</a>` : ""}
     · <a href="${escapeHtml(jsonHref)}">See JSON</a>
   </p>
   ${
     entries.length
-      ? `<div class="table-scroll"><table class="wikitable">
+      ? `<div class="table-scroll"><table class="data-table">
           <thead><tr><th>IP</th><th>Last seen (UTC)</th><th>Requests</th><th>Last route</th><th>User agent</th></tr></thead>
           <tbody>${rows}</tbody>
         </table></div>`

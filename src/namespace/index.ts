@@ -31,6 +31,16 @@ export type { ItemRef, Rename, SaveInput };
 /** What a send did: a new item, or the same contents already there, moved to the top. */
 export type Saved = { item: StoredItem; existing: boolean };
 
+/** An item from a backup: what to store, and the details it had. */
+export type Restored = {
+  input: SaveInput;
+  id: string;
+  createdAt: string;
+  expiresAt: string | null;
+  /** A text's name, as it was. */
+  name?: string;
+};
+
 /**
  * Live connection settings for the page. Clients send `ping` every
  * `pingSeconds` and get `pong` back, which keeps proxies from closing an idle
@@ -266,7 +276,9 @@ export class NamespaceCore {
     this.recordVisit(visit);
     await this.expire();
 
-    const now = Date.now();
+    // Never the same millisecond as the newest item: an item's time alone
+    // then tells its place in the queue, as backups rely on.
+    const now = Math.max(Date.now(), this.queue.newestTime() + 1);
     const same = !burn && input.sha256 ? this.queue.sameContents(input.kind, input.sha256) : null;
     if (same) {
       // Sent again: now the newest, expiring as if just sent, under the new
@@ -296,6 +308,47 @@ export class NamespaceCore {
     await this.deleteFiles(this.queue.trimTo(this.config.maxItems));
     await this.changed();
     return { item, existing: false };
+  }
+
+  /**
+   * Puts back items from a backup, oldest first, with their IDs and dates.
+   * An item whose ID or contents are already here is left out, so restoring
+   * the same backup twice changes nothing; so is one already expired. Items
+   * expire by this instance's rule at the latest. Returns the file keys of
+   * the items left out, for the caller to delete.
+   */
+  async restore(
+    ref: NamespaceRef,
+    items: Restored[],
+  ): Promise<{ restored: number; skipped: string[] }> {
+    this.remember(ref);
+    await this.expire();
+    const now = Date.now();
+    const latest = this.expiryFrom(now);
+    const skipped: string[] = [];
+    let restored = 0;
+    for (const { input, id, createdAt, expiresAt, name } of items) {
+      const expiry =
+        expiresAt && latest
+          ? new Date(Math.min(Date.parse(expiresAt), Date.parse(latest))).toISOString()
+          : (expiresAt ?? latest);
+      const known =
+        this.queue.hasId(id) ||
+        (input.sha256 ? this.queue.sameContents(input.kind, input.sha256) !== null : false);
+      if (known || (expiry !== null && Date.parse(expiry) <= now)) {
+        if ("object" in input) skipped.push(input.object);
+        continue;
+      }
+      const item = newItem(id, input, false, createdAt, expiry);
+      this.queue.push(item.kind === "text" && name !== undefined ? { ...item, name } : item);
+      restored += 1;
+    }
+    // Restored items keep their dates, so their place is by date too, in
+    // whatever order the parts of a backup come back.
+    if (restored) this.queue.sortByDate();
+    await this.deleteFiles(this.queue.trimTo(this.config.maxItems));
+    await this.changed();
+    return { restored, skipped };
   }
 
   /**

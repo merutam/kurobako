@@ -1,0 +1,61 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Kurobako contributors
+ */
+
+/* Design tokens: every color, space, type size and shape the styles use.
+   styles.css imports this file; restyling the site starts here. */
+:root {
+  color-scheme: light dark;
+  --text: light-dark(#202122, #eaecf0);
+  --text-subtle: light-dark(#54595d, #a2a9b1);
+  --background: light-dark(#ffffff, #101418);
+  --surface: light-dark(#f8f9fa, #202122);
+  --surface-strong: light-dark(#eaecf0, #27292d);
+  --border: light-dark(#a2a9b1, #72777d);
+  --border-subtle: light-dark(#c8ccd1, #54595d);
+  --link: light-dark(#36c, #88a3e8);
+  --link-visited: light-dark(#6a60b0, #a799cd);
+  --link-hover: light-dark(#3056a9, #a6bbf5);
+  --progressive: light-dark(#36c, #6485d1);
+  --progressive-hover: light-dark(#3056a9, #88a3e8);
+  --on-progressive: light-dark(#ffffff, #101418);
+  --destructive: light-dark(#bf3c2c, #fd7865);
+  --error-text: light-dark(#bf3c2c, #fd7865);
+  --error-surface: light-dark(#ffe9e5, #3c1a19);
+  --success-text: light-dark(#14866d, #4dc49c);
+  --success-surface: light-dark(#dff2eb, #11302a);
+  --warning-text: light-dark(#996000, #e9b44c);
+  --focus: light-dark(#36c, #88a3e8);
+
+  /* Spacing: one scale for every gap, padding and margin. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Type */
+  --font-sans: sans-serif;
+  --font-serif: "Linux Libertine", Georgia, Times, serif;
+  --font-mono: monospace;
+  --text-small: 0.875rem;
+  --text-h2: 1.5rem;
+  --text-h1: 1.8rem;
+
+  /* Shapes and sizes */
+  --radius: 2px;
+  --radius-large: 4px;
+  --control-height: 32px;
+  --page-width: 72rem;
+  --page-gutter: var(--space-4);
+  --prose-width: 48rem;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}

@@ -5,16 +5,18 @@
 // namespace (like one Durable Object each), one for the hub, files in any
 // S3-compatible store and live updates over Bun's own WebSockets.
 import type { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import type { Context } from "hono";
+import { jsonError } from "../api/context";
 import type { AppConfig } from "../config";
 import { HubCore } from "../hub";
 import { logError } from "../log";
-import { type NamespaceRef, objectName, plainName, type SpaceKind, sealedName } from "../model";
+import { type NamespaceRef, objectName, type SpaceKind } from "../model";
 import { LIVE, NamespaceCore } from "../namespace";
 import type { BlobStore, Client, HubApi, Platform } from "../platform";
+import { firstValue } from "../request-info";
 import { Alarm, openDatabase, sqlOf } from "./sqlite";
 
 export type BunOptions = {
@@ -43,10 +45,8 @@ export type BunEnv = { server: Server<SocketData> };
 
 const MINUTE_MS = 60_000;
 const HUB_START_DELAY_MS = MINUTE_MS;
-const SPACES: { kind: SpaceKind; valid: (name: string) => string | null }[] = [
-  { kind: "plain", valid: plainName },
-  { kind: "sealed", valid: sealedName },
-];
+/** One folder of SQLite files for each kind of namespace. */
+const SPACES: SpaceKind[] = ["plain", "sealed"];
 
 const header = (c: Context, name: string) => c.req.header(name) || null;
 
@@ -54,8 +54,7 @@ export const createBunPlatform = (options: BunOptions) => {
   const { config, dataDir, blobs } = options;
   const maxOpenDatabases = Math.max(1, options.maxOpenDatabases ?? 1000);
   const databaseIdleMs = Math.max(0, options.databaseIdleMs ?? 60_000);
-  for (const space of SPACES)
-    mkdirSync(join(dataDir, "namespaces", space.kind), { recursive: true });
+  for (const space of SPACES) mkdirSync(join(dataDir, "namespaces", space), { recursive: true });
 
   // --- Hub ----------------------------------------------------------------
   const hubAlarm = new Alarm(() => hub.alarm());
@@ -71,10 +70,7 @@ export const createBunPlatform = (options: BunOptions) => {
 
   // Every namespace's next alarm, so a restart restores timers without opening
   // each namespace's database. Kept next to the hub's tables, apart from them.
-  const indexed = hubDatabase
-    .query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'namespace_alarms'")
-    .get();
-  hubDatabase.exec(`CREATE TABLE IF NOT EXISTS namespace_alarms (
+  hubDatabase.run(`CREATE TABLE IF NOT EXISTS namespace_alarms (
     space TEXT NOT NULL,
     name TEXT NOT NULL,
     at INTEGER NOT NULL,
@@ -171,30 +167,12 @@ export const createBunPlatform = (options: BunOptions) => {
    * already due run right away. No one is connected anymore.
    */
   const resume = async () => {
-    if (!indexed) await indexAlarms();
     const alarms = hubDatabase
       .query("SELECT space, name, at FROM namespace_alarms")
       .all() as (NamespaceRef & { at: number })[];
     for (const { at, ...ref } of alarms) namespaceOf(ref).alarm.set(at);
     await hub.resetConnections();
     hubAlarm.set(Date.now() + HUB_START_DELAY_MS);
-  };
-
-  /** Builds the alarm index for data from before it existed, opening each namespace once. */
-  const indexAlarms = async () => {
-    for (const space of SPACES) {
-      for (const file of readdirSync(join(dataDir, "namespaces", space.kind))) {
-        const name = space.valid(file.replace(/\.sqlite$/, ""));
-        if (!file.endsWith(".sqlite") || !name) continue;
-        const entry = namespaceOf({ space: space.kind, name });
-        try {
-          await entry.core.resume();
-        } finally {
-          // Restoring every namespace must not leave every database open.
-          entry.closeDatabase();
-        }
-      }
-    }
   };
 
   // --- Sends per address ----------------------------------------------------
@@ -223,14 +201,12 @@ export const createBunPlatform = (options: BunOptions) => {
     async live(c, ref, visit) {
       const { core } = namespaceOf(ref);
       if (!core.canWatch()) {
-        return c.json({ error: "Too many live connections. Try again later." }, 503);
+        return jsonError(c, 503, "Too many live connections. Try again later.");
       }
       const snapshot = await core.watch(visit);
       const upgraded = server(c).upgrade(c.req.raw, { data: { ref, snapshot } });
       // After an upgrade Bun ignores the response.
-      return upgraded
-        ? new Response(null)
-        : c.json({ error: "Expected a WebSocket upgrade." }, 426);
+      return upgraded ? new Response(null) : jsonError(c, 426, "Expected a WebSocket upgrade.");
     },
     allowSend: async (_c, ip) => allowSend(ip),
     later: (_c, work) => {
@@ -239,7 +215,7 @@ export const createBunPlatform = (options: BunOptions) => {
     client(c): Client {
       if (options.clientIpHeader) {
         return {
-          ip: header(c, options.clientIpHeader)?.split(",")[0]?.trim() || "unknown",
+          ip: firstValue(header(c, options.clientIpHeader)) ?? "unknown",
           country: header(c, "cf-ipcountry"),
           region: header(c, "cf-region"),
           city: header(c, "cf-ipcity"),
@@ -257,8 +233,8 @@ export const createBunPlatform = (options: BunOptions) => {
       const url = new URL(c.req.url);
       // Behind a trusted proxy, the address visitors used is in its headers.
       if (options.clientIpHeader) {
-        const proto = header(c, "x-forwarded-proto")?.split(",")[0]?.trim();
-        const host = header(c, "x-forwarded-host")?.split(",")[0]?.trim() ?? header(c, "host");
+        const proto = firstValue(header(c, "x-forwarded-proto"));
+        const host = firstValue(header(c, "x-forwarded-host")) ?? header(c, "host");
         return `${proto || url.protocol.slice(0, -1)}://${host || url.host}`;
       }
       return url.origin;

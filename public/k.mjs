@@ -308,6 +308,7 @@ takes the place of the namespace and k.mjs does the encryption:
 
 Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J
 (and -s, -S, -L, -f, -p, ignored).
+A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
 As with curl, -d @file drops line breaks; --data-binary @file keeps them.
 -h or --help shows this.
 Plain links (<site>/<namespace>/...) work too, passed through as they are.`;
@@ -448,9 +449,7 @@ const parseLink = (text) => {
     if (problem) throw new Error(problem);
     return { kind: "sealed", site: `${url.origin}${sealed[1]}`, name, path };
   }
-  const shared = /^((?:\/[^/]+)*)\/i\/((?:[A-Za-z0-9_-]{2})?[A-Za-z0-9_-]{12})(.*)$/.exec(
-    url.pathname,
-  );
+  const shared = /^((?:\/[^/]+)*)\/i\/([A-Za-z0-9_-]{14})(.*)$/.exec(url.pathname);
   if (shared && fragment) {
     return {
       kind: "shared",
@@ -464,10 +463,17 @@ const parseLink = (text) => {
 
 // --- Requests and output ----------------------------------------------------
 
-/** fetch, failing with which site could not be reached and why. */
-const reach = async (url, init) => {
+/**
+ * fetch, failing with which site could not be reached and why. A private
+ * instance's key, in KUROBAKO_KEY, goes with every request unless the command
+ * sends its own Authorization header.
+ */
+const reach = async (url, init = {}) => {
+  const key = globalThis.process?.env?.KUROBAKO_KEY;
+  const headers = new Headers(init.headers);
+  if (key && !headers.has("authorization")) headers.set("authorization", `Bearer ${key}`);
   try {
-    return await fetch(url, init);
+    return await fetch(url, { ...init, headers });
   } catch (error) {
     const reason = error.cause?.code ?? error.cause?.message ?? error.message;
     throw new Error(`Could not reach ${new URL(url).origin} (${reason}).`);
@@ -518,7 +524,7 @@ const explainFailure = async (url, message) => {
     return `${origin} does not look like a Kurobako server: it has no ${WELL_KNOWN_PATH}.`;
   }
   if (config.version && config.version !== VERSION) {
-    return `${message}\nThis k.mjs is ${VERSION} and the server is ${config.version}; its own matches it: curl -O ${origin}${config.clientUrl ?? `${config.base ?? ""}/k.mjs`}`;
+    return `${message}\nThis k.mjs is ${VERSION} and the server is ${config.version}; its own matches it: curl -O ${origin}${config.clientUrl}`;
   }
   return message;
 };
@@ -840,10 +846,25 @@ const tableJson = (entry) => {
   return entry.opened?.metadata.kind === "text" && title ? { ...json, preview: title } : json;
 };
 
-/** -O on the bare link: every item saved here. Burn-after-reading items stay unread. */
+/**
+ * -O on the bare link: every item saved here, under its own name. Run again,
+ * it saves only what is new, so it keeps a folder in step with a namespace:
+ * a file with the item's name, size and date (set when saved) is that item
+ * already, left alone without downloading it. Burn-after-reading items stay
+ * unread.
+ */
 const saveAll = async (entries) => {
-  const { writeFile } = await import("node:fs/promises");
+  const { writeFile, stat, utimes } = await import("node:fs/promises");
   if (!entries.length) return console.log("The namespace is empty.");
+  const savedAs = async (path, entry) => {
+    try {
+      const file = await stat(path);
+      const sent = Date.parse(entry.item.createdAt);
+      return file.size === entry.opened.metadata.size && Math.abs(file.mtimeMs - sent) < 1000;
+    } catch {
+      return false;
+    }
+  };
   for (const entry of entries) {
     const label = `[${entry.number}] ${titleOf(tableJson(entry), LIST_TITLE_CHARS)}`;
     if (!entry.opened) {
@@ -853,16 +874,34 @@ const saveAll = async (entries) => {
         `${label}: skipped, it deletes when opened (read it with node k.mjs <link>/${entry.number})`,
       );
     } else {
-      let name = ownName(entry);
-      const bytes = await contentsOf(entry);
-      try {
-        await writeFile(name, bytes, { flag: "wx" });
-      } catch (error) {
-        if (error.code !== "EEXIST") throw error;
-        name = `${Date.now()}-${name}`;
-        await writeFile(name, bytes, { flag: "wx" });
+      // Its own name, or with its ID when another file already has that name.
+      const own = ownName(entry);
+      const dot = own.lastIndexOf(".");
+      const withId =
+        dot > 0
+          ? `${own.slice(0, dot)} (${entry.item.id})${own.slice(dot)}`
+          : `${own} (${entry.item.id})`;
+      const names = [own, withId];
+      const already = [];
+      for (const name of names) if (await savedAs(name, entry)) already.push(name);
+      if (already.length) {
+        console.log(`${label}: already saved as ${already[0]}`);
+        continue;
       }
-      console.log(`${label} → ${name}`);
+      const bytes = await contentsOf(entry);
+      let saved = null;
+      for (const name of [...names, `${Date.now()}-${own}`]) {
+        try {
+          await writeFile(name, bytes, { flag: "wx" });
+          saved = name;
+          break;
+        } catch (error) {
+          if (error.code !== "EEXIST") throw error;
+        }
+      }
+      const sent = new Date(entry.item.createdAt);
+      await utimes(saved, sent, sent);
+      console.log(`${label} → ${saved}`);
     }
   }
 };
@@ -972,7 +1011,27 @@ const sealedRequest = async ({ site, name, path: fullPath }, options) => {
   // Names may be written percent-encoded, as in a URL.
   const first = decodeURIComponent(rawFirst);
   const sending = options.data !== null || options.upload !== null;
-  const FIXED = new Set(["", "ls", "new", "log", "log.json", "live"]);
+  const FIXED = new Set(["", "ls", "new", "log", "log.json", "live", "zip", "tar", "import"]);
+
+  // Backups go as they are: the server sends items still encrypted, and a
+  // backup is restored the same way.
+  if (path === "import" && sending && (method === "POST" || method === "PUT")) {
+    const body = options.data !== null ? await dataBytes(options) : await readInput(options.upload);
+    const response = await call(`${base}/import`, { method: "POST", body });
+    return printJson(await response.json());
+  }
+  if ((path === "zip" || path === "tar") && method === "GET") {
+    const url = `${base}/${path}${query ? `?${query}` : ""}`;
+    const response = await call(url);
+    const disposition = response.headers.get("content-disposition") ?? "";
+    return deliver({
+      options,
+      isText: false,
+      ownName: /filename="([^"]+)"/.exec(disposition)?.[1] ?? `backup.${path}`,
+      urlName: path,
+      load: async () => new Uint8Array(await response.arrayBuffer()),
+    });
+  }
 
   if (sending) {
     if (options.data !== null && path === "new" && method === "POST")
@@ -1092,11 +1151,34 @@ const isNamespace = async (url) => {
   );
 };
 
+/** A plain item in the shape of an opened encrypted one, for saveAll. */
+const plainEntry = (base, item, index) => ({
+  number: index + 1,
+  item,
+  contentUrl: `${base}/${item.id}`,
+  opened: {
+    metadata: {
+      kind: item.kind === "text" ? "text" : "file",
+      title: item.name ?? item.filename ?? "",
+      filename: item.filename,
+      mime: item.mime,
+      size: item.size,
+    },
+    open: async (bytes) => bytes,
+  },
+});
+
 /** Plain links go to the server as they are, like curl would send them. */
 const plainRequest = async ({ url }, options) => {
-  // The bare namespace is a page; here it lists the items, like e#<name>.
+  // The bare namespace is a page; here it lists the items, like e#<name>, or
+  // with -O saves them all.
   if (options.method === "GET" && (await isNamespace(url))) {
-    const items = await (await call(`${url.replace(/\/$/, "")}/ls?summary`)).json();
+    const base = url.replace(/\/$/, "");
+    if (options.remoteName) {
+      const items = await (await call(`${base}/ls`)).json();
+      return saveAll(items.map((item, index) => plainEntry(base, item, index)));
+    }
+    const items = await (await call(`${base}/ls?summary`)).json();
     return console.log(itemsTable(items));
   }
   const headers = Object.fromEntries(

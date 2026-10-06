@@ -59,13 +59,9 @@ export const slotOf = (ref: NamespaceRef) => slotOfKey(objectName(ref));
 /** Two base64url characters (64 × 64 = SLOT_COUNT), the start of a share token. */
 export const slotPrefix = (slot: number) => `${BASE64URL[slot >> 6]}${BASE64URL[slot & 63]}`;
 
-/** The slot a share token was made in; null for tokens from before slots. */
-export const tokenSlot = (token: string): number | null => {
-  if (token.length !== 14) return null;
-  const high = BASE64URL.indexOf(token[0] ?? "");
-  const low = BASE64URL.indexOf(token[1] ?? "");
-  return high < 0 || low < 0 ? null : high * 64 + low;
-};
+/** The slot a share token (SHARE_TOKEN_PATTERN) was made in: its first two characters. */
+export const tokenSlot = (token: string): number =>
+  BASE64URL.indexOf(token[0] ?? "") * 64 + BASE64URL.indexOf(token[1] ?? "");
 
 /**
  * The slot a request belongs to, from its path alone: a namespace's
