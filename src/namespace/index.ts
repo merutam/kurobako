@@ -495,8 +495,21 @@ export class NamespaceCore {
     return this.snapshot(await this.list(visit));
   }
 
-  /** Call after a socket was added or closed (pass it as `closing`). */
+  /**
+   * Call after a socket was added or closed (pass it as `closing`). Every
+   * viewer hears how many pages are open on the namespace now, its own
+   * included: { type: "viewers", count }.
+   */
   async watchersChanged(closing?: LiveSocket): Promise<void> {
+    const sockets = this.host.sockets().filter((socket) => socket !== closing);
+    const message = JSON.stringify({ type: "viewers", count: sockets.length });
+    for (const socket of sockets) {
+      try {
+        socket.send(message);
+      } catch {
+        // Closing as well: it has nobody left to tell.
+      }
+    }
     await this.report(undefined, closing);
   }
 }

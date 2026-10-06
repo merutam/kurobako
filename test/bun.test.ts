@@ -169,12 +169,17 @@ const typed = (ns: string, text: string, headers: Record<string, string> = {}) =
     headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
     body: text,
   });
+/** The next queue a live connection gets (viewer counts in between are skipped). */
 const nextMessage = (socket: WebSocket) =>
-  new Promise<LiveMessage>((resolve) =>
-    socket.addEventListener("message", (event) => resolve(JSON.parse(String(event.data))), {
-      once: true,
-    }),
-  );
+  new Promise<Extract<LiveMessage, { type: "items" }>>((resolve) => {
+    const listener = (event: MessageEvent) => {
+      const message = JSON.parse(String(event.data)) as LiveMessage;
+      if (message.type !== "items") return;
+      socket.removeEventListener("message", listener);
+      resolve(message);
+    };
+    socket.addEventListener("message", listener);
+  });
 
 describe("bun server", () => {
   test("sends and reads texts and files the way curl does", async () => {

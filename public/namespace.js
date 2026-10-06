@@ -66,6 +66,7 @@ const expiryLabel = element("#expiry-label");
 const pageTitle = element("#page-title");
 const pageLinks = element("#page-links");
 const liveStatus = element("#live-status");
+const viewersLabel = element("#viewers");
 const qrImage = element("#qr");
 const pageUrl = element("#page-url");
 const copyLinkButton = element("#copy-link");
@@ -671,8 +672,23 @@ let reconnectDelay = RECONNECT_FIRST_MS;
 let hiddenTimer = null;
 let pausedWhileHidden = false;
 
+/** Others with the namespace open: shown only when there is someone besides this page. */
+const showViewers = (count) => {
+  if (count <= 1) {
+    viewersLabel.replaceChildren();
+    return;
+  }
+  viewersLabel.replaceChildren(
+    "· ",
+    icon("eye", 14),
+    ` ${numberFormatter.format(count)}`,
+    el("span", { className: "visually-hidden" }, " connected"),
+  );
+};
+
 const setLive = (live) => {
   liveStatus.textContent = live ? "· live" : pausedWhileHidden ? "· paused" : "· offline";
+  if (!live) showViewers(0);
   liveStatus.classList.toggle("offline", !live && !pausedWhileHidden);
 };
 
@@ -698,6 +714,7 @@ const connectLive = () => {
     if (event.data === config.live.pong) return;
     const message = JSON.parse(event.data);
     if (message.type === "items") void renderItems(message.items);
+    if (message.type === "viewers") showViewers(message.count);
   });
   current.addEventListener("close", () => {
     if (socket !== current) return;
