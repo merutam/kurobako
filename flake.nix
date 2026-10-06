@@ -193,6 +193,17 @@
         };
       });
 
+      nixosModules.default = import ./nix/module.nix { inherit self; };
+
+      # NixOS tests in virtual machines, where they can run.
+      checks = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (
+        system:
+        import ./nix/tests.nix {
+          inherit self;
+          pkgs = nixpkgs.legacyPackages.${system};
+        }
+      );
+
       formatter = forAllSystems (pkgs: pkgs.nixfmt);
     };
 }

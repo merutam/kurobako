@@ -219,6 +219,67 @@ Transform Rule that sets the header `cf-asn` to `ip.src.asnum` lets
 a home. It logs each request and error, as one JSON line when not in a
 terminal: `podman compose logs -f kurobako`.
 
+**On NixOS.** The flake has a module, `services.kurobako`, that runs the
+server as a systemd service, with Garage on the same machine if asked:
+
+```nix
+# flake.nix: inputs.kurobako.url = "github:merutam/kurobako";
+imports = [ kurobako.nixosModules.default ];
+services.kurobako = {
+  enable = true;
+  garage.enable = true; # one node; its keys, bucket and layout are made on first boot
+  settings.PUBLIC_URL = "https://box.example";
+  environmentFile = "/run/secrets/kurobako.env"; # ADMIN_KEY, ACCESS_KEY
+};
+```
+
+Without `garage.enable`, set `s3.endpoint`, `s3.region` and `s3.bucket`, and
+the store's keys in `environmentFile`. The SQLite files are in
+`/var/lib/kurobako`.
+
+**Replicated storage.** With `garage.mode = "cluster"`, Garage keeps
+`garage.replicationFactor` copies of each file (3 by default: it reads and
+writes with one node down) on as many storage nodes, in different zones
+when it can. Choose the factor once, as Garage does not support changing it
+later. Every machine with the server also runs a Garage node, a storage node
+or a gateway (one that keeps nothing and passes requests on), and the server
+talks to it alone, so no single node stops it. A storage node may run
+Garage alone, with `services.kurobako.garage` set and the server left off.
+On every node:
+
+```nix
+services.kurobako.garage = {
+  enable = true;
+  mode = "cluster";
+  rpcPublicAddr = "10.0.0.1:3901";          # this node, as the others reach it
+  environmentFile = "/run/secrets/garage.env"; # GARAGE_RPC_SECRET, the same on all
+  openFirewall = true;                       # the RPC port, better on a private network
+};
+# where the server runs, its S3 key (S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY):
+services.kurobako.environmentFile = "/run/secrets/kurobako.env";
+```
+
+Then once, as root on any node (`garage node id` prints each node's ID;
+the key is the one in the server's `environmentFile`):
+
+```sh
+garage node connect <id>@10.0.0.2:3901        # each other node
+garage layout assign -z dc1 -c 500G <id>      # each storage node, its zone and size
+garage layout assign -z dc1 -g <id>           # each gateway
+garage layout apply --version 1
+garage bucket create kurobako
+garage key import -n kurobako <key id> <secret key>
+garage bucket allow --read --write kurobako --key <key id>
+```
+
+Copies are no backup: a deleted file goes from every node. And the SQLite
+files in `/var/lib/kurobako`, which list the items and hold short texts,
+are on one machine only: back them up (`sqlite3 .backup`, or Litestream), or
+keep namespace backups (`/<ns>/tar`, `/a/tar`).
+
+`nix flake check` runs both setups in virtual machines (`nix/tests.nix`),
+with a storage node lost along the way.
+
 **Several servers.** Each server keeps its own data directory, and all share
 one S3 store. `src/bun/router.ts` sits in front, keeps no state and sends
 each namespace, with its share links and live connections, to the server
