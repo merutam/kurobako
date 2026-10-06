@@ -1039,21 +1039,21 @@ export const sharedTests = (harness: Harness) => {
         live: { ping: "ping" },
       });
       expect(new RegExp(body.namespace.pattern).test("alpha")).toBe(true);
-      expect(body.namespace.reserved).toEqual(["a", "e", "i", "k"]);
+      expect(body.namespace.reserved).toEqual(["e", "i", "k"]);
     });
   });
 
   describe("admin dashboard", () => {
     const login = (key: string, ip: string) =>
-      call("/a/login", {
+      call("/k/a/login", {
         method: "POST",
         headers: { "content-type": "application/json", "cf-connecting-ip": ip },
         body: JSON.stringify({ key }),
       });
 
     test("requires the key and locks out repeated failures", async () => {
-      expect(await (await call("/a")).text()).toContain("<html");
-      expect((await call("/a/overview")).status).toBe(401);
+      expect(await (await call("/k/a")).text()).toContain("<html");
+      expect((await call("/k/a/overview")).status).toBe(401);
 
       const ip = "203.0.113.150";
       for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -1068,9 +1068,9 @@ export const sharedTests = (harness: Harness) => {
       expect(cookie).toContain("Secure");
       expect(cookie).toContain("SameSite=Strict");
       const session = cookie.split(";", 1)[0] ?? "";
-      expect((await call("/a/overview", { headers: { cookie: session } })).status).toBe(200);
+      expect((await call("/k/a/overview", { headers: { cookie: session } })).status).toBe(200);
       const forged = session.replace(/\.[^.]+$/, ".forged-signature");
-      expect((await call("/a/overview", { headers: { cookie: forged } })).status).toBe(401);
+      expect((await call("/k/a/overview", { headers: { cookie: forged } })).status).toBe(401);
     });
   });
 };

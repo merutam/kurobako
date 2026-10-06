@@ -3,6 +3,7 @@
 
 import type { Context } from "hono";
 import { getCookie } from "hono/cookie";
+import { ADMIN_PATH } from "../routing";
 import { type Api, type App, jsonError } from "./context";
 import { hasBearer, loginWith, logoutOf, type SessionCookie, signedSessions } from "./session";
 
@@ -35,7 +36,7 @@ export const mountAdmin = (app: App, api: Api, key: string) => {
   // Sent to the admin's routes only, under the site's base path.
   const cookie: SessionCookie = {
     name: SESSION_COOKIE,
-    path: `${api.config.basePath}/a`,
+    path: `${api.config.basePath}${ADMIN_PATH}`,
     sameSite: "Strict",
     ms: api.config.adminSessionHours * 3_600_000,
   };
@@ -43,20 +44,20 @@ export const mountAdmin = (app: App, api: Api, key: string) => {
 
   // Registered before the routes below so it guards all of them; the page
   // itself and the login are open.
-  const OPEN_PATHS = new Set(["/a", "/a/", "/a/login"]);
-  app.use("/a/*", async (c, next) => {
+  const OPEN_PATHS = new Set([ADMIN_PATH, `${ADMIN_PATH}/`, `${ADMIN_PATH}/login`]);
+  app.use(`${ADMIN_PATH}/*`, async (c, next) => {
     if (OPEN_PATHS.has(c.req.path)) return next();
     c.header("Cache-Control", "no-store");
     if (hasSession(c) || hasBearer(c, key)) return next();
     return jsonError(c, 401, "Unauthorized.");
   });
 
-  app.get("/a", (c) => page(c, pages.admin));
+  app.get(ADMIN_PATH, (c) => page(c, pages.admin));
 
-  app.post("/a/login", loginWith(api, key, sessions, cookie, "Admin login"));
-  app.post("/a/logout", logoutOf(cookie));
+  app.post(`${ADMIN_PATH}/login`, loginWith(api, key, sessions, cookie, "Admin login"));
+  app.post(`${ADMIN_PATH}/logout`, logoutOf(cookie));
 
-  app.get("/a/overview", async (c) => {
+  app.get(`${ADMIN_PATH}/overview`, async (c) => {
     const platform = platformOf(c);
     return c.json({
       version: appVersion,
@@ -68,5 +69,7 @@ export const mountAdmin = (app: App, api: Api, key: string) => {
     });
   });
 
-  app.get("/a/namespaces", async (c) => c.json(await hub(c).namespacesPage(pageQuery(c))));
+  app.get(`${ADMIN_PATH}/namespaces`, async (c) =>
+    c.json(await hub(c).namespacesPage(pageQuery(c))),
+  );
 };

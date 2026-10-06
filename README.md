@@ -94,11 +94,11 @@ exports their decrypted items. A `.sealed` file can also be printed directly
 with the same `#secret name`. `KUROBAKO_SECRET` may carry the name instead.
 Keep `manifest.json` beside the extracted files.
 
-With `ADMIN_KEY` set, `/a/zip` and `/a/tar` back up every namespace, and
-`/a/import` restores them:
+With `ADMIN_KEY` set, `/k/a/zip` and `/k/a/tar` back up every namespace, and
+`/k/a/import` restores them:
 
 ```sh
-curl -H "Authorization: Bearer $ADMIN_KEY" -o backup.tar $BOX/a/tar
+curl -H "Authorization: Bearer $ADMIN_KEY" -o backup.tar $BOX/k/a/tar
 ```
 
 Import merges: it never deletes or replaces existing contents. Incremental
@@ -114,12 +114,12 @@ header, given back as `?after=`, starts the next one. The last part has none:
 next=
 while :; do
   curl -fsS -OJ -D head -H "Authorization: Bearer $ADMIN_KEY" \
-    "$BOX/a/zip?max=90000000&after=$next" || break
+    "$BOX/k/a/zip?max=90000000&after=$next" || break
   next=$(sed -n 's/^x-kurobako-next: *//Ip' head | tr -d '\r')
   [ -n "$next" ] || break
 done
 for part in kurobako-*-part*.zip; do
-  curl -fsS -H "Authorization: Bearer $ADMIN_KEY" -T "$part" "$BOX/a/import"
+  curl -fsS -H "Authorization: Bearer $ADMIN_KEY" -T "$part" "$BOX/k/a/import"
 done
 ```
 
@@ -174,7 +174,7 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 | `MISSES_PER_MINUTE` | `30` | per client: requests for namespaces, items or share links that are not there; past it, the client reads nothing for a minute. On Cloudflare, also set `MISS_LIMITER`'s limit |
 | `AUTOMATED_NETWORKS` | `limit` | hosting, cloud and VPN networks and Tor, where scripts run: `allow` counts them like anyone; `limit` counts their sends and misses by network block (IPv4 /24, IPv6 /48); `block` refuses their sends (`403`). Reading is never blocked |
 | `SENDS_PER_MINUTE` | `30` | per client address (an IPv6 /64 network counts as one); on Cloudflare, also set `UPLOAD_LIMITER`'s limit in `wrangler.jsonc` |
-| `ADMIN_KEY` | unset | enables `/a`; 32 characters or more |
+| `ADMIN_KEY` | unset | enables `/k/a`; 32 characters or more |
 | `ADMIN_SESSION_HOURS` | `12` | |
 | `ACCESS_KEY` | unset | makes the instance private (see "A private instance"); 16 characters or more |
 | `ACCESS_SESSION_DAYS` | `30` | how long a login to a private instance lasts |
@@ -298,7 +298,7 @@ garage bucket allow --read --write kurobako --key <key id>
 Copies are no backup: a deleted file goes from every node. And the SQLite
 files in `/var/lib/kurobako`, which list the items and hold short texts,
 are on one machine only: back them up (`sqlite3 .backup`, or Litestream), or
-keep namespace backups (`/<ns>/tar`, `/a/tar`).
+keep namespace backups (`/<ns>/tar`, `/k/a/tar`).
 
 `nix flake check` runs both setups in virtual machines (`nix/tests.nix`),
 with a storage node lost along the way.
@@ -316,8 +316,8 @@ The servers run with `CLIENT_IP_HEADER=x-forwarded-for` and listen only
 where the router reaches them. Every router needs the same `SERVERS`, in the
 same order, and the servers' `BASE_PATH` if they have one. A server added later takes about 1/n of the namespaces; their
 SQLite files must move with them. Each server limits sends on its own, and
-admin logins go to the first. `/a` shows one server at a time, with a picker
-(`/a?server=2`); one login works on every server sharing `ADMIN_KEY`.
+admin logins go to the first. `/k/a` shows one server at a time, with a picker
+(`/k/a?server=2`); one login works on every server sharing `ADMIN_KEY`.
 `/stats.json` adds up every server's (a visitor seen by two servers counts
 twice).
 

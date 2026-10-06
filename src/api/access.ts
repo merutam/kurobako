@@ -7,7 +7,7 @@
 // the protocol, the health check, the admin dashboard (it has its own key)
 // and, unless PUBLIC_SHARES is false, share links, which open one item each.
 import { getCookie } from "hono/cookie";
-import { PROTOCOL_PATH, WELL_KNOWN_PATH } from "../routing";
+import { ADMIN_PATH, PROTOCOL_PATH, WELL_KNOWN_PATH } from "../routing";
 import { type Api, type App, type AppContext, jsonError } from "./context";
 import { hasBearer, loginWith, logoutOf, type SessionCookie, signedSessions } from "./session";
 
@@ -32,8 +32,8 @@ export const mountAccess = (app: App, api: Api, key: string) => {
     path === WELL_KNOWN_PATH ||
     path === PROTOCOL_PATH ||
     path === "/k/healthz" ||
-    path === "/a" ||
-    path.startsWith("/a/") ||
+    path === ADMIN_PATH ||
+    path.startsWith(`${ADMIN_PATH}/`) ||
     (config.publicShares && path.startsWith("/i/"));
 
   const allowed = (c: AppContext) =>

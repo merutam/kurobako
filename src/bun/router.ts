@@ -15,7 +15,7 @@ import type { Server, ServerWebSocket } from "bun";
 import { loadConfig } from "../config";
 import { logError } from "../log";
 import { firstValue } from "../request-info";
-import { routeOf, sitePath, slotOfKey, slotOwners } from "../routing";
+import { ADMIN_PATH, routeOf, sitePath, slotOfKey, slotOwners } from "../routing";
 import { printJsonLines } from "./log";
 
 export type RouterOptions = {
@@ -51,7 +51,7 @@ const DROPPED_HEADERS = [
 const LOCATION_HEADERS = ["cf-ipcountry", "cf-region", "cf-ipcity"];
 const STATS_TTL_MS = 30_000;
 /** `path` is a request's path inside the site (see sitePath). */
-const isAdmin = (path: string) => path === "/a" || path.startsWith("/a/");
+const isAdmin = (path: string) => path === ADMIN_PATH || path.startsWith(`${ADMIN_PATH}/`);
 const STATS_TIMEOUT_MS = 5_000;
 
 type Relay = {
@@ -129,7 +129,7 @@ export const startRouter = (options: RouterOptions) => {
 
   /** The server the dashboard is looking at, from 1; the first one for logins. */
   const adminServer = (url: URL, path: string) => {
-    if (path === "/a/login") return 1;
+    if (path === `${ADMIN_PATH}/login`) return 1;
     const server = Number(url.searchParams.get("server"));
     return Number.isSafeInteger(server) && server >= 1 && server <= servers.length ? server : 1;
   };
@@ -212,7 +212,7 @@ export const startRouter = (options: RouterOptions) => {
         const relayed = new Response(response.body, response);
         // Which server answered, and how many there are, for the dashboard's
         // server picker. Only on answers it got by being logged in.
-        if (isAdmin(path) && path !== "/a/login" && response.ok) {
+        if (isAdmin(path) && path !== `${ADMIN_PATH}/login` && response.ok) {
           relayed.headers.set("X-Kurobako-Server", String(adminServer(url, path)));
           relayed.headers.set("X-Kurobako-Servers", String(servers.length));
         }

@@ -454,6 +454,8 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 
 /** This file's version, the same as the server it comes from (package.json). */
 export const VERSION = "0.6.13";
+/** The protocol this file speaks; a server says its own in /.well-known/kurobako. */
+export const PROTOCOL = 4;
 // Everything below only runs when this file is executed directly. It reads
 // like curl: the same options and the same paths as the plain API, with
 // e#<name> in place of the namespace.
@@ -734,10 +736,28 @@ const explainFailure = async (url, message) => {
   if (!config) {
     return `${origin} does not look like a Kurobako server: it has no ${WELL_KNOWN_PATH}.`;
   }
+  if (config.protocol !== PROTOCOL) {
+    return `${message}\n${protocolMismatch(origin, config)}`;
+  }
   if (config.version && config.version !== VERSION) {
     return `${message}\nThis k.mjs is ${VERSION} and the server is ${config.version}; its own matches it: curl -O ${origin}${config.clientUrl}`;
   }
   return message;
+};
+
+/** Why this file and the server at `origin` do not understand each other. */
+const protocolMismatch = (origin, config) =>
+  `This k.mjs speaks the Kurobako protocol ${PROTOCOL} and the server ${config.protocol ?? "an older one"}; its own speaks it: curl -O ${origin}${config.clientUrl}`;
+
+/**
+ * Encrypted items open only with the server's protocol: checked before any,
+ * rather than failing to decrypt.
+ */
+const requireProtocol = async (url) => {
+  const config = await kurobakoConfig(url);
+  if (config && config.protocol !== PROTOCOL) {
+    throw new Error(protocolMismatch(new URL(url).origin, config));
+  }
 };
 
 /**
@@ -1526,6 +1546,7 @@ const rename = async (space, site, selector, given) => {
 
 /** The encrypted namespace, path by path, as the plain API answers it. */
 const sealedRequest = async ({ site, name, readToken, path: fullPath }, options) => {
+  await requireProtocol(`${site}/e`);
   const { path, query, first, second, extra } = parseNamespacePath(fullPath);
   const space =
     readToken !== undefined ? await openReadOnlySpace(readToken) : await openSealedSpace(name);
@@ -1642,6 +1663,7 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
 /** A shared encrypted item: /i/<token>#key and its /c, /d and .json. */
 const sharedRequest = async ({ base, suffix, keyText }, options) => {
   if (options.method !== "GET") throw new Error("A shared item can only be read.");
+  await requireProtocol(base);
   const item = await (await call(`${base}.json`)).json();
   const opened = await openSharedItem(keyText, item.metadata, item.size);
   if (suffix === ".json") return printJson(itemJson(item, opened.metadata));

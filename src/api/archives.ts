@@ -27,6 +27,7 @@ import {
   sealedName,
 } from "../model";
 import type { Restored, SaveInput } from "../namespace";
+import { ADMIN_PATH } from "../routing";
 import { type Api, type App, type AppContext, jsonError } from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
 import {
@@ -487,7 +488,7 @@ export const mountArchives = (app: App, api: Api) => {
   // First, or /:namespace/zip would take /a/zip.
   if (config.adminKey) {
     for (const format of FORMATS) {
-      app.get(`/a/${format}`, async (c) => {
+      app.get(`${ADMIN_PATH}/${format}`, async (c) => {
         const since = sinceOf(c);
         if (since instanceof Response) return since;
         const part = partOf(c);
@@ -496,7 +497,7 @@ export const mountArchives = (app: App, api: Api) => {
         return archiveOf(c, refs, format, { since, ...part }, `kurobako-${day(new Date())}`);
       });
     }
-    app.on(["POST", "PUT"], "/a/import", (c) => importArchive(c, null, null));
+    app.on(["POST", "PUT"], `${ADMIN_PATH}/import`, (c) => importArchive(c, null, null));
   }
 
   for (const space of SPACES) {

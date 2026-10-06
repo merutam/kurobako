@@ -107,7 +107,7 @@ export const NAMESPACE_MAX_LENGTH = 64;
  * encrypted namespaces (/e), shared items (/i) and system routes (/k).
  * Static files and JSON documents have a dot, which names never do.
  */
-export const RESERVED_NAMESPACES = new Set(["a", "e", "i", "k"]);
+export const RESERVED_NAMESPACES = new Set(["e", "i", "k"]);
 
 /**
  * Share tokens: the namespace's slot (two characters, see routing.ts), then

@@ -135,7 +135,7 @@ describe("plain namespaces", () => {
 describe("empty namespace cleanup", () => {
   const auth = { authorization: `Bearer ${TEST_ADMIN_KEY}` };
   const listed = async (ns: string) =>
-    (await json<{ total: number }>(`/a/namespaces?q=${ns}`, { headers: auth })).total;
+    (await json<{ total: number }>(`/k/a/namespaces?q=${ns}`, { headers: auth })).total;
   const storedRows = (ns: string) =>
     runInDurableObject(
       env.NAMESPACES.getByName(`plain:${ns}`),
@@ -367,7 +367,6 @@ describe("site", () => {
     expect(await json("/k/healthz")).toEqual({ ok: true });
     expect((await call("/k/ls")).status).toBe(404);
     expect((await json<PublicConfig>("/.well-known/kurobako")).namespace.reserved).toEqual([
-      "a",
       "e",
       "i",
       "k",
@@ -430,24 +429,24 @@ describe("admin dashboard", () => {
     for (let index = 0; index < 3; index += 1) await sendText(fresh(`${ns}-`), "x");
 
     type NamespacesPage = { total: number; items: { name: string; items: number }[] };
-    const namespaces = await json<NamespacesPage>(`/a/namespaces?q=${ns}&limit=2`, {
+    const namespaces = await json<NamespacesPage>(`/k/a/namespaces?q=${ns}&limit=2`, {
       headers: auth,
     });
     expect(namespaces).toMatchObject({ total: 4, limit: 2 });
     expect(namespaces.items).toHaveLength(2);
-    const exact = await json<NamespacesPage>(`/a/namespaces?q=${ns}&limit=500`, {
+    const exact = await json<NamespacesPage>(`/k/a/namespaces?q=${ns}&limit=500`, {
       headers: auth,
     });
     expect(exact.items).toContainEqual({ name: ns, items: 0 });
 
     const overview = await json<{ namespaces: { count: number }; logsUrl: string | null }>(
-      "/a/overview",
+      "/k/a/overview",
       { headers: auth },
     );
     expect(overview.namespaces.count).toBeGreaterThanOrEqual(4);
     expect(overview.logsUrl).toContain("observability");
     for (const gone of ["traces", "errors", "logs"]) {
-      expect((await call(`/a/${gone}`, { headers: auth })).status).toBe(404);
+      expect((await call(`/k/a/${gone}`, { headers: auth })).status).toBe(404);
     }
   });
 });
