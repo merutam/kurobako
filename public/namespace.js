@@ -753,26 +753,60 @@ const sentMessage = async (response) =>
     ? "Already in the queue: moved to the top."
     : "Sent.";
 
+/**
+ * The most files one send takes, by the server's own limits: no more than
+ * the queue holds (more would push out what was just sent) nor than it takes
+ * in a minute, since each file is a send. 20 if the server says neither.
+ */
+const maxFiles = () => Math.min(config.maxItems ?? 20, config.sendsPerMinute ?? 20);
+
 fileForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const file = fileInput.files[0];
-  if (!file) return;
-  if (file.size > fileLimit()) {
-    status.error(`File too large. Max ${formatBytes(fileLimit())}.`);
+  const files = [...fileInput.files];
+  if (!files.length) return;
+  if (files.length > maxFiles()) {
+    status.error(`Too many files: up to ${maxFiles()} at once.`);
+    return;
+  }
+  const tooLarge = files.filter((file) => file.size > fileLimit());
+  if (tooLarge.length) {
+    status.error(
+      `Too large (max ${formatBytes(fileLimit())}): ${tooLarge.map((file) => file.name).join(", ")}.`,
+    );
     return;
   }
 
   setBusy(fileForm, true);
-  status.progress("Sending…");
+  // The last picked goes first, so the queue, newest on top, lists them as
+  // they were picked.
+  const queue = files.toReversed();
+  let sent = 0;
+  let moved = 0;
   try {
-    const response = await mode.sendFile(file, { burn: burnInput.checked });
+    for (const file of queue) {
+      status.progress(files.length > 1 ? `Sending ${sent + 1} of ${files.length}…` : "Sending…");
+      const response = await mode.sendFile(file, { burn: burnInput.checked });
+      if (response.status === 200 && (await response.json()).existing) moved += 1;
+      sent += 1;
+    }
     fileForm.reset();
-    status.success(await sentMessage(response));
-    await refreshUnlessLive();
+    status.success(
+      files.length === 1
+        ? moved
+          ? "Already in the queue: moved to the top."
+          : "Sent."
+        : `Sent ${files.length} files${moved ? ` (${moved} already in the queue, moved to the top)` : ""}.`,
+    );
   } catch (error) {
-    status.error(error.message);
+    // Keep only what was not sent, so sending again sends the rest.
+    const rest = new DataTransfer();
+    for (const file of queue.slice(sent).toReversed()) rest.items.add(file);
+    fileInput.files = rest.files;
+    fileInput.dispatchEvent(new Event("change"));
+    status.error(sent ? `Sent ${sent} of ${files.length}, then: ${error.message}` : error.message);
   } finally {
     setBusy(fileForm, false);
+    await refreshUnlessLive();
   }
 });
 
@@ -813,7 +847,10 @@ copyLinkButton.addEventListener("click", copyLink);
 const fileLimit = () => config.maxFileBytes - mode.fileOverheadBytes;
 
 const showPage = () => {
-  fileLimitLabel.textContent = `Any file · max ${formatBytes(fileLimit())}`;
+  fileLimitLabel.textContent =
+    maxFiles() > 1
+      ? `Any files, up to ${maxFiles()} at once · max ${formatBytes(fileLimit())} each`
+      : `Any file · max ${formatBytes(fileLimit())}`;
   pageTitle.textContent = mode.title;
   modeLabel.textContent = mode.label ? `${mode.label} · ` : "";
   const link = (href, text) =>
