@@ -7,14 +7,7 @@
 import { nameOf, publicItem, type StoredItem } from "../model";
 import type { ItemRef } from "../namespace";
 import type { createContents } from "./contents";
-import {
-  type Api,
-  type App,
-  type AppContext,
-  jsonError,
-  readLimited,
-  TOO_MANY_SENDS,
-} from "./context";
+import { type Api, type App, type AppContext, jsonError, readLimited } from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
 
 /** Longest body a rename takes; names themselves are cut much shorter. */
@@ -29,7 +22,7 @@ export const mountItems = (
   api: Api,
   { serveItem }: ReturnType<typeof createContents>,
 ) => {
-  const { namespace, hub, visit, platformOf, sendAllowed, config } = api;
+  const { namespace, hub, visit, platformOf, refuseSend, config } = api;
   const site = config.basePath;
 
   for (const space of SPACES) {
@@ -107,7 +100,8 @@ export const mountItems = (
     app.post(
       `${prefix}/${ITEM}/n`,
       inNamespace(async (c, ref) => {
-        if (!(await sendAllowed(c))) return jsonError(c, 429, TOO_MANY_SENDS);
+        const refused = await refuseSend(c);
+        if (refused) return refused;
         let change: { name: string } | { metadata: string };
         if (space.kind === "sealed") {
           change = { metadata: c.req.header("x-sealed-metadata") ?? "" };

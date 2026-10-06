@@ -32,7 +32,9 @@
     "ADMIN_SESSION_HOURS": "12",
     // What clients are told (/.well-known/kurobako); the limit itself is
     // UPLOAD_LIMITER's below, which must say the same.
-    "SENDS_PER_MINUTE": "30"
+    "SENDS_PER_MINUTE": "30",
+    // The same for MISSES_PER_MINUTE and MISS_LIMITER below.
+    "MISSES_PER_MINUTE": "30"
   },
 
   // Private: only this Worker reads and writes it, so burn-after-reading,
@@ -54,10 +56,12 @@
 
   "version_metadata": { "binding": "VERSION" },
 
-  // Sends per IP. Counted per Cloudflare location and approximate by design:
-  // it slows scripts down, it is not accounting.
+  // Sends, and requests that find nothing (src/api/misses.ts), per client.
+  // Counted per Cloudflare location and approximate by design: they slow
+  // scripts down, they are not accounting.
   "ratelimits": [
-    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }
+    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } },
+    { "name": "MISS_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }
   ],
 
   // Scripts, styles and icons are served straight from Workers Static Assets, which

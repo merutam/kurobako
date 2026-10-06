@@ -49,6 +49,11 @@ const HUB_START_DELAY_MS = MINUTE_MS;
 const SPACES: SpaceKind[] = ["plain", "sealed"];
 
 const header = (c: Context, name: string) => c.req.header(name) || null;
+/** An ASN as a header gives it, or null. */
+const asnOf = (value: string | null) => {
+  const asn = Number(value);
+  return value && Number.isSafeInteger(asn) && asn > 0 ? asn : null;
+};
 
 export const createBunPlatform = (options: BunOptions) => {
   const { config, dataDir, blobs } = options;
@@ -175,20 +180,36 @@ export const createBunPlatform = (options: BunOptions) => {
     hubAlarm.set(Date.now() + HUB_START_DELAY_MS);
   };
 
-  // --- Sends per address ----------------------------------------------------
+  // --- Sends per client (see clientKey) --------------------------------------
   const sends = new Map<string, { count: number; resetAt: number }>();
-  const allowSend = (ip: string) => {
+  const allowSend = (key: string) => {
     const now = Date.now();
     if (sends.size > 10_000) {
-      for (const [key, window] of sends) if (window.resetAt <= now) sends.delete(key);
+      for (const [stale, window] of sends) if (window.resetAt <= now) sends.delete(stale);
     }
-    const window = sends.get(ip);
+    const window = sends.get(key);
     if (!window || window.resetAt <= now) {
-      sends.set(ip, { count: 1, resetAt: now + MINUTE_MS });
+      sends.set(key, { count: 1, resetAt: now + MINUTE_MS });
       return true;
     }
     window.count += 1;
     return window.count <= options.sendsPerMinute;
+  };
+
+  // --- Misses per client (see src/api/misses.ts) ------------------------------
+  const misses = new Map<string, { count: number; resetAt: number }>();
+  const recordMiss = (key: string) => {
+    const now = Date.now();
+    if (misses.size > 10_000) {
+      for (const [stale, window] of misses) if (window.resetAt <= now) misses.delete(stale);
+    }
+    const window = misses.get(key);
+    if (!window || window.resetAt <= now) misses.set(key, { count: 1, resetAt: now + MINUTE_MS });
+    else window.count += 1;
+  };
+  const missesExceeded = (key: string) => {
+    const window = misses.get(key);
+    return Boolean(window && window.resetAt > Date.now() && window.count > config.missesPerMinute);
   };
 
   const startedAt = new Date().toISOString();
@@ -208,7 +229,9 @@ export const createBunPlatform = (options: BunOptions) => {
       // After an upgrade Bun ignores the response.
       return upgraded ? new Response(null) : jsonError(c, 426, "Expected a WebSocket upgrade.");
     },
-    allowSend: async (_c, ip) => allowSend(ip),
+    allowSend: async (_c, key) => allowSend(key),
+    recordMiss: async (_c, key) => recordMiss(key),
+    missesExceeded: (_c, key) => missesExceeded(key),
     later: (_c, work) => {
       work.catch((error: unknown) => logError("Background work failed", error));
     },
@@ -219,6 +242,9 @@ export const createBunPlatform = (options: BunOptions) => {
           country: header(c, "cf-ipcountry"),
           region: header(c, "cf-region"),
           city: header(c, "cf-ipcity"),
+          // Set by the proxy in front, as Cloudflare does with a Transform
+          // Rule (ip.src.asnum); trusted with the address, never otherwise.
+          asn: asnOf(header(c, "cf-asn")),
         };
       }
       return {
@@ -226,6 +252,7 @@ export const createBunPlatform = (options: BunOptions) => {
         country: null,
         region: null,
         city: null,
+        asn: null,
       };
     },
     origin(c) {

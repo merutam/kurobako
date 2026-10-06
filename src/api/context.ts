@@ -14,12 +14,17 @@ import {
   SEALED_NAME_MAX_LENGTH,
 } from "../model";
 import { LIVE } from "../namespace";
+import { isAutomatedNetwork, networkKey } from "../networks";
 import { escapeHtml, staticFiles, type WebAssets } from "../pages";
 import type { Platform } from "../platform";
-import { accessEvent } from "../request-info";
+import { accessEvent, clientKey } from "../request-info";
 import { CLIENT_PATH, PROTOCOL_PATH } from "../routing";
 
-export type AppEnv = { Bindings: object };
+export type AppEnv = {
+  Bindings: object;
+  /** `miss`: this request found nothing, as a route says when no 404 does (see misses.ts). */
+  Variables: { miss: boolean };
+};
 export type AppContext = Context<AppEnv>;
 export type App = Hono<AppEnv>;
 
@@ -56,7 +61,7 @@ export const readLimited = async (c: AppContext, limit: number): Promise<Uint8Ar
 
 export const jsonError = (
   c: AppContext,
-  status: 400 | 401 | 404 | 411 | 413 | 415 | 426 | 429 | 500 | 503 | 507,
+  status: 400 | 401 | 403 | 404 | 411 | 413 | 415 | 426 | 429 | 500 | 503 | 507,
   error: string,
 ) => c.json({ error }, status);
 
@@ -99,6 +104,10 @@ export const createContext = (
     maxItems: config.maxItems,
     /** Sends per client address per minute; more get 429 until the minute is over. */
     sendsPerMinute: config.sendsPerMinute,
+    /** How hosting, cloud and VPN networks and Tor are treated: allow, limit or block (sends get 403). */
+    automatedNetworks: config.automatedNetworks,
+    /** Requests per client per minute that may find nothing; past them, reads get 429 a while. */
+    missesPerMinute: config.missesPerMinute,
     /** The most every item together may take, in bytes (null: no limit); more get 507. */
     maxStorageBytes: config.maxStorageBytes,
     namespace: {
@@ -149,10 +158,27 @@ export const createContext = (
   };
 
   /** Sends are the costly part to abuse, so they are rate limited per address. */
-  const sendAllowed = async (c: AppContext) => {
-    if (await platformOf(c).allowSend(c, clientIp(c))) return true;
+  /** Whether the client comes from where automation lives (see networks.ts). */
+  const automated = (c: AppContext) => isAutomatedNetwork(platformOf(c).client(c));
+
+  /**
+   * Who the send and miss limits count: the client (an IPv4 address or an
+   * IPv6 /64), or with AUTOMATED_NETWORKS=limit, for automated networks, its
+   * network block, so a script cannot spread over a provider's addresses.
+   */
+  const limitKey = (c: AppContext) => {
+    const key = clientKey(clientIp(c));
+    return config.automatedNetworks === "limit" && automated(c) ? networkKey(key) : key;
+  };
+
+  /** Why this send cannot go now, as the answer to give; null when it can. */
+  const refuseSend = async (c: AppContext) => {
+    if (config.automatedNetworks === "block" && automated(c)) {
+      return jsonError(c, 403, "Sending from hosting networks, VPNs and Tor is turned off here.");
+    }
+    if (await platformOf(c).allowSend(c, limitKey(c))) return null;
     c.header("Retry-After", "60");
-    return false;
+    return jsonError(c, 429, TOO_MANY_SENDS);
   };
 
   /**
@@ -188,7 +214,8 @@ export const createContext = (
     page,
     countVisitor,
     pageView,
-    sendAllowed,
+    refuseSend,
+    limitKey,
     storageFull,
   };
 };

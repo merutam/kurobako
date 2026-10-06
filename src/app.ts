@@ -25,6 +25,7 @@ import { mountArchives } from "./api/archives";
 import { createContents } from "./api/contents";
 import { type AppContext, type AppEnv, createContext, jsonError } from "./api/context";
 import { mountItems } from "./api/items";
+import { mountMissLimit } from "./api/misses";
 import { mountNamespaces } from "./api/namespaces";
 import { mountShares } from "./api/shares";
 import { mountSite } from "./api/site";
@@ -78,6 +79,8 @@ export const createApp = (
   // any name.
   // Before every route: a private instance turns away whoever has no session.
   if (config.accessKey) mountAccess(app, api, config.accessKey);
+  // Then whoever keeps finding nothing reads nothing for a while.
+  mountMissLimit(app, api);
   mountSite(app, api);
   if (config.adminKey) mountAdmin(app, api, config.adminKey);
   mountShares(app, api, contents);
