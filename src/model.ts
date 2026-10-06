@@ -4,6 +4,8 @@
 type CommonItem = {
   id: string;
   createdAt: string;
+  /** Last metadata change, such as a rename. Absent until an item changes. */
+  updatedAt?: string;
   expiresAt: string | null;
   size: number;
   /** Deleted by the first read of its content. Absent means false. */

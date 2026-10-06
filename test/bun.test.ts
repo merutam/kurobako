@@ -5,9 +5,17 @@
 // SQLite files in a temporary directory and file contents in memory.
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { createCipheriv, pbkdf2Sync } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { formatBytes as pageFormatBytes } from "../public/common.js";
 import {
   TEXT_PREVIEW_CHARS as CLI_TEXT_PREVIEW_CHARS,
@@ -314,6 +322,9 @@ describe("bun server", () => {
     rmSync(join(workDir, "picture.png"));
     await k("-OJ", `${link}/1/d`);
     expect(new Uint8Array(readFileSync(join(workDir, "picture.png")))).toEqual(png);
+    writeFileSync(join(workDir, "d"), "local edit");
+    await k("-O", `${link}/1/d`);
+    expect(new Uint8Array(readFileSync(join(workDir, "d")))).toEqual(png);
 
     // <item>.json: details, position and a share link with the item's key.
     const described = JSON.parse(await k(`${link}/1.json`));
@@ -343,12 +354,28 @@ describe("bun server", () => {
 
     // Texts under their name, as the server names plain downloads.
     expect(readdirSync(all).sort()).toEqual(["first text.txt", "picture.png"]);
-    // Again: only what is new is saved, the rest is left alone.
+    // Again: every item is exported, overwriting as curl's -O does.
+    writeFileSync(join(all, "first text.txt"), "local edit");
+    writeFileSync(join(all, "picture.png"), "local edit");
     const again = Bun.spawn(["bun", script, "-O", link], { cwd: all, stdout: "pipe" });
     const report = await new Response(again.stdout).text();
-    expect(report).toContain("already saved as first text.txt");
-    expect(report).toContain("already saved as picture.png");
+    expect(report).toContain("→ first text.txt");
+    expect(report).toContain("→ picture.png");
+    expect(readFileSync(join(all, "first text.txt"), "utf8")).toBe("first text");
+    expect(new Uint8Array(readFileSync(join(all, "picture.png")))).toEqual(png);
     expect(readdirSync(all)).toHaveLength(2);
+
+    // --no-clobber keeps the old safety behavior.
+    writeFileSync(join(all, "picture.png"), "keep me");
+    const protectedRun = Bun.spawn(["bun", script, "--no-clobber", "-O", link], {
+      cwd: all,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const protectedError = await new Response(protectedRun.stderr).text();
+    expect(await protectedRun.exited).toBe(1);
+    expect(protectedError).toContain("Refusing to overwrite picture.png");
+    expect(readFileSync(join(all, "picture.png"), "utf8")).toBe("keep me");
 
     // -o - is standard output, as in curl, never a file named "-".
     const printed = await run(["-o", "-", `${link}/picture`]);
@@ -1027,7 +1054,7 @@ describe("under a base path", () => {
     socket.close();
   });
 
-  test("k.mjs -O keeps a folder in step with a plain namespace", async () => {
+  test("k.mjs -O exports a plain namespace and overwrites local names", async () => {
     const folder = mkdtempSync(join(tmpdir(), "kurobako-mirror-"));
     const script = join(import.meta.dir, "..", "public", "k.mjs");
     const mirror = async () => {
@@ -1050,10 +1077,12 @@ describe("under a base path", () => {
       await at("/k/mirror/shot.png", { method: "PUT", body: png });
       await mirror();
       expect(readdirSync(folder).sort()).toEqual(["first.txt", "shot.png"]);
+      writeFileSync(join(folder, "first.txt"), "local edit");
       await send("second");
       const report = await mirror();
-      expect(report).toContain("already saved as first.txt");
+      expect(report).toContain("→ first.txt");
       expect(readdirSync(folder).sort()).toEqual(["first.txt", "second.txt", "shot.png"]);
+      expect(readFileSync(join(folder, "first.txt"), "utf8")).toBe("first");
       expect(readFileSync(join(folder, "shot.png"))).toEqual(Buffer.from(png));
     } finally {
       rmSync(folder, { recursive: true, force: true });
@@ -1306,9 +1335,9 @@ describe("backups", () => {
     expect(restored).toMatchObject({ restored: 3, skipped: 0, rejected: 0, namespaces: 1 });
     const copied = (await (await to(`/${copy}/ls`)).json()) as Item[];
     const kept = listed.filter((item) => !item.burn);
-    expect(copied.map((item) => [item.id, item.kind, item.name, item.createdAt])).toEqual(
-      kept.map((item) => [item.id, item.kind, item.name, item.createdAt]),
-    );
+    expect(
+      copied.map((item) => [item.id, item.kind, item.name, item.createdAt, item.updatedAt]),
+    ).toEqual(kept.map((item) => [item.id, item.kind, item.name, item.createdAt, item.updatedAt]));
     expect(await (await to(`/${copy}/the long one`)).text()).toBe(long);
 
     // Again, as a tar sent with curl -T: nothing new.
@@ -1318,14 +1347,41 @@ describe("backups", () => {
     expect(await (await to(`/${copy}/ls`)).json()).toHaveLength(3);
   });
 
-  test("since=: only what was sent after", async () => {
+  test("since=: only what was sent or renamed after", async () => {
     const ns = fresh();
-    await from(`/${ns}/new`, text("old"));
+    await from(`/${ns}/new`, text("old and untouched"));
+    const old = (await (await from(`/${ns}/new`, text("old name"))).json()) as Item;
+    const full = (await unpack(await from(`/${ns}/tar`))).bytes;
+    const copy = fresh();
+    expect(
+      await (await to(`/${copy}/import`, { method: "POST", body: full })).json(),
+    ).toMatchObject({
+      restored: 2,
+      skipped: 0,
+    });
     await Bun.sleep(20);
     const cut = new Date().toISOString();
+    const renamed = (await (
+      await from(`/${ns}/${old.id}/n`, { method: "POST", body: "renamed after cut" })
+    ).json()) as Item;
     await from(`/${ns}/new`, text("new"));
-    const { manifest } = await unpack(await from(`/${ns}/tar?since=${cut}`));
-    expect(manifest.namespaces[0]?.items.map((item) => item.name)).toEqual(["new"]);
+    const { bytes, manifest } = await unpack(await from(`/${ns}/tar?since=${cut}`));
+    const items = defined(manifest.namespaces[0], "the namespace").items;
+    expect(items.map((item) => item.name)).toEqual(["renamed after cut", "new"]);
+    expect(items[0]?.updatedAt).toBe(renamed.updatedAt);
+    expect(Date.parse(old.createdAt)).toBeLessThan(Date.parse(cut));
+    expect(Date.parse(defined(renamed.updatedAt, "the rename time"))).toBeGreaterThanOrEqual(
+      Date.parse(cut),
+    );
+    expect(
+      await (await to(`/${copy}/import`, { method: "POST", body: bytes })).json(),
+    ).toMatchObject({ restored: 2, skipped: 0 });
+    const copied = (await (await to(`/${copy}/ls`)).json()) as Item[];
+    expect(copied.find((item) => item.id === old.id)).toMatchObject({
+      name: "renamed after cut",
+      updatedAt: renamed.updatedAt,
+    });
+    expect(copied.map((item) => item.name)).toContain("new");
     expect((await from(`/${ns}/zip?since=yesterday-ish`)).status).toBe(400);
   });
 
@@ -1370,6 +1426,21 @@ describe("backups", () => {
     expect(item?.path).toBe(`sealed/${space.id}/${item?.id}.sealed`);
     // The server never had the name: nothing readable in the backup.
     expect(new TextDecoder().decode(files.get(item?.path ?? ""))).not.toContain("sealed note");
+
+    // Once extracted, k.mjs opens either the whole backup or one .sealed file locally.
+    const extracted = join(workDir, "sealed-extracted");
+    mkdirSync(extracted);
+    writeFileSync(join(extracted, "manifest.json"), JSON.stringify(manifest));
+    for (const [path, body] of files) {
+      const output = join(extracted, path);
+      mkdirSync(dirname(output), { recursive: true });
+      writeFileSync(output, body);
+    }
+    const sealedFile = join(extracted, defined(item?.path, "the sealed item path"));
+    const secret = encodeURIComponent(name);
+    expect(await k(`${sealedFile}#${secret}`)).toBe("sealed note");
+    await k("-O", `${extracted}#${secret}`);
+    expect(readFileSync(join(workDir, "sealed note.txt"), "utf8")).toBe("sealed note");
 
     // Put back with k.mjs into the same namespace on the other server; readable again there.
     const elsewhere = `${servers[1]?.server.url.origin}/e#${encodeURIComponent(name)}`;

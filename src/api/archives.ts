@@ -4,7 +4,7 @@
 // Backups: a namespace, or with the admin key the whole instance, as a zip or
 // a tar, and back.
 //
-//   GET  <ns>/zip, <ns>/tar      the namespace (?since=<date>: only items sent since;
+//   GET  <ns>/zip, <ns>/tar      the namespace (?since=<date>: items sent or renamed since;
 //                                ?max=<bytes>: in parts, see archiveOf)
 //   POST <ns>/import             puts a backup of one namespace back into this one (PUT too)
 //   GET  /a/zip, /a/tar          every namespace (admin)
@@ -55,6 +55,7 @@ type ManifestItem = {
   id: string;
   kind: "text" | "image" | "file" | "sealed";
   createdAt: string;
+  updatedAt?: string;
   expiresAt: string | null;
   size: number;
   /** Where its contents are in the archive. */
@@ -128,6 +129,10 @@ const unique = (name: string, id: string, taken: Set<string>) => {
 const readAll = async (body: ReadableStream<Uint8Array>) =>
   new Uint8Array(await new Response(body).arrayBuffer());
 
+/** The last change a backup needs to capture; old items have only createdAt. */
+const changedAt = (item: Pick<StoredItem, "createdAt" | "updatedAt">) =>
+  Math.max(Date.parse(item.createdAt), Date.parse(item.updatedAt ?? item.createdAt));
+
 export const mountArchives = (app: App, api: Api) => {
   const { namespace, hub, platformOf, config, refuseSend, storageFull } = api;
 
@@ -167,7 +172,7 @@ export const mountArchives = (app: App, api: Api) => {
       // millisecond keep their order in the queue (the sort is stable).
       const eligible = [...stored]
         .reverse()
-        .filter((item) => !item.burn && (since === null || Date.parse(item.createdAt) >= since))
+        .filter((item) => !item.burn && (since === null || changedAt(item) >= since))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       // Names unique across the whole namespace, so parts never clash.
       const taken = new Set<string>();
@@ -199,6 +204,7 @@ export const mountArchives = (app: App, api: Api) => {
           id: item.id,
           kind: item.kind,
           createdAt: item.createdAt,
+          ...(item.updatedAt ? { updatedAt: item.updatedAt } : {}),
           expiresAt: item.expiresAt,
           size: item.size,
           path,
@@ -209,7 +215,7 @@ export const mountArchives = (app: App, api: Api) => {
         entries.push({
           path,
           size: item.size,
-          modified: new Date(item.createdAt),
+          modified: new Date(item.updatedAt ?? item.createdAt),
           open: async () => {
             if (!("object" in item)) {
               return new Blob([encoder.encode("text" in item ? item.text : "")]).stream();
@@ -265,7 +271,7 @@ export const mountArchives = (app: App, api: Api) => {
     return { max, after };
   };
 
-  /** ?since=<date or time>: only items sent since then. */
+  /** ?since=<date or time>: only items sent or renamed since then. */
   const sinceOf = (c: AppContext): number | null | Response => {
     const raw = c.req.query("since");
     if (!raw) return null;
@@ -438,6 +444,10 @@ export const mountArchives = (app: App, api: Api) => {
         const createdAt = Number.isNaN(Date.parse(item.createdAt))
           ? new Date().toISOString()
           : new Date(item.createdAt).toISOString();
+        const updatedAt =
+          item.updatedAt && !Number.isNaN(Date.parse(item.updatedAt))
+            ? new Date(item.updatedAt).toISOString()
+            : undefined;
         const expiresAt =
           item.expiresAt && !Number.isNaN(Date.parse(item.expiresAt))
             ? new Date(item.expiresAt).toISOString()
@@ -448,6 +458,7 @@ export const mountArchives = (app: App, api: Api) => {
           input,
           id: item.id,
           createdAt,
+          ...(updatedAt ? { updatedAt } : {}),
           expiresAt,
           ...(item.kind === "text" && typeof item.name === "string" ? { name: item.name } : {}),
         });

@@ -101,11 +101,6 @@ export class Queue {
     return row ? Date.parse((JSON.parse(row.data) as StoredItem).createdAt) : 0;
   }
 
-  /** Whether an item has exactly this ID. */
-  hasId(id: string): boolean {
-    return this.sql().exec("SELECT 1 FROM items WHERE id = ?", id).length > 0;
-  }
-
   /** An ID no item here has. */
   freshId(): string {
     let id = newItemId();
