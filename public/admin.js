@@ -16,6 +16,7 @@ import {
   SITE,
   storage,
 } from "./common.js";
+import { icon } from "./icons.js";
 import { createStatus } from "./status.js";
 
 const status = createStatus(element("#status"));
@@ -103,7 +104,21 @@ const renderOverview = (overview) => {
   logsSection.hidden = !overview.logsUrl && !overview.logsHint;
   logsLink.replaceChildren(
     ...(overview.logsUrl
-      ? [el("a", { className: "button", href: overview.logsUrl }, "Open logs")]
+      ? [
+          // Another site (the host's dashboard): a link, in a new tab.
+          el(
+            "a",
+            {
+              className: "external-link",
+              href: overview.logsUrl,
+              target: "_blank",
+              rel: "noopener",
+            },
+            "Open logs",
+            icon("external", 14),
+          ),
+          ` on ${new URL(overview.logsUrl).hostname}`,
+        ]
       : [overview.logsHint ?? ""]),
   );
 

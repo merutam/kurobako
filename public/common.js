@@ -145,11 +145,15 @@ export const button = (label, onClick, className, iconName) => {
   return control;
 };
 
-// Buttons in the pages' markup ask for their icon with data-icon="send".
+// Buttons in the pages' markup ask for their icon with data-icon="send";
+// links to other sites, class="external-link", are marked as such.
 // (Tests import this module too, with no page around it.)
 if (typeof document !== "undefined") {
   for (const control of document.querySelectorAll("[data-icon]")) {
     control.prepend(icon(control.dataset.icon));
+  }
+  for (const link of document.querySelectorAll("a.external-link")) {
+    link.append(icon("external", 14));
   }
 }
 
