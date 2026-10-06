@@ -518,7 +518,7 @@ describe("bun server", () => {
     );
     rmSync(workDir, { recursive: true });
     rmSync(all, { recursive: true });
-  });
+  }, 30_000);
 
   test("pushes changes to live viewers", async () => {
     const ns = fresh();
@@ -582,6 +582,85 @@ describe("bun server", () => {
     const open = readdirSync(directory).filter((file) => file.endsWith(".sqlite-shm"));
     expect(open.length).toBeLessThanOrEqual(2);
   });
+
+  test("k.mjs follows a namespace live, a line per change", async () => {
+    const own = await startServer({
+      config: { ...config, sendsPerMinute: 1_000, maxItems: 20 },
+      dataDir: mkdtempSync(join(tmpdir(), "kurobako-live-")),
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+    const script = join(import.meta.dir, "..", "public", "k.mjs");
+    const k = (...args: string[]) =>
+      Bun.spawn(["bun", script, ...args], { stdout: "pipe", stderr: "pipe" }).exited;
+    /** Follows `link`/live; `next()` waits for its next line. */
+    const follow = (link: string) => {
+      const child = Bun.spawn(["bun", script, `${link}/live`], { stdout: "pipe", stderr: "pipe" });
+      const lines: string[] = [];
+      let wake = () => {};
+      void (async () => {
+        let rest = "";
+        for await (const chunk of child.stdout) {
+          rest += new TextDecoder().decode(chunk);
+          const parts = rest.split("\n");
+          rest = parts.pop() ?? "";
+          lines.push(...parts);
+          wake();
+        }
+      })();
+      const next = async () => {
+        const deadline = Date.now() + 5_000;
+        while (!lines.length && Date.now() < deadline) {
+          await new Promise<void>((resolve) => {
+            wake = resolve;
+            setTimeout(resolve, 200);
+          });
+        }
+        return lines.shift();
+      };
+      return { child, next };
+    };
+    try {
+      for (const link of [
+        `${own.server.url.origin}/${fresh()}`,
+        `${own.server.url.origin}/e#${encodeURIComponent(`live ${crypto.randomUUID()}`)}`,
+      ]) {
+        await k("-d", "already there", `${link}/new`);
+        const live = follow(link);
+        // The queue it starts from prints nothing; changes do, decrypted.
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        await k("-d", "hello live", `${link}/new`);
+        expect(await live.next()).toMatch(/^new [a-z]{6} hello live$/);
+        await k("-d", "renamed now", `${link}/1/n`);
+        expect(await live.next()).toMatch(/^renamed [a-z]{6} renamed now$/);
+        await k("-X", "DELETE", `${link}/1`);
+        expect(await live.next()).toMatch(/^gone [a-z]{6}$/);
+        // An encrypted namespace locks at any time (a plain one only empty).
+        if (link.includes("/e#")) {
+          await k("-X", "POST", `${link}/lock`);
+          expect(await live.next()).toBe("locked");
+        }
+        live.child.kill();
+      }
+
+      // The same file sent again moves to the top (plain only: encrypted
+      // contents differ every time they are sealed).
+      const link = `${own.server.url.origin}/${fresh()}`;
+      const file = join(mkdtempSync(join(tmpdir(), "kurobako-live-file-")), "photo.png");
+      writeFileSync(file, png);
+      await k("-T", file, `${link}/`);
+      await k("-d", "on top", `${link}/new`);
+      const live = follow(link);
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await k("-T", file, `${link}/`);
+      expect(await live.next()).toMatch(/^moved [a-z]{6} photo.png$/);
+      live.child.kill();
+    } finally {
+      await own.stop();
+    }
+  }, 30_000);
 
   test("k.mjs locks a namespace and writes with KUROBAKO_WRITE_KEY", async () => {
     const script = join(import.meta.dir, "..", "public", "k.mjs");

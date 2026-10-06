@@ -490,6 +490,8 @@ Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J,
 (and -s, -S, -L, -f, -p, ignored).
 A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
 A locked namespace's write key goes in KUROBAKO_WRITE_KEY; -X POST <link>/lock locks one.
+<link>/live stays on and prints a line per change (new, moved, renamed, gone,
+locked, unlocked), the encrypted ones decrypted: for scripts.
 An encrypted namespace writes with the key its name gives; locked, it answers
 with a read-only link, <site>/e#/<token>, which reads and does not write.
 As with curl, -d @file drops line breaks; --data-binary @file keeps them.
@@ -1556,6 +1558,17 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
   const { method } = options;
   const sending = options.data !== null || options.upload !== null;
 
+  if (path === "live" && method === "GET") {
+    return watchLive(base, async (item) => {
+      try {
+        const { metadata } = await space.openItem(item.metadata, item.size);
+        return metadata.filename ?? metadata.title;
+      } catch {
+        return "(could not decrypt)";
+      }
+    });
+  }
+
   // Locking: the key is the one the name gives, sent along by reach. Locked,
   // the answer adds the read-only link to hand out.
   if (path === "lock" && (method === "POST" || method === "DELETE")) {
@@ -1690,7 +1703,99 @@ const isNamespace = async (url) => {
 };
 
 /** Plain links go to the server as they are, like curl would send them. */
+/**
+ * Stays on a namespace's live connection and prints a line per change, for
+ * scripts (`while read -r event id name`): "new <id> <name>", "moved <id>
+ * <name>" (the same contents sent again), "renamed <id> <name>", "gone <id>"
+ * (deleted, expired or burnt), "locked", "unlocked". It starts from the queue
+ * as it is, reconnects by itself and, once back, prints only what changed
+ * meanwhile. `nameOf(item)` names an item (decrypting it if need be).
+ */
+const watchLive = async (base, nameOf) => {
+  if (typeof WebSocket === "undefined") {
+    throw new Error("Live updates need Node 22 or newer, or Bun.");
+  }
+  const live = (await kurobakoConfig(base))?.live ?? {
+    ping: "ping",
+    pong: "pong",
+    pingSeconds: 60,
+  };
+  const address = `${base.replace(/^http/, "ws")}/live`;
+  const accessKey = globalThis.process?.env?.KUROBAKO_KEY;
+  const print = (line) => process.stdout.write(`${line}\n`);
+  /** What was last seen, by item ID: { name, createdAt, updatedAt }; null until the first queue. */
+  let known = null;
+  let locked = null;
+  const names = new Map();
+  const named = async (item) => {
+    // Encrypted items change their sealed metadata when renamed; plain ones, their name.
+    const key = item.metadata ?? `${item.id}/${item.name ?? item.filename ?? ""}`;
+    if (!names.has(key)) names.set(key, (await nameOf(item)) || "-");
+    return names.get(key);
+  };
+
+  const apply = async ({ items, locked: nowLocked }) => {
+    const seen = new Map();
+    for (const item of items) {
+      seen.set(item.id, {
+        name: await named(item),
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt ?? null,
+      });
+    }
+    if (known) {
+      // Oldest first, as they happened.
+      for (const [id, now] of [...seen].reverse()) {
+        const before = known.get(id);
+        if (!before) print(`new ${id} ${now.name}`);
+        else if (before.createdAt !== now.createdAt) print(`moved ${id} ${now.name}`);
+        else if (before.updatedAt !== now.updatedAt) print(`renamed ${id} ${now.name}`);
+      }
+      for (const id of known.keys()) if (!seen.has(id)) print(`gone ${id}`);
+      if (Boolean(nowLocked) !== locked) print(nowLocked ? "locked" : "unlocked");
+    }
+    known = seen;
+    locked = Boolean(nowLocked);
+  };
+
+  let delay = 1_000;
+  while (true) {
+    await new Promise((resolve) => {
+      const socket = new WebSocket(
+        address,
+        accessKey ? { headers: { authorization: `Bearer ${accessKey}` } } : undefined,
+      );
+      let ping = null;
+      let handled = Promise.resolve();
+      socket.addEventListener("open", () => {
+        delay = 1_000;
+        ping = setInterval(() => socket.send(live.ping), live.pingSeconds * 1000);
+      });
+      socket.addEventListener("message", (event) => {
+        if (event.data === live.pong) return;
+        const message = JSON.parse(String(event.data));
+        if (message.type !== "items") return;
+        // One queue at a time, in order: naming one may take a moment.
+        handled = handled.then(() => apply(message)).catch((error) => console.error(error.message));
+      });
+      socket.addEventListener("close", () => {
+        clearInterval(ping);
+        handled.then(resolve);
+      });
+      // A failed connection closes too, which retries.
+      socket.addEventListener("error", () => {});
+    });
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    delay = Math.min(delay * 2, 30_000);
+  }
+};
+
 const plainRequest = async ({ url }, options) => {
+  // <namespace>/live: its changes, line by line, until stopped.
+  const watched = url.replace(/\/live\/?$/, "");
+  if (options.method === "GET" && watched !== url && (await isNamespace(watched))) {
+    return watchLive(watched, (item) => item.name ?? item.filename ?? "");
+  }
   // The bare namespace is a page; here it lists the items, like e#<name>, or
   // with -O saves them all.
   if (options.method === "GET" && (await isNamespace(url))) {

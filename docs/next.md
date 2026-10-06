@@ -11,7 +11,7 @@ downloads encrypted contents in parts through a Service Worker
 What comes next, in order. Each moves to the protocol page once built, and
 this file goes away with the last.
 
-## 1. Live updates for scripts
+## 1. Live updates for scripts (done)
 
 `k.mjs <link>/live` stays connected and prints one line per change, the
 encrypted ones decrypted: `new <id> <name>`, `gone <id>`, `locked`,
@@ -41,7 +41,7 @@ served from `public/vendor/` like the QR code library, never from a CDN;
 without an extension, it guesses. Markdown shows as highlighted source, not
 rendered HTML.
 
-## 3. Public listing
+## 3. Public listing (on hold)
 
 `/p`, a page, and `/p/ls?after=<cursor>`, its JSON, list the namespaces
 their owners chose to show: a wall of walls. `p` becomes a reserved name.
