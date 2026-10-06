@@ -88,11 +88,21 @@ let expandMode = EXPAND_MODES.includes(storage.get(EXPAND_MODE_KEY))
   ? storage.get(EXPAND_MODE_KEY)
   : "one";
 const isExpanded = (id) => (expandMode === "all" ? !closedItems.has(id) : expandedItems.has(id));
-/** Opens or closes a shown item, by id: filled in by each render. */
+/** Opens or closes a shown item, by id: set when its row is made. */
 const itemOpeners = new Map();
 let renderedSignature = "";
 let renderToken = 0;
-let objectUrls = [];
+/**
+ * The rows shown, by item id, with what they were made from: a row whose
+ * item has not changed is kept as it is, open or closed, its preview loaded.
+ */
+let rows = new Map();
+/** Blob URLs of previews, by item id: freed when that item's row goes. */
+const objectUrls = new Map();
+const freeObjectUrls = (id) => {
+  for (const url of objectUrls.get(id) ?? []) URL.revokeObjectURL(url);
+  objectUrls.delete(id);
+};
 
 // Only rewrites the countdown text; the list itself arrives from the server.
 const updateExpiries = () => {
@@ -247,9 +257,9 @@ const sealedMode = async (secretName) => {
   };
 };
 
-const objectUrl = (blob) => {
+const objectUrl = (blob, id) => {
   const url = URL.createObjectURL(blob);
-  objectUrls.push(url);
+  objectUrls.set(id, [...(objectUrls.get(id) ?? []), url]);
   return url;
 };
 
@@ -481,7 +491,7 @@ const renderItem = (entry, position) => {
           const src =
             !entry.opened && item.kind === "image" && !item.burn
               ? `${mode.basePath}/${item.id}`
-              : objectUrl(await blobOf(entry));
+              : objectUrl(await blobOf(entry), item.id);
           preview.replaceChildren(el("img", { alt: info.title, src }));
         }
       } catch (error) {
@@ -624,14 +634,34 @@ const renderItems = async (items, { force = false } = {}) => {
     ...openedOnly.map((entry) => ({ item: entry.item, info: entry.info, opened: entry })),
   ].sort((a, b) => b.item.createdAt.localeCompare(a.item.createdAt));
 
-  const previousUrls = objectUrls;
-  objectUrls = [];
+  // Rows of unchanged items stay as they are (only their position moves),
+  // so a busy queue neither reloads previews nor opens and closes them.
   const positions = new Map(items.map((item, index) => [item.id, index + 1]));
-  itemOpeners.clear();
-  itemsList.replaceChildren(
-    ...entries.map((entry) => renderItem(entry, entry.opened ? 0 : positions.get(entry.item.id))),
-  );
-  for (const url of previousUrls) URL.revokeObjectURL(url);
+  const next = new Map();
+  for (const entry of entries) {
+    const { id } = entry.item;
+    const position = entry.opened ? 0 : (positions.get(id) ?? 0);
+    const made = JSON.stringify([entry.item, entry.info, Boolean(entry.opened)]);
+    const kept = rows.get(id);
+    if (kept && kept.made === made) {
+      kept.node.querySelector(".item-position").textContent = position ? String(position) : "";
+      next.set(id, kept);
+      continue;
+    }
+    if (kept) freeObjectUrls(id);
+    next.set(id, { made, node: renderItem(entry, position) });
+  }
+  for (const id of rows.keys()) {
+    if (next.has(id)) continue;
+    freeObjectUrls(id);
+    itemOpeners.delete(id);
+  }
+  rows = next;
+  const nodes = [...next.values()].map((row) => row.node);
+  const current = [...itemsList.children];
+  if (nodes.length !== current.length || nodes.some((node, index) => node !== current[index])) {
+    itemsList.replaceChildren(...nodes);
+  }
 };
 
 /**
@@ -777,6 +807,14 @@ const sentMessage = async (response) =>
  */
 const maxFiles = () => Math.min(config.maxItems ?? 20, config.sendsPerMinute ?? 20);
 
+/** Waits `seconds`, calling `tick(secondsLeft)` once a second. */
+const countdown = async (seconds, tick) => {
+  for (let left = seconds; left > 0; left -= 1) {
+    tick(left);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+};
+
 fileForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const files = [...fileInput.files];
@@ -800,11 +838,28 @@ fileForm.addEventListener("submit", async (event) => {
   let sent = 0;
   let moved = 0;
   try {
-    for (const file of queue) {
+    let waits = 0;
+    for (let index = 0; index < queue.length; ) {
       status.progress(files.length > 1 ? `Sending ${sent + 1} of ${files.length}…` : "Sending…");
-      const response = await mode.sendFile(file, { burn: burnInput.checked });
+      let response;
+      try {
+        response = await mode.sendFile(queue[index], { burn: burnInput.checked });
+      } catch (error) {
+        // Past the sends allowed a minute: wait as the server asks, then go
+        // on with the same file. Three waits in a row without a send: stop.
+        if (error.status !== 429 || !error.retryAfter || waits >= 3) throw error;
+        waits += 1;
+        await countdown(error.retryAfter, (left) =>
+          status.progress(
+            `Send limit reached: going on in ${left} s${files.length > 1 ? ` · ${sent} of ${files.length} sent` : ""}`,
+          ),
+        );
+        continue;
+      }
+      waits = 0;
       if (response.status === 200 && (await response.json()).existing) moved += 1;
       sent += 1;
+      index += 1;
     }
     fileForm.reset();
     status.success(

@@ -113,9 +113,11 @@ export const formatExpiry = (expiresAt) => {
 
 /** A failed request: the server's own message, and its status. */
 export class RequestError extends Error {
-  constructor(message, status) {
+  /** `retryAfter`: the seconds to wait before trying again (429), when the server says. */
+  constructor(message, status, retryAfter = null) {
     super(message);
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -124,7 +126,12 @@ export const request = async (url, options) => {
   const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new RequestError(body.error || `Server error (${response.status}).`, response.status);
+    const retryAfter = Number.parseInt(response.headers.get("retry-after") ?? "", 10);
+    throw new RequestError(
+      body.error || `Server error (${response.status}).`,
+      response.status,
+      Number.isFinite(retryAfter) ? retryAfter : null,
+    );
   }
   return response;
 };
