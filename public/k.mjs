@@ -299,6 +299,8 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs -OJ <site>/e#<name>/1/d          saved under its own name
   node k.mjs -O <site>/e#<name>               exports every item here (overwrites)
   node k.mjs -O './backup#<name>'             exports an extracted encrypted backup
+  node k.mjs './backup#<name>/ls'             lists that backup as JSON, offline
+  node k.mjs './backup#<name>/1'              decrypts its newest item, offline
   node k.mjs './backup/.../item.sealed#<name>'   decrypts one local backup item
   node k.mjs -d 'hello' <site>/e#<name>/new   sends a text (-d @file, -d @- for stdin)
   node k.mjs -T photo.jpg <site>/e#<name>/    sends a file
@@ -324,6 +326,7 @@ export const TEXT_PREVIEW_CHARS = 280;
 /** An item: its position (1 is the newest) or its six-letter ID. */
 const ITEM_PATTERN = /^(?:[1-9][0-9]{0,3}|[a-z]{6})$/;
 const BURN_VALUES = new Set(["1", "true", "yes"]);
+const FIXED_PATHS = new Set(["", "ls", "new", "log", "log.json", "live", "zip", "tar", "import"]);
 
 const runningAsScript = async () => {
   if (typeof document !== "undefined" || !globalThis.process?.argv?.[1]) return false;
@@ -472,6 +475,15 @@ const parseLink = (text) => {
     };
   }
   return { kind: "plain", url: `${url.origin}${url.pathname}${url.search}` };
+};
+
+/** A namespace path split the same way for online and offline requests. */
+const parseNamespacePath = (fullPath) => {
+  // A query follows the path, and a trailing slash means the same as none.
+  const [rawPath = "", query = ""] = fullPath.split("?", 2);
+  const path = rawPath.replace(/\/+$/, "");
+  const [rawFirst = "", second, ...extra] = path.split("/");
+  return { path, query, first: decodeURIComponent(rawFirst), second, extra };
 };
 
 // --- Requests and output ----------------------------------------------------
@@ -727,8 +739,7 @@ const openList = async (space, site) => {
  * name: a file's name or a text's title, the newest of that name. The server
  * cannot look up encrypted names, so the list is decrypted here.
  */
-const lookUp = async (space, site, selector) => {
-  const entries = await openList(space, site);
+const lookUpIn = (entries, selector) => {
   if (/^\d+$/.test(selector)) return entries[Number(selector) - 1] ?? null;
   // A name, exactly; or else the start of one, ignoring case (newest first).
   const nameOf = ({ opened }) => opened?.metadata.filename ?? opened?.metadata.title ?? null;
@@ -740,12 +751,15 @@ const lookUp = async (space, site, selector) => {
     null
   );
 };
-const findEntry = async (space, site, selector) => {
-  const entry = await lookUp(space, site, selector);
+const lookUp = async (space, site, selector) => lookUpIn(await openList(space, site), selector);
+const requireEntryIn = (entries, selector) => {
+  const entry = lookUpIn(entries, selector);
   if (!entry) throw new Error("Item not found.");
   if (!entry.opened) throw new Error("This item could not be decrypted.");
   return entry;
 };
+const findEntry = async (space, site, selector) =>
+  requireEntryIn(await openList(space, site), selector);
 
 /**
  * An item as the plain API's JSON shows it, with the encrypted fields opened:
@@ -799,6 +813,33 @@ const contentsOf = async (entry) =>
   entry.opened.open(
     entry.loadSealed ? await entry.loadSealed() : await fetchBytes(entry.contentUrl),
   );
+
+/** An entry's text or preview. Reading one consumes nothing. */
+const entryText = async (entry, options = {}) => {
+  const metadata = entry.opened?.metadata;
+  if (metadata?.kind !== "text" || entry.item.burn) return {};
+  const text = decoder.decode(await contentsOf(entry));
+  return textJson(text, metadata.size, options);
+};
+
+/** One decrypted entry in the plain API's JSON shape. */
+const entryJson = async (entry, options = {}) => ({
+  ...itemJson(entry.item, entry.opened?.metadata),
+  ...(await entryText(entry, options)),
+});
+
+const entriesJson = (entries, options = {}) =>
+  Promise.all(entries.map((entry) => entryJson(entry, options)));
+
+/** Sends one decrypted entry through the common curl-like output rules. */
+const deliverEntry = (entry, options, urlName = ownName(entry)) =>
+  deliver({
+    options,
+    isText: entry.opened.metadata.kind === "text",
+    ownName: ownName(entry),
+    urlName,
+    load: () => contentsOf(entry),
+  });
 
 /** Decimal units, like the site's limits (100 MB, 64 kB). */
 export const formatBytes = (bytes) => {
@@ -915,8 +956,9 @@ const saveAll = async (entries, options) => {
 
 /**
  * Opens an extracted backup directory, its manifest, or one of its .sealed
- * files. The secret follows the path after #, as in a remote encrypted link,
- * or comes from KUROBAKO_SECRET. False means the argument is not a local path.
+ * files. As in a remote encrypted link, the fragment is #<secret>/<path>;
+ * KUROBAKO_SECRET may supply an omitted secret. False means the argument is
+ * not a local path.
  */
 const localRequest = async (text, options) => {
   const hash = text.indexOf("#");
@@ -939,12 +981,9 @@ const localRequest = async (text, options) => {
     throw new Error("A local encrypted backup can only be read.");
   }
 
-  const encodedSecret = hash < 0 ? null : text.slice(hash + 1);
-  const secret = normalizeSecretName(
-    encodedSecret === null
-      ? (process.env.KUROBAKO_SECRET ?? "")
-      : decodeURIComponent(encodedSecret),
-  );
+  const fragment = hash < 0 ? null : splitFragment(text.slice(hash + 1));
+  const secret = fragment?.name || normalizeSecretName(process.env.KUROBAKO_SECRET ?? "");
+  const fullPath = fragment?.path ?? "";
   const problem = secretNameProblem(secret);
   if (problem) {
     throw new Error(
@@ -1012,10 +1051,8 @@ const localRequest = async (text, options) => {
     const file = localFile(item);
     return file && (oneFile ? file === target : !targetStat.isDirectory() || under(target, file));
   });
-  if (!selected.length) {
-    throw new Error(
-      oneFile ? "That file is not in the backup manifest." : "No encrypted items found.",
-    );
+  if (!selected.length && oneFile) {
+    throw new Error("That file is not in the backup manifest.");
   }
   const entries = await Promise.all(
     [...selected].reverse().map(async (item, index) => ({
@@ -1026,22 +1063,57 @@ const localRequest = async (text, options) => {
     })),
   );
   if (oneFile) {
+    if (fullPath) throw new Error("A local .sealed file does not take a namespace path.");
     const [entry] = entries;
-    const name = ownName(entry);
-    await deliver({
-      options,
-      isText: entry.opened.metadata.kind === "text",
-      ownName: name,
-      urlName: name,
-      load: () => contentsOf(entry),
-    });
-  } else if (options.output !== null) {
-    throw new Error("Use -O to export a local backup directory, not -o.");
-  } else if (options.remoteName) {
-    await saveAll(entries, options);
-  } else {
-    console.log(itemsTable(entries.map(tableJson)));
+    await deliverEntry(entry, options);
+    return true;
   }
+
+  // The read-only paths mirror an online encrypted namespace. A trailing
+  // slash is harmless locally, which is convenient when the source is a
+  // directory on disk.
+  const { path, query, first, second, extra } = parseNamespacePath(fullPath);
+
+  if (path === "") {
+    if (options.output !== null) {
+      throw new Error("Use -O to export a local backup directory, not -o.");
+    }
+    if (options.remoteName) await saveAll(entries, options);
+    else console.log(itemsTable(entries.map(tableJson)));
+    return true;
+  }
+  if (path === "ls") {
+    const listingOptions = {
+      summary: new URLSearchParams(query).has("summary"),
+      // The server's inline limit is not recorded in a backup. Locally the
+      // whole text is available; ?summary still requests a short preview.
+      inlineLimit: Infinity,
+    };
+    printJson(await entriesJson(entries, listingOptions));
+    return true;
+  }
+  // As online, <item>.json means details unless an item has that exact ID or
+  // filename. A backup cannot recreate the server-owned share URL.
+  if (first.endsWith(".json") && second === undefined) {
+    const same = lookUpIn(entries, first);
+    const exact = same && (same.item.id === first || same.opened?.metadata.filename === first);
+    if (!exact) {
+      const entry = requireEntryIn(entries, first.slice(0, -".json".length));
+      printJson({
+        ...(await entryJson(entry)),
+        position: entry.number,
+      });
+      return true;
+    }
+  }
+  if (!first || extra.length || (second !== undefined && !["c", "d", "s"].includes(second))) {
+    throw new Error(`Unknown local backup path "${path}". See: node k.mjs`);
+  }
+  if (second === "s") {
+    throw new Error("A share link needs the server; it is not stored in the backup.");
+  }
+  const entry = requireEntryIn(entries, first);
+  await deliverEntry(entry, options, second ?? first);
   return true;
 };
 
@@ -1082,25 +1154,13 @@ const send = async (space, site, options, filename) => {
 };
 
 /**
- * An entry's text or preview (see textJson). Reading one consumes nothing:
- * burn-after-reading texts are never read here.
- */
-const entryText = async (entry, options = {}) => {
-  const metadata = entry.opened?.metadata;
-  if (metadata?.kind !== "text" || entry.item.burn) return {};
-  const text = decoder.decode(await contentsOf(entry));
-  return textJson(text, metadata.size, options);
-};
-
-/**
  * One item as the plain API's <item>.json shows it, decrypted: its details,
  * its text unless it burns, its position and a share link with its key.
  */
 const describeEntry = async (entry, base) => {
   const described = await (await call(`${base}/${entry.item.id}.json`)).json();
   return {
-    ...itemJson(entry.item, entry.opened.metadata),
-    ...(await entryText(entry, { inlineLimit: await inlineLimitOf(`${base}/ls`) })),
+    ...(await entryJson(entry, { inlineLimit: await inlineLimitOf(`${base}/ls`) })),
     position: described.position,
     shareUrl: `${described.shareUrl}#${entry.opened.keyText}`,
   };
@@ -1133,24 +1193,20 @@ const rename = async (space, site, selector, given) => {
     item,
     opened: { ...entry.opened, metadata: { ...entry.opened.metadata, ...changes } },
   };
-  printJson({
-    ...itemJson(item, renamed.opened.metadata),
-    ...(await entryText(renamed, { inlineLimit: await inlineLimitOf(`${site}/e/${space.id}/ls`) })),
-  });
+  printJson(
+    await entryJson(renamed, {
+      inlineLimit: await inlineLimitOf(`${site}/e/${space.id}/ls`),
+    }),
+  );
 };
 
 /** The encrypted namespace, path by path, as the plain API answers it. */
 const sealedRequest = async ({ site, name, path: fullPath }, options) => {
-  // A query goes after the path, as in a URL: <link>/ls?summary.
-  const [path = "", query = ""] = fullPath.split("?", 2);
+  const { path, query, first, second, extra } = parseNamespacePath(fullPath);
   const space = await openSealedSpace(name);
   const base = `${site}/e/${space.id}`;
   const { method } = options;
-  const [rawFirst = "", second, ...extra] = path.split("/");
-  // Names may be written percent-encoded, as in a URL.
-  const first = decodeURIComponent(rawFirst);
   const sending = options.data !== null || options.upload !== null;
-  const FIXED = new Set(["", "ls", "new", "log", "log.json", "live", "zip", "tar", "import"]);
 
   // Backups go as they are: the server sends items still encrypted, and a
   // backup is restored the same way.
@@ -1175,7 +1231,7 @@ const sealedRequest = async ({ site, name, path: fullPath }, options) => {
   if (sending) {
     if (options.data !== null && path === "new" && method === "POST")
       return send(space, site, options);
-    if (options.data !== null && second === "n" && !FIXED.has(first) && !extra.length) {
+    if (options.data !== null && second === "n" && !FIXED_PATHS.has(first) && !extra.length) {
       return rename(space, site, first, decoder.decode(await dataBytes(options)));
     }
     if (
@@ -1202,13 +1258,7 @@ const sealedRequest = async ({ site, name, path: fullPath }, options) => {
       summary: new URLSearchParams(query).has("summary"),
       inlineLimit: await inlineLimitOf(`${base}/ls`),
     };
-    const items = await Promise.all(
-      entries.map(async (entry) => ({
-        ...itemJson(entry.item, entry.opened?.metadata),
-        ...(await entryText(entry, options)),
-      })),
-    );
-    return printJson(items);
+    return printJson(await entriesJson(entries, options));
   }
   if (path === "log" || path === "log.json") {
     return writeStdout(
@@ -1227,7 +1277,7 @@ const sealedRequest = async ({ site, name, path: fullPath }, options) => {
     }
   }
   if (
-    FIXED.has(first) ||
+    FIXED_PATHS.has(first) ||
     extra.length ||
     (second !== undefined && !["c", "d", "s"].includes(second))
   ) {
@@ -1247,13 +1297,7 @@ const sealedRequest = async ({ site, name, path: fullPath }, options) => {
   }
   if (method === "GET" && second !== "s") {
     const entry = await findEntry(space, site, first);
-    return deliver({
-      options,
-      isText: entry.opened.metadata.kind === "text",
-      ownName: ownName(entry),
-      urlName: second ?? first,
-      load: () => contentsOf(entry),
-    });
+    return deliverEntry(entry, options, second ?? first);
   }
   throw new Error(`${method} is not used on "${path}". See: node k.mjs`);
 };
@@ -1266,13 +1310,7 @@ const sharedRequest = async ({ base, suffix, keyText }, options) => {
   if (suffix === ".json") return printJson(itemJson(item, opened.metadata));
   if (!["", "/c", "/d"].includes(suffix)) throw new Error(`Unknown path "${suffix}".`);
   const entry = { item, opened, contentUrl: `${base}/c` };
-  return deliver({
-    options,
-    isText: opened.metadata.kind === "text",
-    ownName: ownName(entry),
-    urlName: suffix ? suffix.slice(1) : base.split("/").pop(),
-    load: () => contentsOf(entry),
-  });
+  return deliverEntry(entry, options, suffix ? suffix.slice(1) : base.split("/").pop());
 };
 
 /**
