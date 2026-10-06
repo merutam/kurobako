@@ -131,6 +131,11 @@ export const seekVideo = (video, direction) => {
  */
 export const gestureVideo = (src) => {
   const video = el("video", { src, controls: true, preload: "metadata", playsInline: true });
+  // Its own full screen would show the bare video, without these gestures:
+  // the gallery's full screen button is the one (Firefox ignores this; the
+  // gallery moves its full screen to itself there).
+  video.setAttribute("controlslist", "nofullscreen");
+  video.disablePictureInPicture = true;
   const gestures = el("div", {
     className: "video-gestures",
     title: "Tap to play or pause; double-tap left or right to seek 10 seconds",
