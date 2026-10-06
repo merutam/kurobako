@@ -425,16 +425,22 @@ button.destructive {
 .status:empty {
   display: none;
 }
+/* The page's status floats over it, at the top, out of the flow: showing
+   and leaving (see status.js) moves nothing on the page. */
 .status {
-  position: sticky;
-  top: var(--space-2);
-  z-index: 1;
+  position: fixed;
+  top: var(--space-3);
+  left: 50%;
+  z-index: 10;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
-  margin: 0 0 var(--space-5);
+  width: min(40rem, calc(100% - 2 * var(--page-gutter)));
+  margin: 0;
   padding: var(--space-2) var(--space-3);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 25%);
+  transform: translateX(-50%);
   border: 1px solid var(--success-text);
   background: var(--success-surface);
   color: var(--text);
@@ -461,9 +467,13 @@ button.destructive {
   background: none;
   color: var(--text-subtle);
 }
+/* A form's own status stays by its fields, in the flow. */
 fieldset .status {
   position: static;
+  width: auto;
   margin: var(--space-3) 0 0;
+  box-shadow: none;
+  transform: none;
 }
 
 /* --- Contents: code and images --------------------------------------------- */
