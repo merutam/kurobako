@@ -74,6 +74,23 @@ in
       description = "The port the server listens on.";
     };
 
+    domain = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "box.example";
+      description = ''
+        Serve the site on this domain over HTTPS, through Caddy, which gets
+        and renews its certificate (the domain must point here). Also sets
+        PUBLIC_URL and CLIENT_IP_HEADER, unless settings does.
+      '';
+    };
+
+    openFirewall = mkOption {
+      type = types.bool;
+      default = true;
+      description = "With domain, open ports 80 and 443 (TCP, and UDP for HTTP/3).";
+    };
+
     environmentFile = mkOption {
       type = types.nullOr types.path;
       default = null;
@@ -212,6 +229,11 @@ in
                 S3_REGION = cfg.s3.region;
                 S3_BUCKET = cfg.s3.bucket;
               }
+              // lib.optionalAttrs (cfg.domain != null) {
+                PUBLIC_URL = "https://${cfg.domain}";
+                # Caddy puts the client's address there, and drops any it was sent.
+                CLIENT_IP_HEADER = "x-forwarded-for";
+              }
               // cfg.settings
             );
         serviceConfig = {
@@ -250,6 +272,36 @@ in
           SystemCallArchitectures = "native";
           UMask = "0077";
         };
+      };
+    })
+
+    (lib.mkIf (cfg.enable && cfg.domain != null) {
+      services.caddy = {
+        enable = true;
+        virtualHosts.${cfg.domain}.extraConfig =
+          let
+            # Listening everywhere, it is still reached here.
+            upstream =
+              if
+                lib.elem cfg.host [
+                  "0.0.0.0"
+                  "::"
+                ]
+              then
+                "127.0.0.1"
+              else
+                cfg.host;
+          in
+          "reverse_proxy ${
+            if lib.hasInfix ":" upstream then "[${upstream}]" else upstream
+          }:${toString cfg.port}";
+      };
+      networking.firewall = lib.mkIf cfg.openFirewall {
+        allowedTCPPorts = [
+          80
+          443
+        ];
+        allowedUDPPorts = [ 443 ];
       };
     })
 
