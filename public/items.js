@@ -3,7 +3,15 @@
 
 // Items as the namespace page and the shared-item page show them: what to
 // call one, the line under its title, and copying or saving its contents.
-import { asPng, compactText, dateFormatter, el, formatBytes, HIDDEN_TITLE } from "./common.js";
+import {
+  asPng,
+  compactText,
+  dateFormatter,
+  el,
+  formatBytes,
+  HIDDEN_TITLE,
+  SITE,
+} from "./common.js";
 
 /**
  * A plain item, as the pages show it: { kind: "text" | "file", title,
@@ -80,4 +88,68 @@ export const downloadBlob = (blob, filename) => {
   el("a", { href: url, download: filename || "file" }).click();
   // Long enough for the browser to have started saving it.
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
+
+/*
+ * Encrypted contents in parts, through the Service Worker (sw.js): it is
+ * handed an item's body key and gives an address that plays or downloads
+ * the item as it arrives. Without one (some private windows, no HTTPS), the
+ * pages open contents whole, as a Blob.
+ */
+const streams = new Map();
+let streaming = null;
+
+/** Whether a Service Worker reads encrypted contents in parts here; started once. */
+const startStreaming = () => {
+  if (streaming) return streaming;
+  const workers = globalThis.navigator?.serviceWorker;
+  if (!workers) {
+    streaming = Promise.resolve(false);
+    return streaming;
+  }
+  // A worker started again asks for the keys it lost.
+  workers.addEventListener("message", (event) => {
+    if (event.data?.type === "stream-needed") {
+      event.ports[0]?.postMessage({ stream: streams.get(event.data.token) ?? null });
+    }
+  });
+  streaming = (async () => {
+    try {
+      await workers.register(`${SITE}/sw.js`, { scope: `${SITE}/` });
+      await workers.ready;
+      // The first time, the worker takes this page over as it activates.
+      if (!workers.controller) {
+        await new Promise((resolve) => {
+          workers.addEventListener("controllerchange", resolve, { once: true });
+          setTimeout(resolve, 3000);
+        });
+      }
+      return Boolean(workers.controller);
+    } catch {
+      return false;
+    }
+  })();
+  return streaming;
+};
+
+/**
+ * An address that reads encrypted contents in parts, as they arrive; add
+ * ?download to save them. `stream` is { url (of the sealed contents), key
+ * (the body key), sealedSize, size, mime, filename }. Null without a worker.
+ */
+export const streamAddress = async (stream) => {
+  if (!(await startStreaming())) return null;
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  streams.set(token, stream);
+  const channel = new MessageChannel();
+  const accepted = new Promise((resolve) => {
+    channel.port1.onmessage = () => resolve(true);
+    setTimeout(() => resolve(false), 2000);
+  });
+  navigator.serviceWorker.controller?.postMessage({ type: "stream", token, stream }, [
+    channel.port2,
+  ]);
+  return (await accepted) ? `${SITE}/k/stream/${token}` : null;
 };

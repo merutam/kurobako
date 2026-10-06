@@ -12,6 +12,7 @@ import {
   describePlain,
   downloadBlob,
   itemSummary,
+  streamAddress,
   videoPlayer,
 } from "./items.js";
 import { openSharedItem } from "./k.mjs";
@@ -33,8 +34,8 @@ const GONE = "This item is no longer available.";
 const describe = async (item) => {
   if (item.kind !== "sealed") return { ...describePlain(item), decrypt: null };
   if (!keyText) throw new Error("Incomplete link: the part after # is missing.");
-  const { metadata, open } = await openSharedItem(keyText, item.metadata, item.size);
-  return { ...describeOpened(metadata), decrypt: open };
+  const { metadata, open, bodyKey } = await openSharedItem(keyText, item.metadata, item.size);
+  return { ...describeOpened(metadata), decrypt: open, bodyKey };
 };
 
 const fetchBytes = async (url, info) => {
@@ -154,7 +155,27 @@ try {
       el("a", { className: "button", href: `${here}/d` }, icon("download"), "Download"),
     );
   } else {
-    showContent(info, await loadContent(item, info));
+    // An encrypted file other than an image: read in parts, through the
+    // Service Worker, rather than whole on opening the page.
+    const address =
+      item.kind === "sealed" && info.kind === "file" && !info.isImage
+        ? await streamAddress({
+            url: `${window.location.origin}${here}/c`,
+            key: await info.bodyKey(),
+            sealedSize: item.size,
+            size: info.size,
+            mime: info.mime || "application/octet-stream",
+            filename: info.filename || "file",
+          })
+        : null;
+    if (address) {
+      body.replaceChildren(...(info.isVideo ? [videoPlayer(address)] : []));
+      actions.replaceChildren(
+        el("a", { className: "button", href: `${address}?download` }, icon("download"), "Download"),
+      );
+    } else {
+      showContent(info, await loadContent(item, info));
+    }
   }
 } catch (error) {
   title.textContent = "Shared item";

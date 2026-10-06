@@ -34,6 +34,7 @@ import {
   describePlain,
   downloadBlob,
   itemSummary,
+  streamAddress,
   videoPlayer,
 } from "./items.js";
 import {
@@ -250,6 +251,19 @@ const sealedMode = async ({ secretName, readToken }) => {
       });
     },
     downloadUrl: null,
+    /** What the Service Worker needs to read the item in parts (see streamAddress). */
+    streamOf: async (item) => {
+      const opened = await openItem(item);
+      if (!opened) throw new Error("This item could not be decrypted.");
+      return {
+        url: `${window.location.origin}${basePath}/${encodeURIComponent(item.id)}`,
+        key: await opened.bodyKey(),
+        sealedSize: item.size,
+        size: opened.metadata.size,
+        mime: opened.metadata.mime || "application/octet-stream",
+        filename: opened.metadata.filename || "file",
+      };
+    },
     /** The item's own key, for the part of a share link the server never sees. */
     shareKey: async (item) => (await openItem(item))?.keyText ?? null,
     sendText: (text, { burn }) => {
@@ -333,8 +347,24 @@ const copyItem = async (entry) => {
   }
 };
 
+/**
+ * An address that reads an encrypted item in parts, through the Service
+ * Worker; null when it cannot (no worker, or the item burns after reading,
+ * which must be read whole, once).
+ */
+const partsAddress = async (entry) =>
+  mode.streamOf && !entry.opened && !entry.item.burn
+    ? streamAddress(await mode.streamOf(entry.item))
+    : null;
+
 const downloadItem = async (entry) => {
   try {
+    // Saved as it arrives, never whole in this page's memory.
+    const address = await partsAddress(entry);
+    if (address) {
+      window.location.assign(`${address}?download`);
+      return;
+    }
     downloadBlob(await blobOf(entry), entry.info.filename);
   } catch (error) {
     status.error(error.message);
@@ -533,12 +563,14 @@ const renderItem = (entry, position) => {
           preview.replaceChildren(el("pre", { textContent: await textOf(entry) }));
         } else {
           // Plain images and videos load straight from the server (a video
-          // in parts, as it plays); anything else is fetched (and
+          // in parts, as it plays); an encrypted video plays in parts too,
+          // through the Service Worker; anything else is fetched (and
           // decrypted) here, whole.
           const src =
             !entry.opened && item.kind !== "sealed" && !item.burn
               ? `${mode.basePath}/${item.id}`
-              : objectUrl(await blobOf(entry), item.id);
+              : ((info.isVideo ? await partsAddress(entry) : null) ??
+                objectUrl(await blobOf(entry), item.id));
           preview.replaceChildren(
             info.isVideo ? videoPlayer(src) : el("img", { alt: info.title, src }),
           );

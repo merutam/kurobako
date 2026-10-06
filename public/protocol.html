@@ -10,8 +10,8 @@
 <main class="prose">
   <h1>Protocol</h1>
   <p class="intro">
-    This page is the complete protocol of a Kurobako server, for plain and
-    encrypted namespaces. With what is below, and nothing else, a client can
+    This page is the complete protocol of a Kurobako server, version 4, for
+    plain and encrypted namespaces. With what is below, and nothing else, a client can
     read, write, rename, delete, download and share items.
     <a href="/k.mjs"><code>k.mjs</code></a> is one such client; nothing in
     it is needed to interoperate.
@@ -36,7 +36,9 @@
     <code>GET /.well-known/kurobako</code> describes the server as JSON:
     <code>base</code>, the path the site lives under (<code>""</code> at the
     domain's root, or e.g. <code>"/k"</code>; every path on this page goes
-    after it), <code>version</code>, <code>protocolUrl</code> (this
+    after it), <code>version</code> (the server's own),
+    <code>protocol</code> (this page's version, 4: a client of another
+    cannot open its encrypted items), <code>protocolUrl</code> (this
     page), <code>clientUrl</code> (<code>k.mjs</code>), and its limits:
     <code>maxFileBytes</code>, <code>maxTextBytes</code>,
     <code>inlineTextBytes</code> (longer texts are listed with a preview),
@@ -168,7 +170,7 @@
   <p>
     A name is 1-64 characters of <code>a-z</code>, <code>0-9</code>,
     <code>-</code> and <code>_</code>, starting and ending with a letter or
-    digit; <code>a</code>, <code>e</code>, <code>i</code> and
+    digit; <code>e</code>, <code>i</code> and
     <code>k</code> are taken.
   </p>
   <div class="table-scroll">

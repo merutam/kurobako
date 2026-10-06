@@ -18,7 +18,7 @@ import { isAutomatedNetwork, networkKey } from "../networks";
 import { escapeHtml, staticFiles, type WebAssets } from "../pages";
 import type { Platform } from "../platform";
 import { accessEvent, clientKey } from "../request-info";
-import { CLIENT_PATH, PROTOCOL_PATH } from "../routing";
+import { CLIENT_PATH, PROTOCOL_PATH, PROTOCOL_VERSION } from "../routing";
 
 export type AppEnv = {
   Bindings: object;
@@ -109,6 +109,8 @@ export const createContext = (
     /** The server's version, which k.mjs compares with its own when a request fails. */
     version: assets.version,
     /** The protocol, plain and encrypted, complete enough to write a client from. */
+    /** The protocol's version (see PROTOCOL_VERSION). */
+    protocol: PROTOCOL_VERSION,
     protocolUrl: `${config.basePath}${PROTOCOL_PATH}`,
     /** k.mjs: a client for the protocol, and a command line that speaks curl. */
     clientUrl: `${config.basePath}${CLIENT_PATH}`,

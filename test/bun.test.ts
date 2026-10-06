@@ -25,6 +25,7 @@ import {
   formatBytes as cliFormatBytes,
   contentSize,
   fileMetadata,
+  PROTOCOL as K_PROTOCOL,
   VERSION as K_VERSION,
   openReadOnlySpace,
   openSealedSpace,
@@ -43,7 +44,15 @@ import { isAutomatedNetwork, networkKey } from "../src/networks";
 import { ICON_FILES, STATIC_FILES } from "../src/pages";
 import type { BlobStore } from "../src/platform";
 import { clientKey } from "../src/request-info";
-import { routeOf, SLOT_COUNT, slotOf, slotOwners, slotPrefix, tokenSlot } from "../src/routing";
+import {
+  PROTOCOL_VERSION,
+  routeOf,
+  SLOT_COUNT,
+  slotOf,
+  slotOwners,
+  slotPrefix,
+  tokenSlot,
+} from "../src/routing";
 import { TEST_ADMIN_KEY } from "./admin-key";
 import { type Harness, sharedTests } from "./shared";
 import { defined, type FileItem, type Item, type LiveMessage, type SharedItem } from "./support";
@@ -158,7 +167,7 @@ describe("shared", () => {
 
   test("points the admin to its logs, which have no page of their own here", async () => {
     const overview = (await (
-      await fetch(`${sharedBase}/a/overview`, {
+      await fetch(`${sharedBase}/k/a/overview`, {
         headers: { authorization: `Bearer ${TEST_ADMIN_KEY}` },
       })
     ).json()) as { logsUrl: string | null; logsHint: string | null };
@@ -478,17 +487,27 @@ describe("bun server", () => {
         new URL(request.url).pathname === "/.well-known/kurobako"
           ? Response.json({
               version: "99.0.0",
+              protocol: protocol(),
+              clientUrl: "/k.mjs",
               namespace: { pattern: "." },
               live: { ping: "ping" },
             })
           : Response.json({ error: "Item not found." }, { status: 404 }),
     });
+    let protocol = () => K_PROTOCOL;
     try {
       for (const target of [`${newer.url.origin}/e#name/1`, `${newer.url.origin}/ns/1`]) {
         const { error } = await run([target]);
         expect(error).toContain("Item not found.");
         expect(error).toContain("the server is 99.0.0");
       }
+      // Another protocol: encrypted items are refused before anything is read.
+      protocol = () => K_PROTOCOL + 1;
+      const { error } = await run([`${newer.url.origin}/e#name/1`]);
+      expect(error).toContain(
+        `speaks the Kurobako protocol ${K_PROTOCOL} and the server ${K_PROTOCOL + 1}`,
+      );
+      expect(error).toContain("curl -O");
     } finally {
       await newer.stop(true);
     }
@@ -919,6 +938,10 @@ describe("rules kept in two places", () => {
     expect(CLI_TEXT_PREVIEW_CHARS).toBe(TEXT_PREVIEW_CHARS);
   });
 
+  test("the protocol's version: k.mjs speaks the server's", () => {
+    expect(K_PROTOCOL).toBe(PROTOCOL_VERSION);
+  });
+
   test("versions: k.mjs says which server version it comes from", async () => {
     const pkg = (await Bun.file(join(import.meta.dir, "..", "package.json")).json()) as {
       version: string;
@@ -1053,7 +1076,9 @@ describe("several servers", () => {
     const names = Array.from({ length: 8 }, fresh);
     for (const ns of names) await send(ns, "listed");
     for (const index of nodes.keys()) {
-      const response = await via(`/a/namespaces?server=${index + 1}&limit=500`, { headers: auth });
+      const response = await via(`/k/a/namespaces?server=${index + 1}&limit=500`, {
+        headers: auth,
+      });
       expect(response.headers.get("X-Kurobako-Server")).toBe(String(index + 1));
       expect(response.headers.get("X-Kurobako-Servers")).toBe("2");
       const { items } = (await response.json()) as { items: { name: string }[] };
@@ -1061,16 +1086,16 @@ describe("several servers", () => {
       for (const ns of names) expect(listed.has(ns)).toBe(nodeHolding(ns) === index);
     }
     // Out of range: the first server. Logged out: nothing said about the others.
-    const outOfRange = await via("/a/overview?server=9", { headers: auth });
+    const outOfRange = await via("/k/a/overview?server=9", { headers: auth });
     expect(outOfRange.headers.get("X-Kurobako-Server")).toBe("1");
-    expect((await via("/a/overview?server=2")).headers.get("X-Kurobako-Servers")).toBeNull();
+    expect((await via("/k/a/overview?server=2")).headers.get("X-Kurobako-Servers")).toBeNull();
 
     // Failed logins count on the first server, whichever one the page looks at.
     const wrong = { method: "POST", body: JSON.stringify({ key: "wrong" }) };
-    for (let attempt = 0; attempt < 5; attempt += 1) await via("/a/login?server=2", wrong);
-    expect((await via("/a/login", wrong)).status).toBe(429);
+    for (let attempt = 0; attempt < 5; attempt += 1) await via("/k/a/login?server=2", wrong);
+    expect((await via("/k/a/login", wrong)).status).toBe(429);
     const second = nodes[1]?.server.url.origin;
-    const direct = await fetch(`${second}/a/login`, {
+    const direct = await fetch(`${second}/k/a/login`, {
       ...wrong,
       headers: { "x-forwarded-for": "127.0.0.1" },
     });
@@ -1115,7 +1140,7 @@ describe("slots", () => {
       "/e",
       "/stats.json",
       "/k.mjs",
-      "/a/overview",
+      "/k/a/overview",
       "/k/protocol",
       "/Notes",
     ]) {
@@ -1251,15 +1276,16 @@ describe("under a base path", () => {
   });
 
   test("the admin's session goes with the path", async () => {
-    const login = await at("/k/a/login", {
+    // The admin is at /k/a inside the site, here under /k.
+    const login = await at("/k/k/a/login", {
       method: "POST",
       body: JSON.stringify({ key: TEST_ADMIN_KEY }),
     });
     expect(login.status).toBe(200);
     const setCookie = login.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain("Path=/k/a");
+    expect(setCookie).toContain("Path=/k/k/a");
     const cookie = setCookie.split(";")[0] ?? "";
-    expect((await at("/k/a/overview", { headers: { cookie } })).status).toBe(200);
+    expect((await at("/k/k/a/overview", { headers: { cookie } })).status).toBe(200);
   });
 
   test("k.mjs takes the site with its path, like curl", async () => {
@@ -1691,7 +1717,7 @@ describe("backups", () => {
           (await fetch(`${origin}/${into}/import`, { method: "POST", body: backup })).status,
         ).toBe(413);
         const result = await (
-          await fetch(`${origin}/a/import`, { method: "POST", headers: admin, body: backup })
+          await fetch(`${origin}/k/a/import`, { method: "POST", headers: admin, body: backup })
         ).json();
         // The large file is refused; the one after it still comes through whole.
         expect(result).toMatchObject({ rejected: 1 });
@@ -1709,9 +1735,11 @@ describe("backups", () => {
           });
         }
       }
-      const whole = new Uint8Array(await (await from("/a/zip", { headers: admin })).arrayBuffer());
+      const whole = new Uint8Array(
+        await (await from("/k/a/zip", { headers: admin })).arrayBuffer(),
+      );
       expect(whole.byteLength).toBeGreaterThan(2 * 1_000);
-      const restored = await fetch(`${origin}/a/import`, {
+      const restored = await fetch(`${origin}/k/a/import`, {
         method: "POST",
         headers: admin,
         body: whole,
@@ -1742,7 +1770,7 @@ describe("backups", () => {
     let after = "";
     let deleted = false;
     for (let round = 0; round < 50; round += 1) {
-      const response = await from(`/a/zip?max=1000${after ? `&after=${after}` : ""}`, {
+      const response = await from(`/k/a/zip?max=1000${after ? `&after=${after}` : ""}`, {
         headers: admin,
       });
       expect(response.headers.get("content-disposition")).toContain(`-part${round + 1}.zip`);
@@ -1783,7 +1811,7 @@ describe("backups", () => {
       const origin = restore.server.url.origin;
       // Last part first: the queue still comes out in order.
       for (const part of [...parts].reverse()) {
-        const response = await fetch(`${origin}/a/import`, {
+        const response = await fetch(`${origin}/k/a/import`, {
           method: "POST",
           headers: admin,
           body: part,
@@ -1897,8 +1925,8 @@ describe("backups", () => {
       `${servers[0]?.server.url.origin}/e#${encodeURIComponent(name)}/new`,
     );
 
-    expect((await from("/a/tar")).status).toBe(401);
-    const backup = await from("/a/tar", { headers: admin });
+    expect((await from("/k/a/tar")).status).toBe(401);
+    const backup = await from("/k/a/tar", { headers: admin });
     const { bytes, manifest } = await unpack(backup);
     const spaces = new Set(manifest.namespaces.map((ns) => ns.space));
     expect(spaces).toEqual(new Set(["plain", "sealed"]));
@@ -1914,7 +1942,7 @@ describe("backups", () => {
     try {
       const origin = fresh2.server.url.origin;
       const result = await (
-        await fetch(`${origin}/a/import`, { method: "POST", headers: admin, body: bytes })
+        await fetch(`${origin}/k/a/import`, { method: "POST", headers: admin, body: bytes })
       ).json();
       expect(result).toMatchObject({ namespaces: manifest.namespaces.length });
       expect(await (await fetch(`${origin}/${plain}/1`)).text()).toBe("everything");

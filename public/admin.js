@@ -59,7 +59,7 @@ let servers = 0;
 
 /** An admin URL, for the server the dashboard is looking at. */
 const adminUrl = (path) => {
-  const url = new URL(`${SITE}/a/${path}`, location.origin);
+  const url = new URL(`${SITE}/k/a/${path}`, location.origin);
   if (server) url.searchParams.set("server", server);
   return url;
 };

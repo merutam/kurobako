@@ -41,6 +41,7 @@ export const STATIC_FILES = [
   "common.js",
   "items.js",
   "icons.js",
+  "sw.js",
   "admin.js",
   "login.js",
   "k.mjs",
