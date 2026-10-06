@@ -311,7 +311,8 @@ Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J
 A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
 As with curl, -d @file drops line breaks; --data-binary @file keeps them.
 -h or --help shows this.
-Plain links (<site>/<namespace>/...) work too, passed through as they are.`;
+Plain links (<site>/<namespace>/...) work too, sent as they are; JSON prints
+the same either way, and errors go to standard error.`;
 
 /** What the plain API says a text is. */
 const TEXT_MIME = "text/plain; charset=utf-8";
@@ -1209,11 +1210,15 @@ const plainRequest = async ({ url }, options) => {
     try {
       error = JSON.parse(decoder.decode(bytes))?.error ?? null;
     } catch {}
-    const explained = await explainFailure(url, error ?? `Server error (${response.status}).`);
-    // Kurobako's own error, with nothing to add, prints as curl would show it.
-    if (explained !== error) throw new Error(explained);
-    process.exitCode = 1;
-    return writeStdout(bytes);
+    // As for an encrypted namespace: the error itself, on standard error.
+    throw new Error(await explainFailure(url, error ?? `Server error (${response.status}).`));
+  }
+  // The server's JSON (a list, an item's details, a sent item) printed as it
+  // is for an encrypted namespace, unless it is going to a file.
+  if (/^application\/json/.test(type) && options.output === null && !options.remoteName) {
+    try {
+      return printJson(JSON.parse(decoder.decode(bytes)));
+    } catch {}
   }
   const disposition = response.headers.get("content-disposition") ?? "";
   const headerName = /filename\*=UTF-8''([^;]+)/.exec(disposition)?.[1];

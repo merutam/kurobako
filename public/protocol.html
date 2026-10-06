@@ -568,6 +568,7 @@
     As with curl, binary contents are never written to a terminal,
     <code>-O</code> never overwrites a file, and reading a
     burn-after-reading item deletes it; listing reads nothing. Plain
-    links work too, passed through as they are.
+    links work too, sent as they are. JSON prints the same for both, and an
+    error is a message on standard error with exit status 1.
   </p>
 </main>
