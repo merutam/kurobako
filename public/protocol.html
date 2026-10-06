@@ -115,7 +115,8 @@
             (each item's details and the path of its contents), then the
             contents; encrypted items stay sealed (<code>&lt;id&gt;.sealed</code>,
             their header in the manifest). <code>?since=&lt;date&gt;</code>:
-            only items sent since. Burn-after-reading items are left out.
+            only items sent or renamed since; deletions are not recorded.
+            Burn-after-reading items are left out.
             <code>?max=&lt;bytes&gt;</code>: in parts, each a whole backup of
             its own items, stopping at about that size; while more remain,
             the <code>X-Kurobako-Next</code> header (also
@@ -127,9 +128,11 @@
           <td><code>POST &lt;ns&gt;/import</code></td>
           <td>
             puts such an archive back (<code>PUT</code> too), keeping IDs and
-            dates and skipping what is already there:
+            dates, applying newer names and skipping what is already there:
             <code>{"restored": …, "skipped": …, "rejected": …}</code>. An
-            encrypted namespace only takes back its own items.
+            import never deletes or replaces existing contents. Restore into
+            an empty instance for an exact copy. An encrypted namespace only
+            takes back its own items.
           </td>
         </tr>
       </tbody>
@@ -137,7 +140,8 @@
   </div>
   <p>
     Each item has <code>id</code>, <code>kind</code>, <code>size</code>
-    (bytes), <code>createdAt</code> and <code>expiresAt</code>
+    (bytes), <code>createdAt</code>, optional <code>updatedAt</code> after a
+    metadata change, and <code>expiresAt</code>
     (<code>null</code> without expiry). Its contents are at
     <code>&lt;ns&gt;/&lt;id&gt;/c</code> and a download at
     <code>&lt;ns&gt;/&lt;id&gt;/d</code>, as on a share link; the JSON
@@ -555,7 +559,7 @@
         </tr>
         <tr>
           <td><code>node k.mjs -O &lt;link&gt;</code></td>
-          <td>saves every item here, under its name (a text's with <code>.txt</code>)</td>
+          <td>exports every item here, under its name (a text's with <code>.txt</code>)</td>
         </tr>
         <tr>
           <td><code>node k.mjs https://&lt;site&gt;/i/&lt;token&gt;#&lt;key&gt;</code></td>
@@ -565,10 +569,13 @@
     </table>
   </div>
   <p>
-    As with curl, binary contents are never written to a terminal,
-    <code>-O</code> never overwrites a file, and reading a
-    burn-after-reading item deletes it; listing reads nothing. Plain
-    links work too, sent as they are. JSON prints the same for both, and an
-    error is a message on standard error with exit status 1.
+    As with curl, binary contents are never written to a terminal and
+    <code>-O</code> overwrites its output; <code>--no-clobber</code> refuses
+    instead. Exporting a namespace does not delete extra local files. Reading
+    a burn-after-reading item deletes it; listing reads nothing. Plain links
+    work too, sent as they are. JSON prints the same for both, and an error is
+    a message on standard error with exit status 1. An extracted encrypted
+    backup or one of its <code>.sealed</code> files opens locally as
+    <code>path#secret name</code>, with its <code>manifest.json</code> present.
   </p>
 </main>

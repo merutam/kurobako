@@ -206,10 +206,15 @@ export const sharedTests = (harness: Harness) => {
         });
 
       // A text takes a name, used in lists and downloads; an empty one restores the default.
-      await sendText(ns, "some long text");
-      expect(await (await rename("1", "  Notes   for later ")).json()).toMatchObject({
+      const original = await parse<Item>(sendText(ns, "some long text"));
+      const renamed = await parse<Item>(rename("1", "  Notes   for later "));
+      expect(renamed).toMatchObject({
         name: "Notes for later",
+        createdAt: original.createdAt,
       });
+      expect(Date.parse(defined(renamed.updatedAt, "the rename time"))).toBeGreaterThanOrEqual(
+        Date.parse(original.createdAt),
+      );
       expect((await json<Item[]>(`/${ns}/ls?summary`))[0]).toMatchObject({
         name: "Notes for later",
       });
@@ -247,7 +252,9 @@ export const sharedTests = (harness: Harness) => {
           method: "POST",
           headers: { "x-sealed-metadata": metadata },
         });
-      expect((await await parse<Item>(reseal("a2V5.bmV3"))).metadata).toBe("a2V5.bmV3");
+      const resealed = await parse<Item>(reseal("a2V5.bmV3"));
+      expect(resealed.metadata).toBe("a2V5.bmV3");
+      expect(resealed.updatedAt).toBeDefined();
       expect((await reseal("b3RoZXI.bmV3")).status).toBe(400);
     });
 

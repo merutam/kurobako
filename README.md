@@ -43,7 +43,7 @@ curl -O $BOX/k.mjs
 node k.mjs "$BOX/e#secret name"                # the items, one per line
 node k.mjs "$BOX/e#secret name/1"              # an item's contents
 node k.mjs -d 'hello' "$BOX/e#secret name/new"
-node k.mjs -O "$BOX/e#secret name"             # save every item here
+node k.mjs -O "$BOX/e#secret name"             # export every item here (overwrites)
 ```
 
 With [Nix](https://nixos.org/), `nix run github:merutam/kurobako#k -- <options> <link>`
@@ -80,21 +80,28 @@ Encrypted items stay encrypted in it, so a backup needs no secret:
 
 ```sh
 curl -OJ $BOX/ns/zip                       # ns-2026-10-06.zip (or /tar)
-curl -OJ "$BOX/ns/zip?since=2026-10-01"    # only what was sent since
+curl -OJ "$BOX/ns/zip?since=2026-10-01"    # only what was sent or renamed since
 curl -T ns-2026-10-06.zip $BOX/ns/import   # put back (into any plain namespace)
 node k.mjs -O "$BOX/e#secret name"         # every item, decrypted, into this folder
 ```
 
-Run again, `k.mjs -O` saves only what is new, so it keeps a folder in step
-with a namespace. With `ADMIN_KEY` set, `/a/zip` and `/a/tar` back up every
-namespace, and `/a/import` restores them:
+Like curl, `k.mjs -O` overwrites a local file of the same name; add
+`--no-clobber` to refuse. It exports but does not synchronize a folder. An
+extracted encrypted backup can be opened offline with
+`node k.mjs -O './backup#secret name'`, or one of its `.sealed` files can be
+printed by passing that path with the same `#secret name`. `KUROBAKO_SECRET`
+may carry the name instead. Keep `manifest.json` beside the extracted files.
+
+With `ADMIN_KEY` set, `/a/zip` and `/a/tar` back up every namespace, and
+`/a/import` restores them:
 
 ```sh
 curl -H "Authorization: Bearer $ADMIN_KEY" -o backup.tar $BOX/a/tar
 ```
 
-Restoring keeps each item's ID and dates and skips what is already there.
-Items that burn after reading are left out of backups.
+Import merges: it never deletes or replaces existing contents. Incremental
+backups omit deletions; restore a full snapshot into an empty instance for an
+exact copy. Items that burn after reading are left out.
 
 A backup also comes in parts, each a whole backup of its own items, for
 anything with a request size limit (Cloudflare takes 100 MB per request):

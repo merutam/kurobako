@@ -36,6 +36,8 @@ export type Restored = {
   input: SaveInput;
   id: string;
   createdAt: string;
+  /** Last metadata change, when the backup records one. */
+  updatedAt?: string;
   expiresAt: string | null;
   /** A text's name, as it was. */
   name?: string;
@@ -312,10 +314,12 @@ export class NamespaceCore {
 
   /**
    * Puts back items from a backup, oldest first, with their IDs and dates.
-   * An item whose ID or contents are already here is left out, so restoring
-   * the same backup twice changes nothing; so is one already expired. Items
-   * expire by this instance's rule at the latest. Returns the file keys of
-   * the items left out, for the caller to delete.
+   * An item whose contents are already here is left out. An existing ID takes
+   * a newer name or sealed metadata from an incremental backup when its
+   * contents still match; restoring the same backup twice therefore changes
+   * nothing. An item already expired is left out too. Items expire by this
+   * instance's rule at the latest. Returns uploaded file keys that were not
+   * kept, for the caller to delete.
    */
   async restore(
     ref: NamespaceRef,
@@ -327,20 +331,51 @@ export class NamespaceCore {
     const latest = this.expiryFrom(now);
     const skipped: string[] = [];
     let restored = 0;
-    for (const { input, id, createdAt, expiresAt, name } of items) {
+    for (const { input, id, createdAt, updatedAt, expiresAt, name } of items) {
       const expiry =
         expiresAt && latest
           ? new Date(Math.min(Date.parse(expiresAt), Date.parse(latest))).toISOString()
           : (expiresAt ?? latest);
-      const known =
-        this.queue.hasId(id) ||
-        (input.sha256 ? this.queue.sameContents(input.kind, input.sha256) !== null : false);
+      const existing = this.queue.find(id);
+      if (existing) {
+        const currentChange = Date.parse(existing.updatedAt ?? existing.createdAt);
+        const incomingChange = updatedAt ? Date.parse(updatedAt) : Number.NEGATIVE_INFINITY;
+        const sameContents =
+          existing.kind === input.kind &&
+          existing.size === input.size &&
+          (existing.kind === "sealed"
+            ? input.kind === "sealed"
+            : Boolean(existing.sha256 && input.sha256 && existing.sha256 === input.sha256));
+        if (sameContents && incomingChange > currentChange) {
+          const change: Rename | null =
+            existing.kind === "sealed" && input.kind === "sealed"
+              ? { metadata: input.metadata }
+              : input.kind === "text"
+                ? { name: name ?? "" }
+                : input.kind === "image" || input.kind === "file"
+                  ? { name: input.filename }
+                  : null;
+          if (change) {
+            const renamed = renamedItem(existing, change);
+            if (!("error" in renamed)) {
+              this.queue.update({ ...renamed, updatedAt });
+              restored += 1;
+            }
+          }
+        }
+        if ("object" in input) skipped.push(input.object);
+        continue;
+      }
+      const known = input.sha256
+        ? this.queue.sameContents(input.kind, input.sha256) !== null
+        : false;
       if (known || (expiry !== null && Date.parse(expiry) <= now)) {
         if ("object" in input) skipped.push(input.object);
         continue;
       }
       const item = newItem(id, input, false, createdAt, expiry);
-      this.queue.push(item.kind === "text" && name !== undefined ? { ...item, name } : item);
+      const dated = updatedAt ? { ...item, updatedAt } : item;
+      this.queue.push(dated.kind === "text" && name !== undefined ? { ...dated, name } : dated);
       restored += 1;
     }
     // Restored items keep their dates, so their place is by date too, in
@@ -414,9 +449,10 @@ export class NamespaceCore {
     if (!item) return null;
     const renamed = renamedItem(item, change);
     if ("error" in renamed) return renamed;
-    this.queue.update(renamed);
+    const updated = { ...renamed, updatedAt: new Date().toISOString() };
+    this.queue.update(updated);
     await this.changed();
-    return { item: renamed };
+    return { item: updated };
   }
 
   async remove(ref: ItemRef, visit?: AccessEvent): Promise<boolean> {

@@ -297,7 +297,9 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs <site>/e#<name>/1                an item's contents (1 is the newest)
   node k.mjs <site>/e#<name>/1.json           its details and a share link
   node k.mjs -OJ <site>/e#<name>/1/d          saved under its own name
-  node k.mjs -O <site>/e#<name>               every item saved here
+  node k.mjs -O <site>/e#<name>               exports every item here (overwrites)
+  node k.mjs -O './backup#<name>'             exports an extracted encrypted backup
+  node k.mjs './backup/.../item.sealed#<name>'   decrypts one local backup item
   node k.mjs -d 'hello' <site>/e#<name>/new   sends a text (-d @file, -d @- for stdin)
   node k.mjs -T photo.jpg <site>/e#<name>/    sends a file
   node k.mjs -H burn:1 -d 'once' <site>/e#<name>/new
@@ -306,7 +308,8 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs <site>/e#<name>/1/s              a link to share it, with its key
   node k.mjs <site>/i/<token>#<key>           a shared item
 
-Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J
+Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J,
+--no-clobber (do not overwrite)
 (and -s, -S, -L, -f, -p, ignored).
 A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
 As with curl, -d @file drops line breaks; --data-binary @file keeps them.
@@ -356,6 +359,10 @@ const FLAG_OPTIONS = {
   "--remote-name": "remoteName",
   "--remote-header-name": "headerName",
 };
+const TOGGLE_OPTIONS = {
+  "--no-clobber": ["noClobber", true],
+  "--clobber": ["clobber", true],
+};
 /** curl options that change nothing here, accepted so curl commands paste as they are. */
 const IGNORED = new Set([
   "s",
@@ -381,6 +388,8 @@ const parseArgs = (args) => {
     output: null,
     remoteName: false,
     headerName: false,
+    noClobber: false,
+    clobber: false,
   };
   const set = (key, value) => {
     if (key === "header") options.headers.push(value);
@@ -400,7 +409,10 @@ const parseArgs = (args) => {
     if (arg.startsWith("--")) {
       if (VALUE_OPTIONS[arg]) set(VALUE_OPTIONS[arg], next());
       else if (FLAG_OPTIONS[arg]) options[FLAG_OPTIONS[arg]] = true;
-      else if (!IGNORED.has(arg)) throw new Error(`Unknown option ${arg}.`);
+      else if (TOGGLE_OPTIONS[arg]) {
+        const [key, value] = TOGGLE_OPTIONS[arg];
+        options[key] = value;
+      } else if (!IGNORED.has(arg)) throw new Error(`Unknown option ${arg}.`);
     } else if (arg.startsWith("-") && arg.length > 1) {
       // Short options group like curl's: -OJ, -sS, -sd 'text'.
       for (let at = 1; at < arg.length; at += 1) {
@@ -574,7 +586,7 @@ const writeStdout = (bytes) =>
 
 /**
  * Contents go where curl would put them: -o <file>, -O (named after the URL,
- * or with -J after the item itself, never overwriting), or standard output,
+ * or with -J after the item itself), or standard output,
  * which refuses binary data in a terminal unless asked with -o -. `isText` is
  * known before fetching, so a refused item is never consumed.
  */
@@ -596,8 +608,11 @@ const deliver = async ({ options, isText, ownName, urlName, load }) => {
     return;
   }
   const { writeFile } = await import("node:fs/promises");
+  // curl's -O and -o overwrite. -OJ protects a server-chosen name unless
+  // --clobber is explicit; --no-clobber protects every output name.
+  const exclusive = options.noClobber || (options.headerName && !options.clobber);
   try {
-    await writeFile(toFile, bytes, { flag: options.output ? "w" : "wx" });
+    await writeFile(toFile, bytes, { flag: exclusive ? "wx" : "w" });
   } catch (error) {
     if (error.code === "EEXIST")
       throw new Error(`Refusing to overwrite ${toFile}: it already exists.`);
@@ -741,6 +756,7 @@ const itemJson = (item, metadata) => {
   return {
     id: item.id,
     createdAt: item.createdAt,
+    ...(item.updatedAt ? { updatedAt: item.updatedAt } : {}),
     expiresAt: item.expiresAt,
     ...(item.burn ? { burn: true } : {}),
     kind: !metadata ? "unreadable" : metadata.kind === "text" ? "text" : isImage ? "image" : "file",
@@ -779,7 +795,10 @@ const ownName = (entry) => {
   return title ? safeName(`${title}.txt`, fallback) : fallback;
 };
 
-const contentsOf = async (entry) => entry.opened.open(await fetchBytes(entry.contentUrl));
+const contentsOf = async (entry) =>
+  entry.opened.open(
+    entry.loadSealed ? await entry.loadSealed() : await fetchBytes(entry.contentUrl),
+  );
 
 /** Decimal units, like the site's limits (100 MB, 64 kB). */
 export const formatBytes = (bytes) => {
@@ -848,24 +867,14 @@ const tableJson = (entry) => {
 };
 
 /**
- * -O on the bare link: every item saved here, under its own name. Run again,
- * it saves only what is new, so it keeps a folder in step with a namespace:
- * a file with the item's name, size and date (set when saved) is that item
- * already, left alone without downloading it. Burn-after-reading items stay
- * unread.
+ * -O on the bare link: exports every item here under its own name, overwriting
+ * as curl's -O does. Another item of the same name gets its ID in the name.
+ * Burn-after-reading items stay unread.
  */
-const saveAll = async (entries) => {
-  const { writeFile, stat, utimes } = await import("node:fs/promises");
+const saveAll = async (entries, options) => {
+  const { writeFile } = await import("node:fs/promises");
   if (!entries.length) return console.log("The namespace is empty.");
-  const savedAs = async (path, entry) => {
-    try {
-      const file = await stat(path);
-      const sent = Date.parse(entry.item.createdAt);
-      return file.size === entry.opened.metadata.size && Math.abs(file.mtimeMs - sent) < 1000;
-    } catch {
-      return false;
-    }
-  };
+  const taken = new Set();
   for (const entry of entries) {
     const label = `[${entry.number}] ${titleOf(tableJson(entry), LIST_TITLE_CHARS)}`;
     if (!entry.opened) {
@@ -882,29 +891,158 @@ const saveAll = async (entries) => {
         dot > 0
           ? `${own.slice(0, dot)} (${entry.item.id})${own.slice(dot)}`
           : `${own} (${entry.item.id})`;
-      const names = [own, withId];
-      const already = [];
-      for (const name of names) if (await savedAs(name, entry)) already.push(name);
-      if (already.length) {
-        console.log(`${label}: already saved as ${already[0]}`);
-        continue;
+      let name = taken.has(own) ? withId : own;
+      for (let copy = 2; taken.has(name); copy += 1) {
+        name =
+          dot > 0
+            ? `${own.slice(0, dot)} (${entry.item.id}-${copy})${own.slice(dot)}`
+            : `${own} (${entry.item.id}-${copy})`;
       }
+      taken.add(name);
       const bytes = await contentsOf(entry);
-      let saved = null;
-      for (const name of [...names, `${Date.now()}-${own}`]) {
-        try {
-          await writeFile(name, bytes, { flag: "wx" });
-          saved = name;
-          break;
-        } catch (error) {
-          if (error.code !== "EEXIST") throw error;
+      try {
+        await writeFile(name, bytes, { flag: options.noClobber ? "wx" : "w" });
+      } catch (error) {
+        if (error.code === "EEXIST") {
+          throw new Error(`Refusing to overwrite ${name}: it already exists.`);
         }
+        throw error;
       }
-      const sent = new Date(entry.item.createdAt);
-      await utimes(saved, sent, sent);
-      console.log(`${label} → ${saved}`);
+      console.log(`${label} → ${name}`);
     }
   }
+};
+
+/**
+ * Opens an extracted backup directory, its manifest, or one of its .sealed
+ * files. The secret follows the path after #, as in a remote encrypted link,
+ * or comes from KUROBAKO_SECRET. False means the argument is not a local path.
+ */
+const localRequest = async (text, options) => {
+  const hash = text.indexOf("#");
+  const rawPath = hash < 0 ? text : text.slice(0, hash);
+  const { access, readFile, stat } = await import("node:fs/promises");
+  const { dirname, isAbsolute, join, relative, resolve, sep } = await import("node:path");
+  let targetStat;
+  try {
+    targetStat = await stat(rawPath);
+  } catch (error) {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+      if (/^\.\.?[\\/]/.test(rawPath)) {
+        throw new Error(`Local path not found: ${rawPath}`);
+      }
+      return false;
+    }
+    throw error;
+  }
+  if (options.method !== "GET" || options.data !== null || options.upload !== null) {
+    throw new Error("A local encrypted backup can only be read.");
+  }
+
+  const encodedSecret = hash < 0 ? null : text.slice(hash + 1);
+  const secret = normalizeSecretName(
+    encodedSecret === null
+      ? (process.env.KUROBAKO_SECRET ?? "")
+      : decodeURIComponent(encodedSecret),
+  );
+  const problem = secretNameProblem(secret);
+  if (problem) {
+    throw new Error(
+      "Give the backup's secret name after the path, as './backup#secret name', or in KUROBAKO_SECRET.",
+    );
+  }
+
+  const target = resolve(rawPath);
+  let search = targetStat.isDirectory() ? target : dirname(target);
+  let manifestPath = null;
+  while (true) {
+    const candidate = join(search, "manifest.json");
+    try {
+      await access(candidate);
+      manifestPath = candidate;
+      break;
+    } catch {}
+    const parent = dirname(search);
+    if (parent === search) break;
+    search = parent;
+  }
+  if (!manifestPath) {
+    throw new Error("A local encrypted item needs the manifest.json from its extracted backup.");
+  }
+  const root = dirname(manifestPath);
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch {
+    throw new Error(`${manifestPath} is not a Kurobako backup manifest.`);
+  }
+  if (manifest?.kurobako !== "backup" || !Array.isArray(manifest.namespaces)) {
+    throw new Error(`${manifestPath} is not a Kurobako backup manifest.`);
+  }
+
+  const space = await openSealedSpace(secret);
+  const namespace = manifest.namespaces.find(
+    (candidate) => candidate?.space === "sealed" && candidate.name === space.id,
+  );
+  if (!namespace || !Array.isArray(namespace.items)) {
+    throw new Error("This backup has no encrypted namespace for that secret name.");
+  }
+  const localFile = (item) => {
+    if (typeof item?.path !== "string") return null;
+    const file = resolve(root, item.path);
+    const fromRoot = relative(root, file);
+    if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+      throw new Error(`Unsafe path in backup manifest: ${item.path}`);
+    }
+    return file;
+  };
+  const under = (directory, file) => {
+    const path = relative(directory, file);
+    return path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path);
+  };
+  const oneFile = targetStat.isFile() && target !== manifestPath;
+  const selected = namespace.items.filter((item) => {
+    if (
+      item?.kind !== "sealed" ||
+      typeof item.metadata !== "string" ||
+      typeof item.size !== "number"
+    ) {
+      return false;
+    }
+    const file = localFile(item);
+    return file && (oneFile ? file === target : !targetStat.isDirectory() || under(target, file));
+  });
+  if (!selected.length) {
+    throw new Error(
+      oneFile ? "That file is not in the backup manifest." : "No encrypted items found.",
+    );
+  }
+  const entries = await Promise.all(
+    [...selected].reverse().map(async (item, index) => ({
+      number: index + 1,
+      item,
+      opened: await space.openItem(item.metadata, item.size),
+      loadSealed: async () => new Uint8Array(await readFile(localFile(item))),
+    })),
+  );
+  if (oneFile) {
+    const [entry] = entries;
+    const name = ownName(entry);
+    await deliver({
+      options,
+      isText: entry.opened.metadata.kind === "text",
+      ownName: name,
+      urlName: name,
+      load: () => contentsOf(entry),
+    });
+  } else if (options.output !== null) {
+    throw new Error("Use -O to export a local backup directory, not -o.");
+  } else if (options.remoteName) {
+    await saveAll(entries, options);
+  } else {
+    console.log(itemsTable(entries.map(tableJson)));
+  }
+  return true;
 };
 
 const send = async (space, site, options, filename) => {
@@ -1054,7 +1192,9 @@ const sealedRequest = async ({ site, name, path: fullPath }, options) => {
 
   if (path === "" && method === "GET") {
     const entries = await openList(space, site);
-    return options.remoteName ? saveAll(entries) : console.log(itemsTable(entries.map(tableJson)));
+    return options.remoteName
+      ? saveAll(entries, options)
+      : console.log(itemsTable(entries.map(tableJson)));
   }
   if (path === "ls" && method === "GET") {
     const entries = await openList(space, site);
@@ -1177,7 +1317,10 @@ const plainRequest = async ({ url }, options) => {
     const base = url.replace(/\/$/, "");
     if (options.remoteName) {
       const items = await (await call(`${base}/ls`)).json();
-      return saveAll(items.map((item, index) => plainEntry(base, item, index)));
+      return saveAll(
+        items.map((item, index) => plainEntry(base, item, index)),
+        options,
+      );
     }
     const items = await (await call(`${base}/ls?summary`)).json();
     return console.log(itemsTable(items));
@@ -1247,6 +1390,7 @@ const main = async (args) => {
       process.exitCode = 2;
       return;
     }
+    if (await localRequest(parsed.link, parsed.options)) return;
     const target = parseLink(parsed.link);
     if (target.kind === "sealed") return await sealedRequest(target, parsed.options);
     if (target.kind === "shared") return await sharedRequest(target, parsed.options);

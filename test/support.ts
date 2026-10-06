@@ -9,6 +9,7 @@ export type Item = {
   kind: "text" | "image" | "file" | "sealed";
   size: number;
   createdAt: string;
+  updatedAt?: string;
   expiresAt: string | null;
   burn?: true;
   text?: string;
