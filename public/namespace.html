@@ -16,6 +16,23 @@
 
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
+  <dialog id="media-viewer" class="media-viewer" aria-labelledby="media-viewer-title">
+    <div class="media-viewer-bar">
+      <p>
+        <strong id="media-viewer-title"></strong>
+        <span id="media-viewer-count" class="hint"></span>
+      </p>
+      <form method="dialog">
+        <button class="icon-button" data-icon="dismiss" type="submit" aria-label="Close" title="Close"></button>
+      </form>
+    </div>
+    <div id="media-viewer-stage" class="media-viewer-stage">
+      <button id="media-viewer-previous" class="icon-button media-viewer-nav previous" data-icon="previous" type="button" aria-label="Previous media" title="Previous media"></button>
+      <div id="media-viewer-content" class="media-viewer-content" aria-live="polite"></div>
+      <button id="media-viewer-next" class="icon-button media-viewer-nav next" data-icon="next" type="button" aria-label="Next media" title="Next media"></button>
+    </div>
+  </dialog>
+
   <div class="columns">
     <section id="send-section" class="stack" aria-labelledby="send-title">
       <h2 id="send-title">Send</h2>

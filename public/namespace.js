@@ -89,6 +89,13 @@ const keyInput = element("#key-input");
 const lockButton = element("#lock-button");
 const unlockButton = element("#unlock-button");
 const forgetKeyButton = element("#forget-key");
+const mediaViewer = element("#media-viewer");
+const mediaViewerTitle = element("#media-viewer-title");
+const mediaViewerCount = element("#media-viewer-count");
+const mediaViewerStage = element("#media-viewer-stage");
+const mediaViewerContent = element("#media-viewer-content");
+const mediaViewerPrevious = element("#media-viewer-previous");
+const mediaViewerNext = element("#media-viewer-next");
 
 /** Embedded in the page by the server; see readConfig. */
 let config = null;
@@ -370,6 +377,8 @@ const canWrite = () => !locked || Boolean(writeKey());
  */
 const opened = new Map();
 let serverItems = [];
+/** Image and video entries in queue order, navigated by the open viewer. */
+let mediaEntries = [];
 /** Whether the queue has arrived once, by the live connection or a fetch. */
 let itemsShown = false;
 
@@ -398,6 +407,134 @@ const partsAddress = async (entry) =>
   mode.streamOf && !entry.opened && !entry.item.burn
     ? streamAddress(await mode.streamOf(entry.item))
     : null;
+
+/**
+ * An image or video's browser address. Plain media stays streamed from the
+ * server. Decrypted media becomes a Blob URL, kept by its row or by the open
+ * viewer for only as long as it needs it.
+ */
+const mediaAddress = async (entry, { preview = false } = {}) => {
+  const { item, info } = entry;
+  if (!entry.opened && item.kind !== "sealed" && !item.burn) {
+    return { src: `${mode.basePath}/${encodeURIComponent(item.id)}`, revoke: null };
+  }
+  const streamed = info.isVideo ? await partsAddress(entry) : null;
+  if (streamed) return { src: streamed, revoke: null };
+  const blob = await blobOf(entry);
+  if (preview) return { src: objectUrl(blob, item.id), revoke: null };
+  const src = URL.createObjectURL(blob);
+  return { src, revoke: () => URL.revokeObjectURL(src) };
+};
+
+let viewerIndex = -1;
+let viewerEntry = null;
+let viewerLoad = 0;
+let revokeViewerSource = null;
+
+const updateViewerChrome = () => {
+  const count = mediaEntries.length;
+  mediaViewerTitle.textContent = viewerEntry?.info.title ?? "Media";
+  mediaViewerCount.textContent = count ? `${viewerIndex + 1} / ${count}` : "";
+  mediaViewerPrevious.hidden = count < 2;
+  mediaViewerNext.hidden = count < 2;
+};
+
+/** Shows one medium without closing the dialog, so arrows and swipes form a gallery. */
+const showMedia = async (index) => {
+  if (!mediaEntries.length) {
+    mediaViewer.close();
+    return;
+  }
+  viewerIndex = (index + mediaEntries.length) % mediaEntries.length;
+  viewerEntry = mediaEntries[viewerIndex];
+  updateViewerChrome();
+
+  const load = ++viewerLoad;
+  mediaViewerContent.querySelector("video")?.pause();
+  revokeViewerSource?.();
+  revokeViewerSource = null;
+  mediaViewerContent.replaceChildren(el("p", { className: "hint", textContent: "Loading…" }));
+
+  try {
+    const source = await mediaAddress(viewerEntry);
+    if (load !== viewerLoad || !mediaViewer.open) {
+      source.revoke?.();
+      return;
+    }
+    revokeViewerSource = source.revoke;
+    const medium = viewerEntry.info.isVideo
+      ? videoPlayer(source.src)
+      : el("img", {
+          alt: viewerEntry.info.title,
+          src: source.src,
+          draggable: false,
+        });
+    mediaViewerContent.replaceChildren(medium);
+  } catch (error) {
+    if (load === viewerLoad) {
+      mediaViewerContent.replaceChildren(
+        el("p", { className: "media-viewer-error", textContent: error.message }),
+      );
+    }
+  }
+};
+
+const moveMedia = (offset) => {
+  if (mediaEntries.length > 1) void showMedia(viewerIndex + offset);
+};
+
+const openMediaViewer = (entry) => {
+  const index = mediaEntries.findIndex(({ item }) => item.id === entry.item.id);
+  if (index < 0) return;
+  if (!mediaViewer.open) mediaViewer.showModal();
+  void showMedia(index);
+};
+
+mediaViewerPrevious.addEventListener("click", () => moveMedia(-1));
+mediaViewerNext.addEventListener("click", () => moveMedia(1));
+mediaViewer.addEventListener("keydown", (event) => {
+  if (event.target.closest("video")) return;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    moveMedia(-1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    moveMedia(1);
+  } else if (event.key === "Home" && mediaEntries.length > 1) {
+    event.preventDefault();
+    void showMedia(0);
+  } else if (event.key === "End" && mediaEntries.length > 1) {
+    event.preventDefault();
+    void showMedia(mediaEntries.length - 1);
+  }
+});
+mediaViewer.addEventListener("close", () => {
+  viewerLoad += 1;
+  mediaViewerContent.querySelector("video")?.pause();
+  revokeViewerSource?.();
+  revokeViewerSource = null;
+  mediaViewerContent.replaceChildren();
+  viewerEntry = null;
+  viewerIndex = -1;
+});
+
+// A deliberate horizontal drag changes media; vertical touch remains native.
+let viewerPointer = null;
+mediaViewerStage.addEventListener("pointerdown", (event) => {
+  if (!event.isPrimary || event.target.closest("button, video")) return;
+  viewerPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
+  mediaViewerStage.setPointerCapture(event.pointerId);
+});
+mediaViewerStage.addEventListener("pointerup", (event) => {
+  if (!viewerPointer || viewerPointer.id !== event.pointerId) return;
+  const x = event.clientX - viewerPointer.x;
+  const y = event.clientY - viewerPointer.y;
+  viewerPointer = null;
+  if (Math.abs(x) >= 50 && Math.abs(x) > Math.abs(y) * 1.25) moveMedia(x < 0 ? 1 : -1);
+});
+mediaViewerStage.addEventListener("pointercancel", () => {
+  viewerPointer = null;
+});
 
 const downloadItem = async (entry) => {
   try {
@@ -733,14 +870,24 @@ const renderItem = (entry, position) => {
           // in parts, as it plays); an encrypted video plays in parts too,
           // through the Service Worker; anything else is fetched (and
           // decrypted) here, whole.
-          const src =
-            !entry.opened && item.kind !== "sealed" && !item.burn
-              ? `${mode.basePath}/${item.id}`
-              : ((info.isVideo ? await partsAddress(entry) : null) ??
-                objectUrl(await blobOf(entry), item.id));
-          preview.replaceChildren(
-            info.isVideo ? videoPlayer(src) : el("img", { alt: info.title, src }),
-          );
+          const { src } = await mediaAddress(entry, { preview: true });
+          if (info.isVideo) {
+            preview.replaceChildren(videoPlayer(src));
+          } else {
+            const image = el("img", { alt: info.title, src, draggable: false });
+            const open = el(
+              "button",
+              {
+                type: "button",
+                className: "media-preview",
+                ariaLabel: `Open ${info.title} in media viewer`,
+                title: "Open media viewer",
+              },
+              image,
+            );
+            open.addEventListener("click", () => openMediaViewer(entry));
+            preview.replaceChildren(open);
+          }
         }
       } catch (error) {
         loaded = false;
@@ -806,6 +953,9 @@ const renderItem = (entry, position) => {
   if (unopenedBurn) {
     actions.append(button("Open once", () => openOnce(entry), undefined, "burn"));
   } else {
+    if (info.isImage || info.isVideo) {
+      actions.append(iconButton("expand", "Open media viewer", () => openMediaViewer(entry)));
+    }
     if (!entry.opened && info.kind === "text" && canWrite()) {
       actions.append(
         iconButton(
@@ -904,6 +1054,24 @@ const renderItems = async (items, { force = false } = {}) => {
     }),
     ...openedOnly.map((entry) => ({ item: entry.item, info: entry.info, opened: entry })),
   ].sort((a, b) => b.item.createdAt.localeCompare(a.item.createdAt));
+
+  const currentViewerId = viewerEntry?.item.id;
+  mediaEntries = entries.filter(
+    (entry) =>
+      (entry.info.isImage || entry.info.isVideo) && (!entry.item.burn || Boolean(entry.opened)),
+  );
+  if (mediaViewer.open) {
+    const current = mediaEntries.findIndex((entry) => entry.item.id === currentViewerId);
+    if (current >= 0) {
+      viewerIndex = current;
+      viewerEntry = mediaEntries[current];
+      updateViewerChrome();
+    } else if (mediaEntries.length) {
+      void showMedia(Math.min(viewerIndex, mediaEntries.length - 1));
+    } else {
+      mediaViewer.close();
+    }
+  }
 
   // Rows of unchanged items stay as they are (only their position moves),
   // so a busy queue neither reloads previews nor opens and closes them.

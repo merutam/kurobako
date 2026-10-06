@@ -3,7 +3,7 @@
   (c) 2006-2026 Josh Goebel <hello@joshgoebel.com> and other contributors
   License: BSD-3-Clause
  */
-// Vendored from @highlightjs/cdn-assets 11.12.0; served locally, never from a CDN.
+// Vendored from @highlightjs/cdn-assets 11.12.0; served locally.
 /* eslint-disable no-multi-assign */
 
 function deepFreeze(obj) {
