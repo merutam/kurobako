@@ -4,7 +4,7 @@
 // The self-hosted server, end to end: a real Bun server on a free port, its
 // SQLite files in a temporary directory and file contents in memory.
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { createCipheriv, pbkdf2Sync } from "node:crypto";
+import { createCipheriv, createHash, hkdfSync, pbkdf2Sync } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -18,13 +18,17 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { formatBytes as pageFormatBytes } from "../public/common.js";
 import {
+  bodyKey,
   TEXT_PREVIEW_CHARS as CLI_TEXT_PREVIEW_CHARS,
   detectMedia as cliDetectMedia,
   defaultTextName as clientDefaultName,
   formatBytes as cliFormatBytes,
+  contentSize,
   fileMetadata,
   VERSION as K_VERSION,
+  openReadOnlySpace,
   openSealedSpace,
+  openSegments,
   openSharedItem,
   safeName,
 } from "../public/k.mjs";
@@ -595,6 +599,21 @@ describe("bun server", () => {
     expect((await k(["-d", "hello", `${ns}/new`], env)).code).toBe(0);
     // Reading needs no key.
     expect((await k([`${ns}/1`])).out).toBe("hello");
+
+    // An encrypted namespace locks with the key its name gives, and hands
+    // out a read-only link: it reads, and cannot write.
+    const sealed = `${own.server.url.origin}/e#${encodeURIComponent(`wall ${crypto.randomUUID()}`)}`;
+    expect((await k(["-d", "first", `${sealed}/new`])).code).toBe(0);
+    const { readOnlyLink } = JSON.parse((await k(["-X", "POST", `${sealed}/lock`])).out) as {
+      readOnlyLink: string;
+    };
+    expect(readOnlyLink).toMatch(/\/e#\/[A-Za-z0-9_-]{43}$/);
+    expect((await k([`${readOnlyLink}/1`])).out).toBe("first");
+    const readerWrites = await k(["-d", "nope", `${readOnlyLink}/new`]);
+    expect(readerWrites.code).toBe(1);
+    expect(readerWrites.error).toContain("read-only");
+    expect((await k(["-d", "second", `${sealed}/new`])).code).toBe(0);
+    expect((await k([`${readOnlyLink}/1`])).out).toBe("second");
     await own.stop();
   });
 });
@@ -714,10 +733,16 @@ describe("rules kept in two places", () => {
     const name = Buffer.from(vector("name"), "hex");
     expect(name.toString("utf8")).toBe(typed.normalize("NFC").trim());
 
-    const bits = pbkdf2Sync(name, "kurobako/sealed/v3", 600_000, 32, "sha256");
-    expect(bits.toString("hex")).toBe(vector("pbkdf2"));
-    expect(bits.subarray(0, 16).toString("base64url")).toBe(vector("id"));
-    expect(bits.subarray(16).toString("hex")).toBe(vector("namespace-key"));
+    const secret = pbkdf2Sync(name, "kurobako/v4", 600_000, 32, "sha256");
+    expect(secret.toString("hex")).toBe(vector("pbkdf2"));
+    const derive = (info: string) =>
+      Buffer.from(hkdfSync("sha256", secret, Buffer.alloc(0), info, 16));
+    const id = derive("kurobako/v4/id");
+    const namespaceKey = derive("kurobako/v4/namespace");
+    expect(id.toString("base64url")).toBe(vector("id"));
+    expect(namespaceKey.toString("hex")).toBe(vector("namespace-key"));
+    expect(derive("kurobako/v4/write").toString("base64url")).toBe(vector("write-key"));
+    expect(Buffer.concat([id, namespaceKey]).toString("base64url")).toBe(vector("read-token"));
 
     const seal = (key: Uint8Array, ivStart: number, label: string, plain: Uint8Array) => {
       const iv = Uint8Array.from({ length: 12 }, (_, index) => ivStart + index);
@@ -733,41 +758,78 @@ describe("rules kept in two places", () => {
     const itemKey = Buffer.from(vector("item-key"), "hex");
     expect(itemKey.toString("base64url")).toBe(vector("item-key-text"));
     // AES-KW (RFC 3394), through Web Crypto: Bun's node:crypto has no key wrap.
-    const kek = await crypto.subtle.importKey("raw", bits.subarray(16), "AES-KW", false, [
-      "wrapKey",
-    ]);
+    const kek = await crypto.subtle.importKey("raw", namespaceKey, "AES-KW", false, ["wrapKey"]);
     const plainKey = await crypto.subtle.importKey("raw", itemKey, "AES-GCM", true, ["encrypt"]);
     const wrapped = await crypto.subtle.wrapKey("raw", plainKey, kek, "AES-KW");
     expect(Buffer.from(wrapped).toString("base64url")).toBe(vector("wrapped"));
-    expect(seal(itemKey, 0x20, "kurobako/v3/metadata", Buffer.from(vector("metadata")))).toBe(
+    expect(seal(itemKey, 0x20, "kurobako/v4/metadata", Buffer.from(vector("metadata")))).toBe(
       vector("sealed-metadata"),
     );
-    expect(seal(itemKey, 0x30, "kurobako/v3/body", Buffer.from("hello"))).toBe(vector("body"));
+    // The body: segments of 65,536 bytes under the body key, each with a
+    // nonce of its number (11 bytes, big-endian) and 1 when it is the last.
+    const sealBody = (key: Buffer, contents: Uint8Array) => {
+      const count = Math.ceil(contents.length / 65_536);
+      return Buffer.concat(
+        Array.from({ length: count }, (_, index) => {
+          const nonce = Buffer.alloc(12);
+          nonce.writeUIntBE(index, 5, 6);
+          nonce[11] = index === count - 1 ? 1 : 0;
+          const cipher = createCipheriv("aes-128-gcm", key, nonce);
+          const piece = contents.subarray(index * 65_536, (index + 1) * 65_536);
+          return Buffer.concat([cipher.update(piece), cipher.final(), cipher.getAuthTag()]);
+        }),
+      );
+    };
+    const bodyKeyBytes = Buffer.from(
+      hkdfSync("sha256", itemKey, Buffer.alloc(0), "kurobako/v4/body/0", 16),
+    );
+    expect(bodyKeyBytes.toString("hex")).toBe(vector("body-key"));
+    expect(sealBody(bodyKeyBytes, Buffer.from("hello")).toString("base64url")).toBe(vector("body"));
+    const long = Uint8Array.from({ length: 70_000 }, (_, index) => index % 251);
+    const longBody = sealBody(bodyKeyBytes, long);
+    expect(longBody.byteLength).toBe(70_032);
+    expect(createHash("sha256").update(longBody).digest("hex")).toBe(vector("long-body-sha256"));
 
     // k.mjs agrees: the same ID, and it opens what the page shows.
     const space = await openSealedSpace(typed);
     expect(space.id).toBe(vector("id"));
+    expect(space.writeKey).toBe(vector("write-key"));
+    expect(space.readToken).toBe(vector("read-token"));
+    // A read-only link opens the same namespace, with no key to write.
+    const reader = await openReadOnlySpace(vector("read-token"));
+    expect(reader.id).toBe(vector("id"));
+    expect(reader.writeKey).toBeNull();
     const header = `${vector("wrapped")}.${vector("sealed-metadata")}`;
     const sealedSize = Buffer.from(vector("body"), "base64url").byteLength;
-    expect(sealedSize).toBe(33);
+    expect(sealedSize).toBe(21);
     const item = await space.openItem(header, sealedSize);
     expect(item.keyText).toBe(vector("item-key-text"));
-    expect(item.metadata).toEqual({ kind: "text", title: "hello", size: 5 });
+    expect(item.metadata).toEqual({ kind: "text", title: "hello", size: 5, rev: 0 });
     const opened = await openSharedItem(vector("item-key-text"), header, sealedSize);
     const body = await opened.open(Buffer.from(vector("body"), "base64url"));
     expect(new TextDecoder().decode(body)).toBe("hello");
+    expect(contentSize(70_032)).toBe(70_000);
+    expect(new Uint8Array(await opened.open(longBody))).toEqual(long);
+    // A part opens on its own, as a Range request brings it: here the second segment.
+    const key = await bodyKey(itemKey, 0);
+    expect(new Uint8Array(await openSegments(key, longBody.subarray(65_552), 1, true))).toEqual(
+      long.subarray(65_536),
+    );
+    // A body cut short, or a segment put elsewhere, does not open.
+    await expect(opened.open(longBody.subarray(0, 65_552))).rejects.toThrow();
+    await expect(openSegments(key, longBody.subarray(65_552), 0, true)).rejects.toThrow();
 
     // The same key, but a body never opens as metadata, nor metadata as a body:
     // not even contents that read as metadata, which would otherwise pass.
     const lookalike = Buffer.from(JSON.stringify({ filename: "x.exe" }));
-    const asMetadata = seal(itemKey, 0x40, "kurobako/v3/metadata", lookalike);
+    const asMetadata = seal(itemKey, 0x40, "kurobako/v4/metadata", lookalike);
     expect((await space.openItem(`${vector("wrapped")}.${asMetadata}`, 48)).metadata).toMatchObject(
       {
         kind: "file",
         filename: "x.exe",
       },
     );
-    const asBody = seal(itemKey, 0x40, "kurobako/v3/body", lookalike);
+    const asBody = sealBody(bodyKeyBytes, lookalike).toString("base64url");
     await expect(space.openItem(`${vector("wrapped")}.${asBody}`, 48)).rejects.toThrow();
     await expect(
       opened.open(Buffer.from(vector("sealed-metadata"), "base64url")),

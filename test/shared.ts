@@ -708,6 +708,7 @@ export const sharedTests = (harness: Harness) => {
         kind: "text",
         title: "greeting",
         size: contents.byteLength,
+        rev: 0,
       });
       const sealed = await (await call(`/e/${space.id}/${listed.id}`)).arrayBuffer();
       expect(new TextDecoder().decode(await opened.open(sealed))).toBe(

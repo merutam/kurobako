@@ -77,6 +77,18 @@ metadata sealed again with the new `rev`, under the same wrapped key.
 Files and burn-after-reading items stay as sent. A backup restores a newer
 `updatedAt`'s contents over older ones.
 
+**Language:** a text's language comes from its name's extension
+(`script.py`, `notes.md`), so it needs no field of its own and works the
+same encrypted, where the name is sealed. The editor's language picker only
+changes the extension. Highlighting uses highlight.js (BSD-3-Clause),
+served from `public/vendor/` like the QR code library, never from a CDN;
+without an extension, it guesses. Markdown shows as highlighted source, not
+rendered HTML.
+
+**Also after v4:** an expiry per send (`Expires-In: <seconds>`, shorter than
+the instance's), and a read limit generalizing burn-after-reading (burn is
+a limit of one).
+
 ## 5. Discovery
 
 `/.well-known/kurobako` gains `"protocol": 4`; k.mjs compares it with its
@@ -86,8 +98,8 @@ own and says so when they differ.
 
 1. Locked plain namespaces (done).
 2. The v4 derivation and locked encrypted namespaces: HKDF, read-only links,
-   test vectors.
-3. The segmented body, with `rev`, in k.mjs and the page.
+   test vectors (done).
+3. The segmented body, with `rev`, in k.mjs and the page (done).
 4. The Service Worker: playing and downloading in parts.
 5. `"protocol": 4`, the protocol page and the README.
 6. Editing texts.
