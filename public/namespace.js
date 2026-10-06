@@ -36,6 +36,7 @@ import {
   extensionOf,
   highlightedText,
   itemSummary,
+  seekVideoAt,
   streamAddress,
   videoPlayer,
 } from "./items.js";
@@ -94,8 +95,6 @@ const mediaViewerTitle = element("#media-viewer-title");
 const mediaViewerCount = element("#media-viewer-count");
 const mediaViewerStage = element("#media-viewer-stage");
 const mediaViewerContent = element("#media-viewer-content");
-const mediaViewerPrevious = element("#media-viewer-previous");
-const mediaViewerNext = element("#media-viewer-next");
 
 /** Embedded in the page by the server; see readConfig. */
 let config = null;
@@ -429,17 +428,101 @@ const mediaAddress = async (entry, { preview = false } = {}) => {
 let viewerIndex = -1;
 let viewerEntry = null;
 let viewerLoad = 0;
-let revokeViewerSource = null;
+/** The current medium and its two neighbors, already loaded for quick navigation. */
+const viewerMedia = new Map();
+
+const releaseViewerMedium = ({ source, preloader, medium }) => {
+  for (const node of new Set([preloader, medium].filter(Boolean))) {
+    if (node.localName === "video") {
+      node.pause();
+      node.removeAttribute("src");
+      node.load();
+    } else {
+      node.removeAttribute("src");
+    }
+  }
+  source.revoke?.();
+};
+
+/** Starts fetching and decoding an image, or just a video's metadata. */
+const loadViewerMedium = (entry, current = false) => {
+  const { id } = entry.item;
+  let pending = viewerMedia.get(id);
+  if (!pending) {
+    pending = (async () => {
+      const source = await mediaAddress(entry);
+      if (entry.info.isVideo) {
+        const preloader = el("video", {
+          src: source.src,
+          preload: "metadata",
+          muted: true,
+          playsInline: true,
+        });
+        preloader.load();
+        return { source, preloader, medium: null };
+      }
+      const preloader = el("img", {
+        alt: entry.info.title,
+        src: source.src,
+        draggable: false,
+        decoding: "async",
+        fetchPriority: current ? "high" : "low",
+      });
+      if (typeof preloader.decode === "function") await preloader.decode().catch(() => {});
+      return { source, preloader, medium: preloader };
+    })();
+    viewerMedia.set(id, pending);
+    pending.catch(() => {
+      if (viewerMedia.get(id) === pending) viewerMedia.delete(id);
+    });
+  }
+  if (current) {
+    pending
+      .then(({ preloader }) => {
+        if (preloader.localName === "img") preloader.fetchPriority = "high";
+      })
+      .catch(() => {});
+  }
+  return pending;
+};
+
+/** Keeps no more than the current, previous and next media in memory. */
+const preloadAroundViewer = () => {
+  const count = mediaEntries.length;
+  const indexes = new Set([
+    viewerIndex,
+    (viewerIndex - 1 + count) % count,
+    (viewerIndex + 1) % count,
+  ]);
+  const wanted = new Set([...indexes].map((index) => mediaEntries[index]?.item.id));
+  for (const [id, pending] of viewerMedia) {
+    if (wanted.has(id)) continue;
+    viewerMedia.delete(id);
+    pending.then(releaseViewerMedium).catch(() => {});
+  }
+
+  const current = loadViewerMedium(viewerEntry, true);
+  for (const index of indexes) {
+    const entry = mediaEntries[index];
+    if (entry && entry !== viewerEntry) loadViewerMedium(entry).catch(() => {});
+  }
+  return current;
+};
+
+const clearViewerMedia = () => {
+  for (const pending of viewerMedia.values()) {
+    pending.then(releaseViewerMedium).catch(() => {});
+  }
+  viewerMedia.clear();
+};
 
 const updateViewerChrome = () => {
   const count = mediaEntries.length;
   mediaViewerTitle.textContent = viewerEntry?.info.title ?? "Media";
   mediaViewerCount.textContent = count ? `${viewerIndex + 1} / ${count}` : "";
-  mediaViewerPrevious.hidden = count < 2;
-  mediaViewerNext.hidden = count < 2;
 };
 
-/** Shows one medium without closing the dialog, so arrows and swipes form a gallery. */
+/** Shows one medium without closing the dialog, so keys and swipes form a gallery. */
 const showMedia = async (index) => {
   if (!mediaEntries.length) {
     mediaViewer.close();
@@ -451,24 +534,14 @@ const showMedia = async (index) => {
 
   const load = ++viewerLoad;
   mediaViewerContent.querySelector("video")?.pause();
-  revokeViewerSource?.();
-  revokeViewerSource = null;
   mediaViewerContent.replaceChildren(el("p", { className: "hint", textContent: "Loading…" }));
 
   try {
-    const source = await mediaAddress(viewerEntry);
-    if (load !== viewerLoad || !mediaViewer.open) {
-      source.revoke?.();
-      return;
-    }
-    revokeViewerSource = source.revoke;
-    const medium = viewerEntry.info.isVideo
-      ? videoPlayer(source.src)
-      : el("img", {
-          alt: viewerEntry.info.title,
-          src: source.src,
-          draggable: false,
-        });
+    const cached = await preloadAroundViewer();
+    if (load !== viewerLoad || !mediaViewer.open) return;
+    if (cached.preloader.localName === "img") cached.preloader.alt = viewerEntry.info.title;
+    cached.medium ??= videoPlayer(cached.source.src);
+    const medium = cached.medium;
     mediaViewerContent.replaceChildren(medium);
   } catch (error) {
     if (load === viewerLoad) {
@@ -490,10 +563,7 @@ const openMediaViewer = (entry) => {
   void showMedia(index);
 };
 
-mediaViewerPrevious.addEventListener("click", () => moveMedia(-1));
-mediaViewerNext.addEventListener("click", () => moveMedia(1));
 mediaViewer.addEventListener("keydown", (event) => {
-  if (event.target.closest("video")) return;
   if (event.key === "ArrowLeft") {
     event.preventDefault();
     moveMedia(-1);
@@ -511,27 +581,46 @@ mediaViewer.addEventListener("keydown", (event) => {
 mediaViewer.addEventListener("close", () => {
   viewerLoad += 1;
   mediaViewerContent.querySelector("video")?.pause();
-  revokeViewerSource?.();
-  revokeViewerSource = null;
   mediaViewerContent.replaceChildren();
+  clearViewerMedia();
   viewerEntry = null;
   viewerIndex = -1;
 });
 
+// Capture double-click before native video controls so seeking works reliably
+// in the viewer. The player itself handles the same gesture outside it.
+mediaViewerStage.addEventListener(
+  "dblclick",
+  (event) => {
+    const video = event.target.closest("video");
+    if (!video) return;
+    event.preventDefault();
+    event.stopPropagation();
+    seekVideoAt(video, event.clientX);
+  },
+  true,
+);
+
 // A deliberate horizontal drag changes media; vertical touch remains native.
 let viewerPointer = null;
 mediaViewerStage.addEventListener("pointerdown", (event) => {
-  if (!event.isPrimary || event.target.closest("button, video")) return;
+  if (!event.isPrimary || event.target.closest("button")) return;
   viewerPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
-  mediaViewerStage.setPointerCapture(event.pointerId);
+  // Capturing a video pointer would prevent its native controls from receiving
+  // pointerup. The stage still sees that event during the capture phase.
+  if (!event.target.closest("video")) mediaViewerStage.setPointerCapture(event.pointerId);
 });
-mediaViewerStage.addEventListener("pointerup", (event) => {
-  if (!viewerPointer || viewerPointer.id !== event.pointerId) return;
-  const x = event.clientX - viewerPointer.x;
-  const y = event.clientY - viewerPointer.y;
-  viewerPointer = null;
-  if (Math.abs(x) >= 50 && Math.abs(x) > Math.abs(y) * 1.25) moveMedia(x < 0 ? 1 : -1);
-});
+mediaViewerStage.addEventListener(
+  "pointerup",
+  (event) => {
+    if (!viewerPointer || viewerPointer.id !== event.pointerId) return;
+    const x = event.clientX - viewerPointer.x;
+    const y = event.clientY - viewerPointer.y;
+    viewerPointer = null;
+    if (Math.abs(x) >= 50 && Math.abs(x) > Math.abs(y) * 1.25) moveMedia(x < 0 ? 1 : -1);
+  },
+  true,
+);
 mediaViewerStage.addEventListener("pointercancel", () => {
   viewerPointer = null;
 });
@@ -1066,6 +1155,7 @@ const renderItems = async (items, { force = false } = {}) => {
       viewerIndex = current;
       viewerEntry = mediaEntries[current];
       updateViewerChrome();
+      preloadAroundViewer().catch(() => {});
     } else if (mediaEntries.length) {
       void showMedia(Math.min(viewerIndex, mediaEntries.length - 1));
     } else {

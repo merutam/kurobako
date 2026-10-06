@@ -72,13 +72,38 @@ export const describeOpened = (metadata) => ({
   isVideo: metadata.mime?.startsWith("video/") ?? false,
 });
 
+/** Seeks ten seconds toward the half of a video that was activated. */
+export const seekVideoAt = (video, clientX) => {
+  const bounds = video.getBoundingClientRect();
+  const seconds = clientX < bounds.left + bounds.width / 2 ? -10 : 10;
+  const end = Number.isFinite(video.duration) ? video.duration : Number.POSITIVE_INFINITY;
+  const target = Math.min(end, Math.max(0, video.currentTime + seconds));
+  try {
+    if (typeof video.fastSeek === "function") video.fastSeek(target);
+    else video.currentTime = target;
+  } catch {
+    // A stream whose metadata has not arrived yet is not seekable yet.
+  }
+};
+
 /**
  * A player for a video at `src`. Whether a browser plays a format (MKV,
  * MOV) only shows once it tries: if it cannot, the player gives way to a
  * note, and the download stays.
  */
 export const videoPlayer = (src) => {
-  const video = el("video", { src, controls: true, preload: "metadata", playsInline: true });
+  const video = el("video", {
+    src,
+    controls: true,
+    preload: "metadata",
+    playsInline: true,
+    title: "Double-click left or right to seek 10 seconds",
+  });
+  // Like familiar media viewers: double-click the left or right half to seek.
+  video.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    seekVideoAt(video, event.clientX);
+  });
   video.addEventListener("error", () =>
     video.replaceWith(
       el("p", {
