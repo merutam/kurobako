@@ -180,6 +180,16 @@ export const createMediaViewer = (sourceOf) => {
     }
   });
   document.addEventListener("fullscreenchange", () => {
+    // A video put in full screen by its own button (where the browser still
+    // offers it): the whole gallery takes its place, gestures and all.
+    const shown = document.fullscreenElement;
+    if (shown?.localName === "video" && frame.contains(shown)) {
+      void document
+        .exitFullscreen()
+        .then(() => frame.requestFullscreen())
+        .catch(() => {});
+      return;
+    }
     const on = document.fullscreenElement === frame;
     fullscreen.setAttribute("aria-pressed", String(on));
     fullscreen.title = on ? "Exit full screen" : "Full screen";
