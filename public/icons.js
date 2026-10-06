@@ -16,6 +16,10 @@ const ICONS = {
     ["path", { d: "M2.5 12l3.5-3.5 2.5 2.5 2-2 3 3" }],
   ],
   file: [["path", { d: "M4 1.8h5l3 3v9.4H4zM9 1.8v3h3" }]],
+  video: [
+    ["rect", { x: "1.5", y: "3.5", width: "13", height: "9", rx: "1" }],
+    ["path", { d: "M6.5 6v4l3.5-2z" }],
+  ],
   /** Deletes when opened. */
   burn: [
     [
@@ -64,6 +68,14 @@ const ICONS = {
     ["path", { d: "M7.5 8h6M11.5 8v2.5M13.5 8v2" }],
   ],
   logout: [["path", { d: "M6.5 2.5h-3v11h3M10 5l3 3-3 3M13 8H6" }]],
+  lock: [
+    ["rect", { x: "3", y: "7", width: "10", height: "7", rx: "1" }],
+    ["path", { d: "M5.5 7V5a2.5 2.5 0 0 1 5 0v2" }],
+  ],
+  unlock: [
+    ["rect", { x: "3", y: "7", width: "10", height: "7", rx: "1" }],
+    ["path", { d: "M5.5 7V5a2.5 2.5 0 0 1 4.9-.7" }],
+  ],
   /** Others looking: pages open on a namespace. */
   eye: [
     ["path", { d: "M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" }],

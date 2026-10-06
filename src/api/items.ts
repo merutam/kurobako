@@ -7,7 +7,14 @@
 import { nameOf, publicItem, type StoredItem } from "../model";
 import type { ItemRef } from "../namespace";
 import type { createContents } from "./contents";
-import { type Api, type App, type AppContext, jsonError, readLimited } from "./context";
+import {
+  type Api,
+  type App,
+  type AppContext,
+  jsonError,
+  readLimited,
+  writeVerifier,
+} from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
 
 /** Longest body a rename takes; names themselves are cut much shorter. */
@@ -22,7 +29,7 @@ export const mountItems = (
   api: Api,
   { serveItem }: ReturnType<typeof createContents>,
 ) => {
-  const { namespace, hub, visit, platformOf, refuseSend, config } = api;
+  const { namespace, hub, visit, platformOf, refuseSend, refuseWrite, config } = api;
   const site = config.basePath;
 
   for (const space of SPACES) {
@@ -51,6 +58,12 @@ export const mountItems = (
           position: number;
         } | null;
         if (!found) return jsonError(c, 404, "Item not found.");
+        // Making a share link is writing: a reader of a locked namespace gets none.
+        const check = await namespace(c, ref).checkWrite(await writeVerifier(c));
+        if (check === "missing" || check === "wrong") {
+          c.header("Locked", "1");
+          return c.json({ ...publicItem(found.item), position: found.position });
+        }
         const token = await hub(c).createShare(ref, found.item.id, found.item.expiresAt);
         return c.json({
           ...publicItem(found.item),
@@ -85,6 +98,9 @@ export const mountItems = (
       ["GET", "POST"],
       `${prefix}/${ITEM}/s`,
       inNamespace(async (c, ref) => {
+        // A share link is made once and kept: in a locked namespace, by its writer.
+        const refused = await refuseWrite(c, ref);
+        if (refused) return refused;
         const item = (await namespace(c, ref).peek(itemRef(c), visit(c))) as StoredItem | null;
         if (!item) return jsonError(c, 404, "Item not found.");
         const token = await hub(c).createShare(ref, item.id, item.expiresAt);
@@ -100,7 +116,7 @@ export const mountItems = (
     app.post(
       `${prefix}/${ITEM}/n`,
       inNamespace(async (c, ref) => {
-        const refused = await refuseSend(c);
+        const refused = (await refuseSend(c)) ?? (await refuseWrite(c, ref));
         if (refused) return refused;
         let change: { name: string } | { metadata: string };
         if (space.kind === "sealed") {
@@ -123,6 +139,8 @@ export const mountItems = (
     app.delete(
       `${prefix}/${ITEM}`,
       inNamespace(async (c, ref) => {
+        const refused = await refuseWrite(c, ref);
+        if (refused) return refused;
         const removed = await namespace(c, ref).remove(itemRef(c), visit(c));
         return removed ? c.json({ ok: true }) : jsonError(c, 404, "Item not found.");
       }, "Item not found."),

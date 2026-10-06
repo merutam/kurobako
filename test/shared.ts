@@ -51,11 +51,136 @@ export const sharedTests = (harness: Harness) => {
       .replaceAll("/", "_")
       .replace(/=+$/, "");
 
+  describe("locked namespaces", () => {
+    test("a locked namespace: anyone reads, only its key writes", async () => {
+      const ns = fresh("lock");
+      const locking = await call(`/${ns}/lock`, { method: "POST" });
+      expect(locking.status).toBe(200);
+      expect(locking.headers.get("locked")).toBe("1");
+      const { writeKey } = (await locking.json()) as { writeKey: string };
+      expect(writeKey).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      const writer = { "write-key": writeKey };
+
+      // Writing: with the key only; never burn-after-reading.
+      const anonymous = await sendText(ns, "not mine");
+      expect(anonymous.status).toBe(401);
+      expect(anonymous.headers.get("locked")).toBe("1");
+      expect((await sendText(ns, "guess", { "write-key": "nope" })).status).toBe(403);
+      expect((await sendText(ns, "notes", writer)).status).toBe(201);
+      expect((await sendText(ns, "once", { ...writer, burn: "1" })).status).toBe(400);
+      expect((await call(`/${ns}/f.png`, { method: "PUT", body: png })).status).toBe(401);
+      expect(
+        (await call(`/${ns}/f.png`, { method: "PUT", body: png, headers: writer })).status,
+      ).toBe(201);
+
+      // Reading: anyone, and the queue says it is locked.
+      const listed = await call(`/${ns}/ls`);
+      expect(listed.headers.get("locked")).toBe("1");
+      expect(await listed.json()).toHaveLength(2);
+      expect(await (await call(`/${ns}/2`)).text()).toBe("notes");
+      // A reader gets no share link (making one is writing); the writer does.
+      expect(await json(`/${ns}/2.json`)).not.toHaveProperty("shareUrl");
+      expect((await call(`/${ns}/2/s`)).status).toBe(401);
+      expect(await json(`/${ns}/2.json`, { headers: writer })).toHaveProperty("shareUrl");
+
+      // Renaming and deleting are writes too.
+      const rename = { method: "POST", body: "renamed" };
+      expect((await call(`/${ns}/2/n`, rename)).status).toBe(401);
+      expect((await call(`/${ns}/2/n`, { ...rename, headers: writer })).status).toBe(200);
+      expect((await call(`/${ns}/1`, { method: "DELETE" })).status).toBe(401);
+      expect((await call(`/${ns}/1`, { method: "DELETE", headers: writer })).status).toBe(200);
+
+      // A new key from the current one; the old one stops working.
+      expect((await call(`/${ns}/lock`, { method: "POST" })).status).toBe(401);
+      const changed = (await json(`/${ns}/lock`, { method: "POST", headers: writer })) as {
+        writeKey: string;
+      };
+      expect(changed.writeKey).not.toBe(writeKey);
+      expect((await sendText(ns, "old key", writer)).status).toBe(403);
+
+      // Unlocked, anyone writes again.
+      expect((await call(`/${ns}/lock`, { method: "DELETE", headers: writer })).status).toBe(403);
+      const unlocking = await call(`/${ns}/lock`, {
+        method: "DELETE",
+        headers: { "write-key": changed.writeKey },
+      });
+      expect(unlocking.status).toBe(200);
+      expect((await sendText(ns, "open again")).status).toBe(201);
+      expect((await call(`/${ns}/ls`)).headers.get("locked")).toBeNull();
+    });
+
+    test("a plain namespace in use cannot be taken by locking it", async () => {
+      const ns = fresh("lock");
+      await sendText(ns, "someone's");
+      expect((await call(`/${ns}/lock`, { method: "POST" })).status).toBe(409);
+      expect((await sendText(ns, "still open")).status).toBe(201);
+    });
+
+    test("an encrypted namespace locks with the key its client brings", async () => {
+      const id = freshSealedId();
+      expect((await call(`/e/${id}/lock`, { method: "POST" })).status).toBe(400);
+      const locked = await call(`/e/${id}/lock`, {
+        method: "POST",
+        headers: { "write-key": "derived" },
+      });
+      expect(await locked.json()).toEqual({ locked: true });
+      expect((await call(`/e/${id}/new`, { method: "POST", body: "x" })).status).toBe(401);
+      expect((await call(`/e/${id}/ls`)).headers.get("locked")).toBe("1");
+    });
+  });
+
   describe("plain namespaces", () => {
     test("stores and returns text inside the namespace", async () => {
       const ns = fresh();
       expect((await sendText(ns, "café from the phone")).status).toBe(201);
       expect(await (await call(`/${ns}/1`)).text()).toBe("café from the phone");
+    });
+
+    test("keeps videos playable: their type, their extension, and parts of them", async () => {
+      const ns = fresh();
+      // An MP4's first box, then made-up contents.
+      const mp4 = new Uint8Array(4096);
+      mp4.set([0, 0, 0, 0x20, ...new TextEncoder().encode("ftypisom")]);
+      for (let index = 12; index < mp4.length; index += 1) mp4[index] = index % 251;
+      const sent = await json<FileItem>(`/${ns}/${encodeURIComponent("holiday.MOV")}`, {
+        method: "PUT",
+        body: mp4,
+      });
+      expect(sent).toMatchObject({ kind: "file", mime: "video/mp4", filename: "holiday.mp4" });
+
+      const whole = await call(`/${ns}/1`);
+      expect(whole.headers.get("content-type")).toBe("video/mp4");
+      expect(whole.headers.get("accept-ranges")).toBe("bytes");
+      expect(new Uint8Array(await whole.arrayBuffer())).toEqual(mp4);
+
+      // What a player asks for to start, to seek and to read the end.
+      for (const [range, offset, end] of [
+        ["bytes=0-1", 0, 1],
+        ["bytes=1000-1999", 1000, 1999],
+        ["bytes=4000-", 4000, 4095],
+        ["bytes=-96", 4000, 4095],
+        ["bytes=4000-99999", 4000, 4095],
+      ] as const) {
+        const part = await call(`/${ns}/1`, { headers: { range } });
+        expect(part.status).toBe(206);
+        expect(part.headers.get("content-range")).toBe(`bytes ${offset}-${end}/4096`);
+        expect(new Uint8Array(await part.arrayBuffer())).toEqual(mp4.slice(offset, end + 1));
+      }
+      const outside = await call(`/${ns}/1`, { headers: { range: "bytes=5000-" } });
+      expect(outside.status).toBe(416);
+      expect(outside.headers.get("content-range")).toBe("bytes */4096");
+      await outside.body?.cancel();
+      // Several ranges at once: the whole file.
+      const several = await call(`/${ns}/1`, { headers: { range: "bytes=0-1,5-6" } });
+      expect(several.status).toBe(200);
+      await several.body?.cancel();
+
+      // A burn-after-reading video is read whole, once, whatever is asked.
+      await call(`/${ns}/once.mp4`, { method: "PUT", headers: { burn: "1" }, body: mp4 });
+      const once = await call(`/${ns}/1`, { headers: { range: "bytes=0-1" } });
+      expect(once.status).toBe(200);
+      expect(once.headers.get("accept-ranges")).toBeNull();
+      expect(new Uint8Array(await once.arrayBuffer())).toEqual(mp4);
     });
 
     test("takes what curl sends by hand", async () => {

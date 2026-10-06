@@ -5,6 +5,7 @@
 import { safeFileName } from "../image";
 import type { NamespaceRef, ObjectItem, StoredItem } from "../model";
 import type { ItemRef } from "../namespace";
+import type { ByteRange } from "../platform";
 import type { Api, AppContext } from "./context";
 
 /**
@@ -25,6 +26,29 @@ const attachment = (filename: string) => {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 };
 
+/**
+ * The bytes a Range header asks for (RFC 9110): one range, "bytes=a-b",
+ * "bytes=a-" or "bytes=-n". Null serves the whole object (no header, or
+ * several ranges); "unsatisfiable" is a range outside it.
+ */
+export const requestedRange = (
+  header: string | undefined,
+  size: number,
+): ByteRange | "unsatisfiable" | null => {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header?.trim() ?? "");
+  if (!match) return null;
+  const [, first = "", last = ""] = match;
+  if (!first && !last) return null;
+  if (!first) {
+    const length = Math.min(Number(last), size);
+    return length > 0 ? { offset: size - length, length } : "unsatisfiable";
+  }
+  const offset = Number(first);
+  if (offset >= size) return "unsatisfiable";
+  const end = last ? Math.min(Number(last), size - 1) : size - 1;
+  return end < offset ? "unsatisfiable" : { offset, length: end - offset + 1 };
+};
+
 const contentTypeOf = (item: ObjectItem) =>
   item.kind === "sealed" ? "application/octet-stream" : item.mime;
 
@@ -34,6 +58,7 @@ const objectResponse = (
   size: number,
   inline: boolean,
   unnamed: (id: string) => string,
+  range: ByteRange | null = null,
 ) => {
   const disposition = inline
     ? "inline"
@@ -47,10 +72,16 @@ const objectResponse = (
               : `text-${unnamed(item.id)}.txt`
             : item.filename,
       );
+  // A burn-after-reading item is read whole, once: it takes no ranges.
   return new Response(body, {
+    status: range ? 206 : 200,
     headers: {
       "Content-Type": contentTypeOf(item),
-      "Content-Length": String(size),
+      "Content-Length": String(range ? range.length : size),
+      ...(range
+        ? { "Content-Range": `bytes ${range.offset}-${range.offset + range.length - 1}/${size}` }
+        : {}),
+      ...(item.burn ? {} : { "Accept-Ranges": "bytes" }),
       "Content-Disposition": disposition,
       "Cache-Control": "no-store",
       "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -80,7 +111,16 @@ export const createContents = (api: Api) => {
     const item = (await ns.claimObject(selector, visit(c))) as ObjectItem | null;
     if (!item) return null;
     const { blobs } = platformOf(c);
-    const object = await blobs.get(item.object);
+    // Players ask for parts of a video (to start and to seek): any item but
+    // a burn-after-reading one may be read in parts.
+    const range = item.burn ? null : requestedRange(c.req.header("range"), item.size);
+    if (range === "unsatisfiable") {
+      return new Response(null, {
+        status: 416,
+        headers: { "Content-Range": `bytes */${item.size}`, "Cache-Control": "no-store" },
+      });
+    }
+    const object = await blobs.get(item.object, range ?? undefined);
     if (!object) {
       if (!item.burn) await ns.remove(item.id);
       return null;
@@ -101,7 +141,7 @@ export const createContents = (api: Api) => {
       );
       return objectResponse(item, readable, object.size, inline, unnamed);
     }
-    return objectResponse(item, object.body, object.size, inline, unnamed);
+    return objectResponse(item, object.body, object.size, inline, unnamed, range);
   };
 
   /**

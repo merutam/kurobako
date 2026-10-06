@@ -15,9 +15,24 @@ import {
   sealedName,
   summaryItem,
 } from "../model";
+import type { LockResult } from "../namespace";
 import { renderLogPage } from "../pages";
-import { type Api, type App, type AppContext, jsonError } from "./context";
-import { type createUploads, decodeFilename } from "./uploads";
+import {
+  type Api,
+  type App,
+  type AppContext,
+  jsonError,
+  sha256Hex,
+  WRITE_KEY_HEADER,
+} from "./context";
+import { burnRequested, type createUploads, decodeFilename } from "./uploads";
+
+/** A fresh write key for a plain namespace: 128 random bits in base64url (22 characters). */
+const newWriteKey = () =>
+  btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
 
 export type Space = {
   kind: SpaceKind;
@@ -73,6 +88,7 @@ export const mountNamespaces = (
     assets,
     platformOf,
     refuseSend,
+    refuseWrite,
     storageFull,
   } = api;
   /** A send's size, as it declares it (a text sent without one is small). */
@@ -92,7 +108,12 @@ export const mountNamespaces = (
     app.get(
       `${prefix}/ls`,
       inNamespace(async (c, ref) => {
-        const items = (await namespace(c, ref).list(visit(c))) as StoredItem[];
+        const ns = namespace(c, ref);
+        const [items, locked] = (await Promise.all([ns.list(visit(c)), ns.isLocked()])) as [
+          StoredItem[],
+          boolean,
+        ];
+        if (locked) c.header("Locked", "1");
         // Nothing here is what a name that does not exist answers too.
         if (!items.length) c.set("miss", true);
         // ?summary is what the page uses: long texts as previews.
@@ -104,11 +125,76 @@ export const mountNamespaces = (
     app.post(
       `${prefix}/new`,
       inNamespace(async (c, ref) => {
-        const refused = await refuseSend(c);
+        const refused =
+          (await refuseSend(c)) ?? (await refuseWrite(c, ref, { burn: burnRequested(c) }));
         if (refused) return refused;
         const full = await storageFull(c, declaredSize(c));
         if (full) return full;
         return space.kind === "sealed" ? uploadSealed(c, ref) : uploadPlain(c, ref);
+      }),
+    );
+
+    /**
+     * Locks the namespace: from then on writing needs its key, in Write-Key,
+     * while anyone may still read. A plain namespace locks only while empty,
+     * and gets a key from the server (shown once), unless Write-Key brings
+     * one; an encrypted one brings the key its client derived from the name.
+     * Locked, the same request with the current key changes a plain
+     * namespace's key.
+     */
+    app.post(
+      `${prefix}/lock`,
+      inNamespace(async (c, ref) => {
+        c.header("Cache-Control", "no-store");
+        const refused = await refuseSend(c);
+        if (refused) return refused;
+        const ns = namespace(c, ref);
+        const given = c.req.header(WRITE_KEY_HEADER)?.trim() || null;
+        const locked = (await ns.isLocked()) as boolean;
+        if (locked && !given) {
+          c.header("Locked", "1");
+          return jsonError(
+            c,
+            401,
+            "Already locked: changing its key needs the current one (Write-Key).",
+          );
+        }
+        if (space.kind === "sealed" && !given) {
+          return jsonError(
+            c,
+            400,
+            "An encrypted namespace locks with the key its client derives (Write-Key).",
+          );
+        }
+        const key =
+          space.kind === "plain" && (locked || !given) ? newWriteKey() : (given as string);
+        const result = (await ns.lock(
+          ref,
+          await sha256Hex(key),
+          given && locked ? await sha256Hex(given) : null,
+          space.kind === "plain",
+        )) as LockResult;
+        if (result === "not-empty") {
+          return jsonError(c, 409, "Only an empty namespace can be locked.");
+        }
+        c.header("Locked", "1");
+        if (result === "wrong") {
+          c.set("miss", true);
+          return jsonError(c, 403, "Wrong write key for this namespace.");
+        }
+        return c.json({ locked: true, ...(key !== given ? { writeKey: key } : {}) });
+      }),
+    );
+
+    /** Opens a locked namespace to every writer again, given its key. */
+    app.delete(
+      `${prefix}/lock`,
+      inNamespace(async (c, ref) => {
+        const given = c.req.header(WRITE_KEY_HEADER)?.trim();
+        const unlocked = given && (await namespace(c, ref).unlock(await sha256Hex(given)));
+        if (unlocked) return c.json({ locked: false });
+        c.set("miss", true);
+        return jsonError(c, 403, "Wrong write key for this namespace, or it is not locked.");
       }),
     );
 
@@ -157,11 +243,13 @@ export const mountNamespaces = (
     const name = plainName(c.req.param("namespace"));
     if (!name) return jsonError(c, 404, "Invalid namespace.");
     c.header("Cache-Control", "no-store");
-    const refused = await refuseSend(c);
+    const ref = { space: "plain", name } as const;
+    const refused =
+      (await refuseSend(c)) ?? (await refuseWrite(c, ref, { burn: burnRequested(c) }));
     if (refused) return refused;
     const full = await storageFull(c, declaredSize(c));
     if (full) return full;
     const filename = c.req.param("filename") ?? c.req.header("x-filename");
-    return uploadFile(c, { space: "plain", name }, decodeFilename(filename));
+    return uploadFile(c, ref, decodeFilename(filename));
   });
 };

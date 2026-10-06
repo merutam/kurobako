@@ -91,7 +91,7 @@
         </tr>
         <tr>
           <td><code>GET &lt;ns&gt;/&lt;item&gt;</code></td>
-          <td>its contents (<code>/c</code> too, as on a share link); <code>/d</code> as a download, under its name (an encrypted item's is sealed, so it is <code>&lt;id&gt;.sealed</code>)</td>
+          <td>its contents (<code>/c</code> too, as on a share link); <code>/d</code> as a download, under its name (an encrypted item's is sealed, so it is <code>&lt;id&gt;.sealed</code>). A file takes one <code>Range: bytes=…</code> and answers <code>206</code> with that part, as players ask to start and seek; a burn-after-reading item is always read whole</td>
         </tr>
         <tr>
           <td><code>GET &lt;ns&gt;/&lt;item&gt;.json</code></td>
@@ -212,7 +212,12 @@
     </li>
     <li>
       <strong>Types come from the bytes</strong>: PNG, JPEG, GIF, WebP, AVIF
-      and HEIC are images, served inline; anything else is served as
+      and HEIC are images (<code>kind: "image"</code>), served inline. MP4,
+      MOV, WebM and Matroska are videos: still <code>kind: "file"</code>, with
+      their <code>mime</code> (<code>video/mp4</code>,
+      <code>video/quicktime</code>, <code>video/webm</code>,
+      <code>video/x-matroska</code>), so a page can play them. Images and
+      videos are named with their own extension. Anything else is served as
       <code>application/octet-stream</code>.
     </li>
     <li>
@@ -486,6 +491,57 @@
     </tbody>
   </table>
   </div>
+
+  <h2>Locked namespaces</h2>
+  <p>
+    A locked namespace is read by anyone who reaches it and written only with
+    its <strong>write key</strong>, sent as the <code>Write-Key</code> header.
+    The server keeps only the key's SHA-256. Every write needs it:
+    <code>new</code>, <code>PUT</code>, <code>/n</code>, <code>DELETE</code>,
+    <code>import</code> and <code>/s</code> (a share link is made, and kept,
+    on the server); <code>.json</code> leaves out <code>shareUrl</code> for a
+    reader. Without the key a write gets <code>401</code>, with a wrong one
+    <code>403</code>, which counts as a miss. A locked namespace takes no
+    burn-after-reading items (<code>400</code>): its readers are many, and
+    the first would delete one for all. <code>ls</code> answers with the
+    header <code>Locked: 1</code>, and the live queue carries
+    <code>"locked": true</code>.
+  </p>
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Request</th>
+          <th>Does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>POST &lt;ns&gt;/lock</code></td>
+          <td>
+            locks it. A plain namespace locks only while empty, so nobody
+            takes one others use, and gets <code>{"locked": true,
+            "writeKey": "…"}</code>: a key the server makes (22 characters),
+            given once, unless <code>Write-Key</code> brings one. An
+            encrypted namespace brings the key its client derives. Already
+            locked, the same request with the current key gives a plain
+            namespace a new one. <code>409</code> for a plain namespace with
+            items
+          </td>
+        </tr>
+        <tr>
+          <td><code>DELETE &lt;ns&gt;/lock</code></td>
+          <td>with the key, opens it to every writer again: <code>{"locked": false}</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    A lock lasts as long as its namespace: one locked and left empty is
+    cleaned up like any other. The page keeps a plain namespace's key on the
+    device; <code>/&lt;name&gt;#w=&lt;key&gt;</code> brings it to another
+    one, in the fragment the server never sees.
+  </p>
 
   <h2>Share links</h2>
   <p>

@@ -16,7 +16,7 @@
 // in the manifest), so a backup needs no secret and reveals none. Items that
 // burn after reading are left out: reading them would consume them.
 import { type ArchiveEntry, type ArchiveFormat, readArchive, writeArchive } from "../archive";
-import { IMAGE_SIGNATURE_BYTES, safeFileName } from "../image";
+import { SIGNATURE_BYTES, safeFileName } from "../image";
 import {
   ITEM_ID_LENGTH,
   type NamespaceRef,
@@ -134,7 +134,7 @@ const changedAt = (item: Pick<StoredItem, "createdAt" | "updatedAt">) =>
   Math.max(Date.parse(item.createdAt), Date.parse(item.updatedAt ?? item.createdAt));
 
 export const mountArchives = (app: App, api: Api) => {
-  const { namespace, hub, platformOf, config, refuseSend, storageFull } = api;
+  const { namespace, hub, platformOf, config, refuseSend, refuseWrite, storageFull } = api;
 
   // --- Export -------------------------------------------------------------
 
@@ -355,7 +355,7 @@ export const mountArchives = (app: App, api: Api) => {
 
     if (item.kind === "image" || item.kind === "file") {
       if (size > config.maxFileBytes || size === 0) return null;
-      const { head, body: rest } = await peek(body, IMAGE_SIGNATURE_BYTES);
+      const { head, body: rest } = await peek(body, SIGNATURE_BYTES);
       const described = describePlainFile({ body: rest, size, head }, item.filename ?? null);
       if (described.kind !== "image" && described.kind !== "file") return null;
       const { object, sha256 } = await store(rest, described.mime, true);
@@ -520,7 +520,7 @@ export const mountArchives = (app: App, api: Api) => {
       ["POST", "PUT"],
       `${space.prefix}/import`,
       inNamespace(async (c, ref) => {
-        const refused = await refuseSend(c);
+        const refused = (await refuseSend(c)) ?? (await refuseWrite(c, ref));
         if (refused) return refused;
         return importArchive(c, ref, config.maxItems);
       }),

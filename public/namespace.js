@@ -34,6 +34,7 @@ import {
   describePlain,
   downloadBlob,
   itemSummary,
+  videoPlayer,
 } from "./items.js";
 import {
   defaultTextName,
@@ -72,6 +73,17 @@ const pageUrl = element("#page-url");
 const copyLinkButton = element("#copy-link");
 const burnInput = element("#burn");
 const expandModeSelect = element("#expand-mode");
+const sendSection = element("#send-section");
+const sendOptions = element(".send-options");
+const lockSection = element("#lock-section");
+const lockHint = element("#lock-hint");
+const lockLinkRow = element("#lock-link-row");
+const lockLink = element("#lock-link");
+const keyForm = element("#key-form");
+const keyInput = element("#key-input");
+const lockButton = element("#lock-button");
+const unlockButton = element("#unlock-button");
+const forgetKeyButton = element("#forget-key");
 
 /** Embedded in the page by the server; see readConfig. */
 let config = null;
@@ -141,7 +153,11 @@ const plainMode = (namespace) => {
     sendText: (text, { burn }) =>
       request(`${basePath}/new`, {
         method: "POST",
-        headers: { "Content-Type": "text/plain; charset=utf-8", ...burnHeaders(burn) },
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          ...burnHeaders(burn),
+          ...writeHeaders(),
+        },
         body: text,
       }),
     sendFile: (file, { burn }) =>
@@ -153,6 +169,7 @@ const plainMode = (namespace) => {
           "Content-Type": "application/octet-stream",
           "X-Filename": encodeURIComponent(file.name),
           ...burnHeaders(burn),
+          ...writeHeaders(),
         },
         body: file,
       }),
@@ -160,7 +177,7 @@ const plainMode = (namespace) => {
     rename: (item, name) =>
       request(`${basePath}/${encodeURIComponent(item.id)}/n`, {
         method: "POST",
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...writeHeaders() },
         body: name,
       }),
   };
@@ -197,6 +214,7 @@ const sealedMode = async (secretName) => {
         "Content-Type": "application/octet-stream",
         "X-Sealed-Metadata": header,
         ...burnHeaders(burn),
+        ...writeHeaders(),
       },
       body,
     });
@@ -251,7 +269,7 @@ const sealedMode = async (secretName) => {
       }
       return request(`${basePath}/${encodeURIComponent(item.id)}/n`, {
         method: "POST",
-        headers: { "X-Sealed-Metadata": await opened.withMetadata(changes) },
+        headers: { "X-Sealed-Metadata": await opened.withMetadata(changes), ...writeHeaders() },
       });
     },
   };
@@ -264,6 +282,18 @@ const objectUrl = (blob, id) => {
 };
 
 let mode = null;
+
+/*
+ * Write access. A locked namespace is read by anyone and written only with
+ * its key, sent as Write-Key. The key is kept on this device, by namespace;
+ * an owner's link brings it in its fragment (#w=<key>), never to the server.
+ */
+let locked = false;
+const writeKeyName = () => `kurobako-write:${mode.basePath}`;
+const writeKey = () => storage.get(writeKeyName());
+const writeHeaders = () => (writeKey() ? { "Write-Key": writeKey() } : {});
+/** Whether this page may write: an open namespace, or a locked one whose key it has. */
+const canWrite = () => !locked || Boolean(writeKey());
 
 /*
  * The list shows entries: { item, info, opened? }. `opened` holds the content
@@ -304,6 +334,7 @@ const deleteItem = async (item) => {
   try {
     await request(`${mode.basePath}/${encodeURIComponent(item.id)}`, {
       method: "DELETE",
+      headers: writeHeaders(),
     });
     expandedItems.delete(item.id);
     status.success("Deleted.");
@@ -322,6 +353,7 @@ const shareItem = async (item) => {
   try {
     const response = await request(`${mode.basePath}/${encodeURIComponent(item.id)}/s`, {
       method: "POST",
+      headers: writeHeaders(),
     });
     // The address this page was opened at, which the server may not know.
     const { pathname } = new URL((await response.text()).trim());
@@ -454,7 +486,9 @@ const renderItem = (entry, position) => {
         ? "text"
         : info.isImage
           ? "image"
-          : "file";
+          : info.isVideo
+            ? "video"
+            : "file";
   const title = el("span", { className: "item-title", textContent: info.title });
   const heading = [el("span", { className: "item-kind" }, icon(kind)), title];
   const age = el("span", { textContent: formatAge(item.createdAt) });
@@ -475,7 +509,7 @@ const renderItem = (entry, position) => {
     const toggle = el("button", { type: "button", className: "item-toggle" }, ...heading);
     toggle.setAttribute("aria-controls", bodyId);
     const body = el("div", { className: "item-body", id: bodyId });
-    const previewable = info.kind === "text" || info.isImage;
+    const previewable = info.kind === "text" || info.isImage || info.isVideo;
     const preview = el("div");
 
     let loaded = false;
@@ -486,13 +520,16 @@ const renderItem = (entry, position) => {
         if (info.kind === "text") {
           preview.replaceChildren(el("pre", { textContent: await textOf(entry) }));
         } else {
-          // Plain images load straight from the server; anything else is
-          // fetched (and decrypted) here.
+          // Plain images and videos load straight from the server (a video
+          // in parts, as it plays); anything else is fetched (and
+          // decrypted) here, whole.
           const src =
-            !entry.opened && item.kind === "image" && !item.burn
+            !entry.opened && item.kind !== "sealed" && !item.burn
               ? `${mode.basePath}/${item.id}`
               : objectUrl(await blobOf(entry), item.id);
-          preview.replaceChildren(el("img", { alt: info.title, src }));
+          preview.replaceChildren(
+            info.isVideo ? videoPlayer(src) : el("img", { alt: info.title, src }),
+          );
         }
       } catch (error) {
         loaded = false;
@@ -502,6 +539,7 @@ const renderItem = (entry, position) => {
 
     const setOpen = (open) => {
       body.hidden = !open;
+      if (!open) preview.querySelector("video")?.pause();
       toggle.setAttribute("aria-expanded", String(open));
       listItem.classList.toggle("open", open);
       if (open) void load();
@@ -528,7 +566,7 @@ const renderItem = (entry, position) => {
       if (event.detail <= 1) toggleOpen();
     });
 
-    const renamable = !entry.opened && info.kind !== "unreadable";
+    const renamable = !entry.opened && info.kind !== "unreadable" && canWrite();
     if (renamable) {
       title.title = "Double-click to rename";
       title.addEventListener("dblclick", (event) => {
@@ -575,14 +613,14 @@ const renderItem = (entry, position) => {
       }
     }
   }
-  if (!entry.opened && info.kind !== "unreadable" && !unopenedBurn) {
+  // Sharing makes a link on the server: like deleting, it is writing.
+  if (!entry.opened && info.kind !== "unreadable" && !unopenedBurn && canWrite()) {
     actions.append(iconButton("share", "Share", () => shareItem(item)));
   }
-  actions.append(
-    entry.opened
-      ? iconButton("dismiss", "Dismiss", () => dismiss(item.id))
-      : iconButton("delete", "Delete", () => deleteItem(item), "destructive"),
-  );
+  if (entry.opened) actions.append(iconButton("dismiss", "Dismiss", () => dismiss(item.id)));
+  else if (canWrite()) {
+    actions.append(iconButton("delete", "Delete", () => deleteItem(item), "destructive"));
+  }
   row.append(actions);
   if (!expandable) listItem.append(row);
   return listItem;
@@ -641,7 +679,7 @@ const renderItems = async (items, { force = false } = {}) => {
   for (const entry of entries) {
     const { id } = entry.item;
     const position = entry.opened ? 0 : (positions.get(id) ?? 0);
-    const made = JSON.stringify([entry.item, entry.info, Boolean(entry.opened)]);
+    const made = JSON.stringify([entry.item, entry.info, Boolean(entry.opened), canWrite()]);
     const kept = rows.get(id);
     if (kept && kept.made === made) {
       kept.node.querySelector(".item-position").textContent = position ? String(position) : "";
@@ -679,6 +717,7 @@ const loadItems = async () => {
     const response = await request(`${mode.basePath}/ls?summary`, {
       cache: "no-store",
     });
+    setLocked(response.headers.get("locked") === "1");
     await renderItems(await response.json());
   } catch (error) {
     status.error(`Could not refresh: ${error.message}`);
@@ -743,7 +782,10 @@ const connectLive = () => {
   current.addEventListener("message", (event) => {
     if (event.data === config.live.pong) return;
     const message = JSON.parse(event.data);
-    if (message.type === "items") void renderItems(message.items);
+    if (message.type === "items") {
+      setLocked(Boolean(message.locked));
+      void renderItems(message.items);
+    }
     if (message.type === "viewers") showViewers(message.count);
   });
   current.addEventListener("close", () => {
@@ -898,7 +940,13 @@ restoreForm({
   zone: element("#restore-zone"),
   status,
   send: async (file) =>
-    (await request(`${mode.basePath}/import`, { method: "POST", body: file })).json(),
+    (
+      await request(`${mode.basePath}/import`, {
+        method: "POST",
+        headers: writeHeaders(),
+        body: file,
+      })
+    ).json(),
   // The live connection brings the new queue; this is for when it is down.
   done: refreshUnlessLive,
 });
@@ -917,6 +965,98 @@ copyLinkButton.addEventListener("click", copyLink);
 
 /** Encrypted files grow a little; the server's limit applies to what it receives. */
 const fileLimit = () => config.maxFileBytes - mode.fileOverheadBytes;
+
+/** Shows what this page may do: send, or only read, and the Lock section's state. */
+const showAccess = () => {
+  const readOnly = !canWrite();
+  sendSection.hidden = readOnly;
+  restore.hidden = readOnly;
+  // A locked namespace has no items that delete when opened.
+  sendOptions.hidden = locked;
+  if (locked) burnInput.checked = false;
+  modeLabel.textContent = [mode.label, locked ? (readOnly ? "Read-only" : "Locked") : ""]
+    .filter(Boolean)
+    .map((part) => `${part} · `)
+    .join("");
+
+  // Locking comes to encrypted namespaces with their derived write key.
+  lockSection.hidden = mode.label !== "";
+  const key = writeKey();
+  lockButton.hidden = locked;
+  unlockButton.hidden = !locked || !key;
+  forgetKeyButton.hidden = !key;
+  lockLinkRow.hidden = !locked || !key;
+  keyForm.hidden = !locked || Boolean(key);
+  if (locked && key) {
+    lockLink.value = `${mode.shareUrl}#w=${encodeURIComponent(key)}`;
+    lockHint.textContent =
+      "Locked: anyone can read it, and this device writes. So does the link below: keep it to yourself.";
+  } else if (locked) {
+    lockHint.textContent =
+      "Read-only: only those with its write key can send, rename or delete here.";
+  } else {
+    lockHint.textContent =
+      "Locking keeps it readable by anyone, while only those with its key can send, rename or delete. Only an empty namespace can be locked.";
+  }
+};
+
+/** The lock as the server says it, from the queue or the live connection. */
+const setLocked = (value) => {
+  if (value === locked) return;
+  locked = value;
+  showAccess();
+  void renderItems(serverItems, { force: true });
+};
+
+lockButton.addEventListener("click", async () => {
+  try {
+    const response = await request(`${mode.basePath}/lock`, { method: "POST" });
+    const { writeKey: key } = await response.json();
+    storage.set(writeKeyName(), key);
+    status.success("Locked. This device keeps its key; copy the link below to write elsewhere.");
+    setLocked(true);
+    showAccess();
+  } catch (error) {
+    status.error(error.message);
+  }
+});
+
+unlockButton.addEventListener("click", async () => {
+  if (!window.confirm("Unlock? Anyone with the name could then send, rename and delete.")) return;
+  try {
+    await request(`${mode.basePath}/lock`, { method: "DELETE", headers: writeHeaders() });
+    storage.remove(writeKeyName());
+    status.success("Unlocked.");
+    setLocked(false);
+    showAccess();
+  } catch (error) {
+    status.error(error.message);
+  }
+});
+
+forgetKeyButton.addEventListener("click", () => {
+  storage.remove(writeKeyName());
+  showAccess();
+  void renderItems(serverItems, { force: true });
+});
+
+keyForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  storage.set(writeKeyName(), keyInput.value.trim());
+  keyForm.reset();
+  status.success("Key saved on this device: writing tells whether it is the right one.");
+  showAccess();
+  void renderItems(serverItems, { force: true });
+});
+
+element("#copy-lock-link").addEventListener("click", async () => {
+  try {
+    await copyText(lockLink.value);
+    status.success("Link copied: it writes here, keep it to yourself.");
+  } catch (error) {
+    status.error(error.message);
+  }
+});
 
 const showPage = () => {
   fileLimitLabel.textContent =
@@ -942,6 +1082,7 @@ const showPage = () => {
     backupHint.textContent =
       "Every item as a zip or a tar, still encrypted. Items that delete when opened are left out.";
   }
+  showAccess();
 };
 
 /** Under the text: its characters and its size against the limit, red past it. */
@@ -1001,6 +1142,12 @@ try {
     status.clear();
   } else {
     mode = plainMode(decodeURIComponent(path.split("/")[1] || ""));
+    // An owner's link: keep its key here, and take it out of the address.
+    const ownerKey = /^#w=(.+)$/.exec(window.location.hash)?.[1];
+    if (ownerKey) {
+      storage.set(writeKeyName(), decodeURIComponent(ownerKey));
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
   }
 
   showPage();

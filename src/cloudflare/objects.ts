@@ -78,6 +78,18 @@ export class NamespaceObject extends DurableObject<Env> {
   restore(ref: NamespaceRef, items: Restored[]) {
     return this.core.restore(ref, items);
   }
+  isLocked() {
+    return this.core.isLocked();
+  }
+  checkWrite(verifier: string | null) {
+    return this.core.checkWrite(verifier);
+  }
+  lock(ref: NamespaceRef, verifier: string, current: string | null, onlyEmpty: boolean) {
+    return this.core.lock(ref, verifier, current, onlyEmpty);
+  }
+  unlock(verifier: string | null) {
+    return this.core.unlock(verifier);
+  }
   alarm() {
     return this.core.alarm();
   }

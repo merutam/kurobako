@@ -29,11 +29,14 @@ export const s3Store = (client: S3Client): BlobStore => ({
       throw error;
     }
   },
-  async get(key) {
+  async get(key, range) {
     const file = client.file(key);
     try {
       const { size } = await file.stat();
-      return { body: file.stream(), size };
+      const body = range
+        ? file.slice(range.offset, range.offset + range.length).stream()
+        : file.stream();
+      return { body, size };
     } catch (error) {
       if (isNotFound(error)) return null;
       throw error;

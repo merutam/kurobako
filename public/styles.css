@@ -11,6 +11,12 @@
   box-sizing: border-box;
 }
 
+/* Hidden means hidden, whatever display a component gives itself. */
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: the attribute must win over every component's display. */
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--background);
@@ -145,6 +151,10 @@ p {
   .columns {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: var(--space-7);
+  }
+  /* A column hidden (Send, on a read-only namespace): the other takes it all. */
+  .columns:has(> [hidden]) {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -493,6 +503,13 @@ fieldset .status {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.item video,
+.shared-item video {
+  display: block;
+  max-width: 100%;
+  max-height: 30rem;
+  background: #000;
+}
 .item img,
 .shared-item img {
   display: block;
@@ -547,10 +564,6 @@ fieldset .status {
   color: var(--text);
   font-weight: normal;
   text-align: left;
-}
-/* Renaming: the field takes the name's place. */
-.item-toggle[hidden] {
-  display: none;
 }
 button.item-toggle:hover,
 button.item-toggle:active {
@@ -614,9 +627,6 @@ a.icon-button:hover {
 }
 .item-body {
   padding: 0 0 var(--space-3) calc(2ch + var(--space-2));
-}
-.item-body[hidden] {
-  display: none;
 }
 .item-meta {
   margin: var(--space-1) 0 0;
