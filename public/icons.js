@@ -39,6 +39,9 @@ const ICONS = {
     ["path", { d: "M11 5V3.5a1 1 0 0 0-1-1H3.5a1 1 0 0 0-1 1V10a1 1 0 0 0 1 1H5" }],
   ],
   edit: [["path", { d: "M3 13l2.6-.6L13 5l-2-2-7.4 7.4zM9.8 4.2l2 2" }]],
+  expand: [["path", { d: "M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10" }]],
+  previous: [["path", { d: "M10.5 3L5.5 8l5 5" }]],
+  next: [["path", { d: "M5.5 3l5 5-5 5" }]],
   download: [["path", { d: "M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10" }]],
   share: [
     [
