@@ -61,7 +61,7 @@ export const readLimited = async (c: AppContext, limit: number): Promise<Uint8Ar
 
 export const jsonError = (
   c: AppContext,
-  status: 400 | 401 | 403 | 404 | 409 | 411 | 413 | 415 | 426 | 429 | 500 | 503 | 507,
+  status: 400 | 401 | 403 | 404 | 409 | 411 | 412 | 413 | 415 | 426 | 429 | 500 | 503 | 507,
   error: string,
 ) => c.json({ error }, status);
 

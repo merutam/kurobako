@@ -4,7 +4,7 @@
 // Backups: a namespace, or with the admin key the whole instance, as a zip or
 // a tar, and back.
 //
-//   GET  <ns>/zip, <ns>/tar      the namespace (?since=<date>: items sent or renamed since;
+//   GET  <ns>/zip, <ns>/tar      the namespace (?since=<date>: items sent or changed since;
 //                                ?max=<bytes>: in parts, see archiveOf)
 //   POST <ns>/import             puts a backup of one namespace back into this one (PUT too)
 //   GET  /a/zip, /a/tar          every namespace (admin)
@@ -272,7 +272,7 @@ export const mountArchives = (app: App, api: Api) => {
     return { max, after };
   };
 
-  /** ?since=<date or time>: only items sent or renamed since then. */
+  /** ?since=<date or time>: only items sent or changed since then. */
   const sinceOf = (c: AppContext): number | null | Response => {
     const raw = c.req.query("since");
     if (!raw) return null;

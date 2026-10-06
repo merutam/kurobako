@@ -23,6 +23,7 @@ import {
   Queue,
   type Rename,
   renamedItem,
+  replacedItem,
   type SaveInput,
 } from "./queue";
 
@@ -45,7 +46,7 @@ export type Restored = {
   input: SaveInput;
   id: string;
   createdAt: string;
-  /** Last metadata change, when the backup records one. */
+  /** Last content or metadata change, when the backup records one. */
   updatedAt?: string;
   expiresAt: string | null;
   /** A text's name, as it was. */
@@ -90,6 +91,12 @@ export class NamespaceCore {
   private schemaReady = false;
   private readonly queue = new Queue(() => this.sql);
   private readonly log = new AccessLog(() => this.sql);
+
+  /** A version newer than an item's, even when two changes share a millisecond. */
+  private nextUpdate(item: StoredItem): string {
+    const current = Date.parse(item.updatedAt ?? item.createdAt);
+    return new Date(Math.max(Date.now(), current + 1)).toISOString();
+  }
 
   constructor(
     private readonly config: AppConfig,
@@ -388,8 +395,8 @@ export class NamespaceCore {
   /**
    * Puts back items from a backup, oldest first, with their IDs and dates.
    * An item whose contents are already here is left out. An existing ID takes
-   * a newer name or sealed metadata from an incremental backup when its
-   * contents still match; restoring the same backup twice therefore changes
+   * a newer name, or newer text contents from an incremental backup; files
+   * remain immutable. Restoring the same backup twice therefore changes
    * nothing. An item already expired is left out too. Items expire by this
    * instance's rule at the latest. Returns uploaded file keys that were not
    * kept, for the caller to delete.
@@ -403,6 +410,7 @@ export class NamespaceCore {
     const now = Date.now();
     const latest = this.expiryFrom(now);
     const skipped: string[] = [];
+    const replacedFiles: StoredItem[] = [];
     let restored = 0;
     for (const { input, id, createdAt, updatedAt, expiresAt, name } of items) {
       const expiry =
@@ -413,26 +421,46 @@ export class NamespaceCore {
       if (existing) {
         const currentChange = Date.parse(existing.updatedAt ?? existing.createdAt);
         const incomingChange = updatedAt ? Date.parse(updatedAt) : Number.NEGATIVE_INFINITY;
+        // A sealed body's ciphertext has no stored digest. For a newer backup,
+        // keep its body together with its metadata: changing only the latter
+        // could pair a new revision with the old revision's ciphertext.
         const sameContents =
           existing.kind === input.kind &&
           existing.size === input.size &&
-          (existing.kind === "sealed"
-            ? input.kind === "sealed"
-            : Boolean(existing.sha256 && input.sha256 && existing.sha256 === input.sha256));
+          existing.kind !== "sealed" &&
+          Boolean(existing.sha256 && input.sha256 && existing.sha256 === input.sha256);
         if (sameContents && incomingChange > currentChange) {
           const change: Rename | null =
-            existing.kind === "sealed" && input.kind === "sealed"
-              ? { metadata: input.metadata }
-              : input.kind === "text"
-                ? { name: name ?? "" }
-                : input.kind === "image" || input.kind === "file"
-                  ? { name: input.filename }
-                  : null;
+            input.kind === "text"
+              ? { name: name ?? "" }
+              : input.kind === "image" || input.kind === "file"
+                ? { name: input.filename }
+                : null;
           if (change) {
             const renamed = renamedItem(existing, change);
             if (!("error" in renamed)) {
               this.queue.update({ ...renamed, updatedAt });
               restored += 1;
+            }
+          }
+        } else if (incomingChange > currentChange) {
+          const editable =
+            (existing.kind === "text" && input.kind === "text") ||
+            (existing.kind === "sealed" && input.kind === "sealed");
+          if (editable && updatedAt) {
+            const replaced = replacedItem(existing, input, updatedAt);
+            if (!("error" in replaced)) {
+              const restoredItem =
+                replaced.kind === "text" && name !== undefined ? { ...replaced, name } : replaced;
+              this.queue.update(restoredItem);
+              if (
+                hasObject(existing) &&
+                (!hasObject(restoredItem) || restoredItem.object !== existing.object)
+              ) {
+                replacedFiles.push(existing);
+              }
+              restored += 1;
+              continue;
             }
           }
         }
@@ -454,7 +482,7 @@ export class NamespaceCore {
     // Restored items keep their dates, so their place is by date too, in
     // whatever order the parts of a backup come back.
     if (restored) this.queue.sortByDate();
-    await this.deleteFiles(this.queue.trimTo(this.config.maxItems));
+    await this.deleteFiles([...replacedFiles, ...this.queue.trimTo(this.config.maxItems)]);
     await this.changed();
     return { restored, skipped };
   }
@@ -522,10 +550,39 @@ export class NamespaceCore {
     if (!item) return null;
     const renamed = renamedItem(item, change);
     if ("error" in renamed) return renamed;
-    const updated = { ...renamed, updatedAt: new Date().toISOString() };
+    const updated = { ...renamed, updatedAt: this.nextUpdate(item) };
     this.queue.update(updated);
     await this.changed();
     return { item: updated };
+  }
+
+  /**
+   * Replaces a text's contents (see replacedItem). `expected` is the version
+   * the client saw (its updatedAt, else createdAt): if the item changed
+   * since, nothing happens and the answer says so. The old contents' file,
+   * if any, is deleted; the new one's is the caller's until this succeeds.
+   */
+  async replace(
+    ref: ItemRef,
+    input: SaveInput,
+    expected: string,
+    visit?: AccessEvent,
+  ): Promise<{ item: StoredItem } | { error: string; conflict?: true } | null> {
+    if (!this.exists()) return null;
+    await this.enter(visit);
+    const item = this.queue.find(ref);
+    if (!item) return null;
+    if (expected !== (item.updatedAt ?? item.createdAt)) {
+      return { error: "It changed since you opened it: open it again.", conflict: true };
+    }
+    const replaced = replacedItem(item, input, this.nextUpdate(item));
+    if ("error" in replaced) return replaced;
+    this.queue.update(replaced);
+    if (hasObject(item) && (!hasObject(replaced) || replaced.object !== item.object)) {
+      await this.deleteFiles([item]);
+    }
+    await this.changed();
+    return { item: replaced };
   }
 
   async remove(ref: ItemRef, visit?: AccessEvent): Promise<boolean> {

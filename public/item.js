@@ -11,6 +11,7 @@ import {
   describeOpened,
   describePlain,
   downloadBlob,
+  highlightedText,
   itemSummary,
   streamAddress,
   videoPlayer,
@@ -55,7 +56,7 @@ const loadContent = async (item, info) => {
 
 const showContent = (info, content) => {
   if (content.text !== undefined) {
-    body.replaceChildren(el("pre", { textContent: content.text }));
+    body.replaceChildren(highlightedText(content.text, info.title));
     title.textContent = compactText(content.text).slice(0, 120);
   } else if (info.isImage) {
     body.replaceChildren(el("img", { alt: info.title, src: URL.createObjectURL(content.blob) }));

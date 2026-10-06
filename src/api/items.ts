@@ -16,6 +16,7 @@ import {
   writeVerifier,
 } from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
+import type { createUploads } from "./uploads";
 
 /** Longest body a rename takes; names themselves are cut much shorter. */
 const MAX_NAME_BYTES = 1_000;
@@ -28,8 +29,9 @@ export const mountItems = (
   app: App,
   api: Api,
   { serveItem }: ReturnType<typeof createContents>,
+  { editText }: ReturnType<typeof createUploads>,
 ) => {
-  const { namespace, hub, visit, platformOf, refuseSend, refuseWrite, config } = api;
+  const { namespace, hub, visit, platformOf, refuseSend, refuseWrite, storageFull, config } = api;
   const site = config.basePath;
 
   for (const space of SPACES) {
@@ -105,6 +107,24 @@ export const mountItems = (
         if (!item) return jsonError(c, 404, "Item not found.");
         const token = await hub(c).createShare(ref, item.id, item.expiresAt);
         return c.text(`${platformOf(c).origin(c)}${site}/i/${token}\n`);
+      }, "Item not found."),
+    );
+
+    /** Replaces a text only at the version named by its strong If-Match tag. */
+    app.post(
+      `${prefix}/${ITEM}/e`,
+      inNamespace(async (c, ref) => {
+        const tag = c.req.header("if-match")?.trim() ?? "";
+        const matched = /^"([^"\\]+)"$/.exec(tag);
+        if (!matched?.[1]) {
+          return jsonError(c, 400, 'Editing needs If-Match: "<updatedAt-or-createdAt>".');
+        }
+        const refused = (await refuseSend(c)) ?? (await refuseWrite(c, ref));
+        if (refused) return refused;
+        const declared = Number(c.req.header("content-length")) || 0;
+        const full = await storageFull(c, declared);
+        if (full) return full;
+        return editText(c, ref, itemRef(c), matched[1]);
       }, "Item not found."),
     );
 

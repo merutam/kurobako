@@ -49,6 +49,7 @@ export const STATIC_FILES = [
   "theme.js",
   "styles.css",
   "tokens.css",
+  "vendor/highlight.js",
   "vendor/uqr.js",
 ];
 

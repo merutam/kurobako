@@ -503,6 +503,51 @@ fieldset .status {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.hljs {
+  color: var(--text);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--text-subtle);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link {
+  color: var(--progressive);
+}
+.hljs-string,
+.hljs-title,
+.hljs-name,
+.hljs-type,
+.hljs-attribute,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+  color: var(--success-text);
+}
+.hljs-number,
+.hljs-regexp,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-class,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--warning-text);
+}
+.hljs-built_in,
+.hljs-meta,
+.hljs-deletion {
+  color: var(--destructive);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: bold;
+}
 .item video,
 .shared-item video {
   display: block;
@@ -637,6 +682,29 @@ a.icon-button:hover {
   max-height: 24rem;
   margin: var(--space-1) 0 0;
 }
+.item-editor {
+  margin: var(--space-1) 0 0;
+}
+.item-editor textarea {
+  min-height: 16rem;
+}
+.editor-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.editor-controls select {
+  width: auto;
+  max-width: 16rem;
+}
+.editor-controls .hint {
+  margin: 0 auto 0 0;
+  white-space: nowrap;
+}
+.error-text {
+  color: var(--error-text);
+}
 .item img {
   max-height: 30rem;
   margin: var(--space-1) 0 0;
@@ -655,6 +723,13 @@ a.icon-button:hover {
   .icon-button {
     width: 44px;
     height: 44px;
+  }
+  .editor-controls {
+    flex-wrap: wrap;
+  }
+  .editor-controls select {
+    width: 100%;
+    max-width: none;
   }
 }
 
@@ -821,6 +896,7 @@ a.icon-button:hover {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
 }

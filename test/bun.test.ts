@@ -327,6 +327,11 @@ describe("bun server", () => {
     expect(await k(`${link}/1`)).toBe("second text");
     expect(JSON.parse(await k(`${link}/ls`))).toHaveLength(1);
 
+    // /e edits a text under the same item, using the version k.mjs just read.
+    const encryptedEdit = JSON.parse(await k("-d", "first text, edited", `${link}/1/e`));
+    expect(encryptedEdit).toMatchObject({ id: listed[1].id, text: "first text, edited" });
+    expect(await k(`${link}/1`)).toBe("first text, edited");
+
     // Files: -T to the namespace, contents to a pipe, -o, -OJ.
     writeFileSync(join(workDir, "picture.png"), png);
     expect(JSON.parse(await k("-T", "picture.png", `${link}/`))).toMatchObject({
@@ -374,15 +379,15 @@ describe("bun server", () => {
     expect(JSON.parse(await k("--data-raw", "@lines.txt", `${lines}/new`)).text).toBe("@lines.txt");
 
     // Texts under their name, as the server names plain downloads.
-    expect(readdirSync(all).sort()).toEqual(["first text.txt", "picture.png"]);
+    expect(readdirSync(all).sort()).toEqual(["first text- edited.txt", "picture.png"]);
     // Again: every item is exported, overwriting as curl's -O does.
-    writeFileSync(join(all, "first text.txt"), "local edit");
+    writeFileSync(join(all, "first text- edited.txt"), "local edit");
     writeFileSync(join(all, "picture.png"), "local edit");
     const again = Bun.spawn(["bun", script, "-O", link], { cwd: all, stdout: "pipe" });
     const report = await new Response(again.stdout).text();
-    expect(report).toContain("→ first text.txt");
+    expect(report).toContain("→ first text- edited.txt");
     expect(report).toContain("→ picture.png");
-    expect(readFileSync(join(all, "first text.txt"), "utf8")).toBe("first text");
+    expect(readFileSync(join(all, "first text- edited.txt"), "utf8")).toBe("first text, edited");
     expect(new Uint8Array(readFileSync(join(all, "picture.png")))).toEqual(png);
     expect(readdirSync(all)).toHaveLength(2);
 
@@ -422,6 +427,10 @@ describe("bun server", () => {
       text: "plain text",
       position: 1,
     });
+    expect(JSON.parse(await k("-d", "plain edit", `${base}/${ns}/1/e`))).toMatchObject({
+      text: "plain edit",
+    });
+    expect(await k(`${base}/${ns}/1`)).toBe("plain edit");
 
     // A file name inside encrypted metadata reaches nobody but k.mjs, which cleans it.
     const space = await openSealedSpace(decodeURIComponent(link.split("#")[1] ?? ""));
@@ -634,7 +643,7 @@ describe("bun server", () => {
         await k("-d", "hello live", `${link}/new`);
         expect(await live.next()).toMatch(/^new [a-z]{6} hello live$/);
         await k("-d", "renamed now", `${link}/1/n`);
-        expect(await live.next()).toMatch(/^renamed [a-z]{6} renamed now$/);
+        expect(await live.next()).toMatch(/^changed [a-z]{6} renamed now$/);
         await k("-X", "DELETE", `${link}/1`);
         expect(await live.next()).toMatch(/^gone [a-z]{6}$/);
         // An encrypted namespace locks at any time (a plain one only empty).
@@ -1654,16 +1663,17 @@ describe("backups", () => {
     expect(await (await to(`/${copy}/ls`)).json()).toHaveLength(3);
   });
 
-  test("since=: only what was sent or renamed after", async () => {
+  test("since=: only what was sent or changed after", async () => {
     const ns = fresh();
     await from(`/${ns}/new`, text("old and untouched"));
     const old = (await (await from(`/${ns}/new`, text("old name"))).json()) as Item;
+    const editable = (await (await from(`/${ns}/new`, text("old contents"))).json()) as Item;
     const full = (await unpack(await from(`/${ns}/tar`))).bytes;
     const copy = fresh();
     expect(
       await (await to(`/${copy}/import`, { method: "POST", body: full })).json(),
     ).toMatchObject({
-      restored: 2,
+      restored: 3,
       skipped: 0,
     });
     await Bun.sleep(20);
@@ -1671,10 +1681,24 @@ describe("backups", () => {
     const renamed = (await (
       await from(`/${ns}/${old.id}/n`, { method: "POST", body: "renamed after cut" })
     ).json()) as Item;
+    const edited = (await (
+      await from(`/${ns}/${editable.id}/e`, {
+        method: "POST",
+        headers: {
+          "content-type": "text/plain",
+          "if-match": JSON.stringify(editable.createdAt),
+        },
+        body: "edited after cut",
+      })
+    ).json()) as Item;
     await from(`/${ns}/new`, text("new"));
     const { bytes, manifest } = await unpack(await from(`/${ns}/tar?since=${cut}`));
     const items = defined(manifest.namespaces[0], "the namespace").items;
-    expect(items.map((item) => item.name)).toEqual(["renamed after cut", "new"]);
+    expect(items.map((item) => item.name)).toEqual([
+      "renamed after cut",
+      "edited after cut",
+      "new",
+    ]);
     expect(items[0]?.updatedAt).toBe(renamed.updatedAt);
     expect(Date.parse(old.createdAt)).toBeLessThan(Date.parse(cut));
     expect(Date.parse(defined(renamed.updatedAt, "the rename time"))).toBeGreaterThanOrEqual(
@@ -1682,11 +1706,16 @@ describe("backups", () => {
     );
     expect(
       await (await to(`/${copy}/import`, { method: "POST", body: bytes })).json(),
-    ).toMatchObject({ restored: 2, skipped: 0 });
+    ).toMatchObject({ restored: 3, skipped: 0 });
     const copied = (await (await to(`/${copy}/ls`)).json()) as Item[];
     expect(copied.find((item) => item.id === old.id)).toMatchObject({
       name: "renamed after cut",
       updatedAt: renamed.updatedAt,
+    });
+    expect(copied.find((item) => item.id === editable.id)).toMatchObject({
+      name: "edited after cut",
+      updatedAt: edited.updatedAt,
+      text: "edited after cut",
     });
     expect(copied.map((item) => item.name)).toContain("new");
     expect((await from(`/${ns}/zip?since=yesterday-ish`)).status).toBe(400);

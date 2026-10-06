@@ -12,7 +12,7 @@
   <p class="intro">
     This page is the complete protocol of a Kurobako server, version 4, for
     plain and encrypted namespaces. With what is below, and nothing else, a client can
-    read, write, rename, delete, download and share items.
+    read, write, edit, rename, delete, download and share items.
     <a href="/k.mjs"><code>k.mjs</code></a> is one such client; nothing in
     it is needed to interoperate.
   </p>
@@ -130,7 +130,7 @@
             (each item's details and the path of its contents), then the
             contents; encrypted items stay sealed (<code>&lt;id&gt;.sealed</code>,
             their header in the manifest). <code>?since=&lt;date&gt;</code>:
-            only items sent or renamed since; deletions are not recorded.
+            only items sent or changed since; deletions are not recorded.
             Burn-after-reading items are left out.
             <code>?max=&lt;bytes&gt;</code>: in parts, each a whole backup of
             its own items, stopping at about that size; while more remain,
@@ -143,11 +143,11 @@
           <td><code>POST &lt;ns&gt;/import</code></td>
           <td>
             puts such an archive back (<code>PUT</code> too), keeping IDs and
-            dates, applying newer names and skipping what is already there:
+            dates, applying newer text contents and names and skipping what is already there:
             <code>{"restored": …, "skipped": …, "rejected": …}</code>. An
-            import never deletes or replaces existing contents. Restore into
-            an empty instance for an exact copy. An encrypted namespace only
-            takes back its own items.
+            import never deletes items or changes a file's contents. Restore
+            into an empty instance for an exact copy. An encrypted namespace
+            only takes back its own items.
           </td>
         </tr>
       </tbody>
@@ -156,7 +156,7 @@
   <p>
     Each item has <code>id</code>, <code>kind</code>, <code>size</code>
     (bytes), <code>createdAt</code>, optional <code>updatedAt</code> after a
-    metadata change, and <code>expiresAt</code>
+    content or metadata change, and <code>expiresAt</code>
     (<code>null</code> without expiry). Its contents are at
     <code>&lt;ns&gt;/&lt;id&gt;/c</code> and a download at
     <code>&lt;ns&gt;/&lt;id&gt;/d</code>, as on a share link; the JSON
@@ -195,6 +195,15 @@
         <tr>
           <td><code>PUT /&lt;name&gt;/&lt;filename&gt;</code></td>
           <td>sends a file under that name (<code>curl -T file /&lt;name&gt;/</code>)</td>
+        </tr>
+        <tr>
+          <td><code>POST /&lt;name&gt;/&lt;item&gt;/e</code></td>
+          <td>
+            replaces a text's UTF-8 contents, keeping its ID, place, expiry
+            and share link. Send <code>If-Match: "&lt;updatedAt-or-createdAt&gt;"</code>;
+            a change since that version gets <code>412</code>. Files and
+            burn-after-reading items cannot be edited
+          </td>
         </tr>
         <tr>
           <td><code>POST /&lt;name&gt;/&lt;item&gt;/n</code></td>
@@ -550,6 +559,15 @@
         </td>
       </tr>
       <tr>
+        <td><code>POST /e/&lt;id&gt;/&lt;item&gt;/e</code></td>
+        <td>
+          replaces an encrypted text, with the sealed body and
+          <code>X-Sealed-Metadata</code> under the same wrapped item key and
+          <code>rev + 1</code>. It uses the same quoted <code>If-Match</code>
+          version and returns <code>412</code> if stale
+        </td>
+      </tr>
+      <tr>
         <td><code>POST /e/&lt;id&gt;/&lt;item&gt;/n</code></td>
         <td>
           renames it: <code>X-Sealed-Metadata</code> with the same wrapped
@@ -565,7 +583,7 @@
     A locked namespace is read by anyone who reaches it and written only with
     its <strong>write key</strong>, sent as the <code>Write-Key</code> header.
     The server keeps only the key's SHA-256. Every write needs it:
-    <code>new</code>, <code>PUT</code>, <code>/n</code>, <code>DELETE</code>,
+    <code>new</code>, <code>PUT</code>, <code>/e</code>, <code>/n</code>, <code>DELETE</code>,
     <code>import</code> and <code>/s</code> (a share link is made, and kept,
     on the server); <code>.json</code> leaves out <code>shareUrl</code> for a
     reader. Without the key a write gets <code>401</code>, with a wrong one
@@ -681,6 +699,10 @@
           <td>sends an item deleted by its first read</td>
         </tr>
         <tr>
+          <td><code>node k.mjs -d &quot;changed&quot; &lt;link&gt;/1/e</code></td>
+          <td>edits a text if it has not changed since the client read it</td>
+        </tr>
+        <tr>
           <td><code>node k.mjs -d &quot;new name&quot; &lt;link&gt;/1/n</code></td>
           <td>renames an item; an empty name gives a text back its default</td>
         </tr>
@@ -702,7 +724,7 @@
         </tr>
         <tr>
           <td><code>node k.mjs &lt;link&gt;/live</code></td>
-          <td>a line per change until stopped (<code>new &lt;id&gt; &lt;name&gt;</code>, <code>moved</code>, <code>renamed</code>, <code>gone &lt;id&gt;</code>, <code>locked</code>, <code>unlocked</code>), names decrypted; reconnects by itself</td>
+          <td>a line per change until stopped (<code>new &lt;id&gt; &lt;name&gt;</code>, <code>moved</code>, <code>changed</code>, <code>gone &lt;id&gt;</code>, <code>locked</code>, <code>unlocked</code>), names decrypted; reconnects by itself</td>
         </tr>
         <tr>
           <td><code>node k.mjs https://&lt;site&gt;/i/&lt;token&gt;#&lt;key&gt;</code></td>

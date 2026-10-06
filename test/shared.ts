@@ -383,6 +383,156 @@ export const sharedTests = (harness: Harness) => {
       expect((await reseal("b3RoZXI.bmV3")).status).toBe(400);
     });
 
+    test("edits texts without changing their identity, and rejects stale edits", async () => {
+      const ns = fresh();
+      const edit = (item: Item, text: string, version = item.updatedAt ?? item.createdAt) =>
+        call(`/${ns}/${item.id}/e`, {
+          method: "POST",
+          headers: {
+            "content-type": "text/plain; charset=utf-8",
+            "if-match": JSON.stringify(version),
+          },
+          body: text,
+        });
+
+      const original = await parse<Item>(sendText(ns, "first draft"));
+      const shared = await shareLink(`/${ns}/${original.id}/s`);
+      const renamed = await parse<Item>(
+        call(`/${ns}/${original.id}/n`, { method: "POST", body: "Notes" }),
+      );
+      const edited = await parse<Item>(edit(renamed, "second draft"));
+      expect(edited).toMatchObject({
+        id: original.id,
+        createdAt: original.createdAt,
+        expiresAt: original.expiresAt,
+        name: "Notes",
+        text: "second draft",
+      });
+      expect(Date.parse(defined(edited.updatedAt, "the edit time"))).toBeGreaterThan(
+        Date.parse(defined(renamed.updatedAt, "the rename time")),
+      );
+      expect(await (await call(`${shared}/c`)).text()).toBe("second draft");
+
+      const stale = await edit(renamed, "lost update");
+      expect(stale.status).toBe(412);
+      expect(await (await call(`/${ns}/${original.id}`)).text()).toBe("second draft");
+      expect((await edit(edited, "bad", "not a date")).status).toBe(412);
+      expect(
+        (
+          await call(`/${ns}/${original.id}/e`, {
+            method: "POST",
+            headers: { "content-type": "text/plain" },
+            body: "missing precondition",
+          })
+        ).status,
+      ).toBe(400);
+
+      const file = await parse<Item>(call(`/${ns}/new`, { method: "POST", body: png }));
+      expect((await edit(file, "not a file anymore")).status).toBe(400);
+      const burn = await parse<Item>(sendText(ns, "once", { burn: "1" }));
+      expect((await edit(burn, "twice")).status).toBe(400);
+    });
+
+    test("edits texts between inline and blob storage without leaking old blobs", async () => {
+      const ns = fresh();
+      const original = await parse<Item>(sendText(ns, "small"));
+      const large = "external ".repeat(Math.ceil((config.inlineTextBytes + 1) / 9));
+      const edit = (item: Item, text: string) =>
+        call(`/${ns}/${item.id}/e`, {
+          method: "POST",
+          headers: {
+            "content-type": "text/plain",
+            "if-match": JSON.stringify(item.updatedAt ?? item.createdAt),
+          },
+          body: text,
+        });
+
+      const external = await parse<Item>(edit(original, large));
+      expect(external).toMatchObject({ id: original.id, preview: large.slice(0, 280) });
+      expect(external).not.toHaveProperty("text");
+      expect(await storedFiles(`plain/${ns}/`)).toHaveLength(1);
+
+      const changed = `${large.slice(0, -1)}!`;
+      const externalAgain = await parse<Item>(edit(external, changed));
+      expect(await (await call(`/${ns}/${original.id}`)).text()).toBe(changed);
+      expect(await storedFiles(`plain/${ns}/`)).toHaveLength(1);
+
+      const inline = await parse<Item>(edit(externalAgain, "small again"));
+      expect(inline).toMatchObject({ id: original.id, text: "small again", name: "small again" });
+      expect(await storedFiles(`plain/${ns}/`)).toHaveLength(0);
+    });
+
+    test("edits encrypted texts under a new revision and the same item key", async () => {
+      const space = await openSealedSpace(`edit ${crypto.randomUUID()}`);
+      const first = new TextEncoder().encode("secret one");
+      const sealed = await space.sealItem(first, {
+        kind: "text",
+        title: "secret one",
+        size: first.byteLength,
+      });
+      const original = await json<Item>(`/e/${space.id}/new`, {
+        method: "POST",
+        headers: { "x-sealed-metadata": sealed.header },
+        body: sealed.body,
+      });
+      const opened = await space.openItem(
+        defined(original.metadata, "sealed metadata"),
+        original.size,
+      );
+      const second = new TextEncoder().encode("secret two");
+      const replacement = await opened.withContents(second, { title: "secret two" });
+      const response = await call(`/e/${space.id}/${original.id}/e`, {
+        method: "POST",
+        headers: {
+          "if-match": JSON.stringify(original.createdAt),
+          "x-sealed-metadata": replacement.header,
+        },
+        body: replacement.body,
+      });
+      expect(response.status).toBe(200);
+      const edited = (await response.json()) as Item;
+      expect(edited).toMatchObject({ id: original.id, createdAt: original.createdAt });
+      const reopened = await space.openItem(
+        defined(edited.metadata, "edited metadata"),
+        edited.size,
+      );
+      expect(reopened.keyText).toBe(opened.keyText);
+      expect(reopened.metadata.rev).toBe(1);
+      expect(
+        new TextDecoder().decode(
+          await reopened.open(await (await call(`/e/${space.id}/1`)).arrayBuffer()),
+        ),
+      ).toBe("secret two");
+      expect(await storedFiles(`sealed/${space.id}/`)).toHaveLength(1);
+
+      const stale = await call(`/e/${space.id}/${original.id}/e`, {
+        method: "POST",
+        headers: {
+          "if-match": JSON.stringify(original.createdAt),
+          "x-sealed-metadata": replacement.header,
+        },
+        body: replacement.body,
+      });
+      expect(stale.status).toBe(412);
+      expect(await storedFiles(`sealed/${space.id}/`)).toHaveLength(1);
+
+      const other = await space.sealItem(second, {
+        kind: "text",
+        title: "wrong key",
+        size: second.byteLength,
+      });
+      const wrongKey = await call(`/e/${space.id}/${original.id}/e`, {
+        method: "POST",
+        headers: {
+          "if-match": JSON.stringify(defined(edited.updatedAt, "the edit time")),
+          "x-sealed-metadata": other.header,
+        },
+        body: other.body,
+      });
+      expect(wrongKey.status).toBe(400);
+      expect(await storedFiles(`sealed/${space.id}/`)).toHaveLength(1);
+    });
+
     test("finds items by position, ID or name", async () => {
       const ns = fresh();
       const upload = (name: string, body: string) =>

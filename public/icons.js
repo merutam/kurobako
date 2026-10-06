@@ -38,6 +38,7 @@ const ICONS = {
     ["rect", { x: "5", y: "5", width: "8.5", height: "8.5", rx: "1" }],
     ["path", { d: "M11 5V3.5a1 1 0 0 0-1-1H3.5a1 1 0 0 0-1 1V10a1 1 0 0 0 1 1H5" }],
   ],
+  edit: [["path", { d: "M3 13l2.6-.6L13 5l-2-2-7.4 7.4zM9.8 4.2l2 2" }]],
   download: [["path", { d: "M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10" }]],
   share: [
     [
