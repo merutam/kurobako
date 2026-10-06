@@ -184,7 +184,34 @@ export const createTextEditor = (
     },
     icon("expand"),
   );
-  const editor = el("div", { className: "text-editor" }, gutter, highlight, textarea, expand);
+  /** Where the caret is: "Ln 12, Col 5", and how much is selected. */
+  const position = el("span", { className: "text-editor-position", ariaHidden: true });
+  let positionFrame = null;
+  const showPosition = () => {
+    positionFrame = null;
+    const { value, selectionStart: start, selectionEnd: end } = textarea;
+    const caret = textarea.selectionDirection === "backward" ? start : end;
+    let line = 1;
+    for (let at = value.indexOf("\n"); at !== -1 && at < caret; at = value.indexOf("\n", at + 1)) {
+      line += 1;
+    }
+    const column = caret - value.lastIndexOf("\n", caret - 1);
+    const selected = end - start;
+    position.textContent = `Ln ${line}, Col ${column}${selected ? ` · ${selected} selected` : ""}`;
+  };
+  const updatePosition = () => {
+    if (positionFrame === null) positionFrame = requestAnimationFrame(showPosition);
+  };
+
+  const editor = el(
+    "div",
+    { className: "text-editor" },
+    gutter,
+    highlight,
+    textarea,
+    expand,
+    position,
+  );
   const root = fullscreenRoot ?? editor;
   root.classList.add("text-editor-fullscreen");
 
@@ -213,6 +240,13 @@ export const createTextEditor = (
     highlight.scrollLeft = textarea.scrollLeft;
     gutter.scrollTop = textarea.scrollTop;
   });
+  // The caret moves by typing, clicking, the arrow keys and selecting.
+  for (const type of ["input", "click", "keyup", "select", "focus"]) {
+    textarea.addEventListener(type, updatePosition);
+  }
+  document.addEventListener("selectionchange", () => {
+    if (document.activeElement === textarea) updatePosition();
+  });
   // Ctrl+Enter (Cmd+Enter on a Mac) sends, or saves, without reaching for the mouse.
   textarea.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -221,5 +255,6 @@ export const createTextEditor = (
     }
   });
   refresh({ immediate: true });
+  showPosition();
   return { editor, refresh };
 };

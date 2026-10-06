@@ -11,6 +11,13 @@
   box-sizing: border-box;
 }
 
+/* A namespace page known, before its first paint, to be a reader's (see
+   access.js): no send forms to show and then hide. namespace.js takes over. */
+:where(:root:not([data-write-key]) main[data-locked], :root[data-read-link])
+:is(#send-section, #restore-form) {
+  display: none;
+}
+
 /* Hidden means hidden, whatever display a component gives itself. */
 [hidden] {
   /* biome-ignore lint/complexity/noImportantStyles: the attribute must win over every component's display. */
@@ -157,7 +164,8 @@ p {
     gap: var(--space-7);
   }
   /* A column hidden (Send, on a read-only namespace): the other takes it all. */
-  .columns:has(> [hidden]) {
+  .columns:has(> [hidden]),
+  :where(:root:not([data-write-key]) main[data-locked], :root[data-read-link]) .columns {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -911,6 +919,20 @@ a.icon-button:hover {
   caret-color: var(--text);
   color: transparent;
   -webkit-text-fill-color: transparent;
+}
+/* The caret's line and column, in a corner of the editor. */
+.text-editor-position {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-1);
+  z-index: 2;
+  padding: 0 6px;
+  border-radius: var(--radius-large);
+  background: var(--surface);
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  pointer-events: none;
 }
 .text-editor-expand {
   position: absolute;
