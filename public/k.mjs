@@ -596,6 +596,22 @@ const writeStdout = (bytes) =>
     process.stdout.write(bytes, (error) => (error ? reject(error) : resolve())),
   );
 
+/** A server-chosen download name, preferring RFC 5987's encoded form. */
+const contentDispositionName = (header) => {
+  const encoded = /(?:^|;)\s*filename\*\s*=\s*UTF-8'[^']*'([^;]+)/i
+    .exec(header)?.[1]
+    ?.trim()
+    .replace(/^"|"$/g, "");
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {}
+  }
+  const quoted = /(?:^|;)\s*filename\s*=\s*"((?:\\.|[^"])*)"/i.exec(header)?.[1];
+  if (quoted !== undefined) return quoted.replace(/\\(.)/g, "$1");
+  return /(?:^|;)\s*filename\s*=\s*([^;]+)/i.exec(header)?.[1]?.trim() || null;
+};
+
 /**
  * Contents go where curl would put them: -o <file>, -O (named after the URL,
  * or with -J after the item itself), or standard output,
@@ -1222,7 +1238,7 @@ const sealedRequest = async ({ site, name, path: fullPath }, options) => {
     return deliver({
       options,
       isText: false,
-      ownName: /filename="([^"]+)"/.exec(disposition)?.[1] ?? `backup.${path}`,
+      ownName: safeName(contentDispositionName(disposition), `backup.${path}`),
       urlName: path,
       load: async () => new Uint8Array(await response.arrayBuffer()),
     });
@@ -1402,15 +1418,12 @@ const plainRequest = async ({ url }, options) => {
     } catch {}
   }
   const disposition = response.headers.get("content-disposition") ?? "";
-  const headerName = /filename\*=UTF-8''([^;]+)/.exec(disposition)?.[1];
+  const urlName = new URL(target).pathname.split("/").pop() || "index";
   return deliver({
     options,
     isText: /^(text\/|application\/json)/.test(type),
-    ownName: safeName(
-      headerName ? decodeURIComponent(headerName) : "",
-      new URL(target).pathname.split("/").pop(),
-    ),
-    urlName: new URL(target).pathname.split("/").pop() || "index",
+    ownName: safeName(contentDispositionName(disposition), urlName),
+    urlName,
     load: async () => bytes,
   });
 };

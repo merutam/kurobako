@@ -1329,6 +1329,13 @@ describe("backups", () => {
       expect(files.get(`plain/${ns}/photo.png`)).toEqual(png);
     }
 
+    // -O follows the URL and calls this "tar"; -OJ takes the quoted name in
+    // Content-Disposition. Options may follow the URL, as in curl.
+    const archiveName = `${ns}-${new Date().toISOString().slice(0, 10)}.tar`;
+    await k(`${servers[0]?.server.url.origin}/${ns}/tar`, "-OJ");
+    expect(readdirSync(workDir)).toContain(archiveName);
+    expect(existsSync(join(workDir, "tar"))).toBe(false);
+
     // Into another namespace on another server: the same items, IDs and order.
     const backup = (await unpack(await from(`/${ns}/zip`))).bytes;
     const copy = fresh();
