@@ -358,9 +358,15 @@ describe("bun server", () => {
     expect(JSON.parse(await k("-X", "DELETE", `${link}/1`))).toEqual({ ok: true });
     expect(JSON.parse(await k(`${link}/ls`))).toHaveLength(1);
 
-    // Plain links pass through as curl would send them.
+    // Plain links pass through as curl would send them; JSON prints as for
+    // an encrypted namespace, and errors go to standard error.
     const ns = fresh();
-    await k("-d", "plain text", `${base}/${ns}/new`);
+    expect(await k(`${link}/ls`)).toContain('\n  {\n    "id"');
+    expect(await k("-d", "plain text", `${base}/${ns}/new`)).toContain('\n  "id": ');
+    expect(await k(`${base}/${ns}/ls`)).toContain('\n  {\n    "id"');
+    const missing = await run([`${base}/${ns}/9`]);
+    expect(missing).toMatchObject({ code: 1, error: "Item not found.\n" });
+    expect(missing.out).toHaveLength(0);
     expect(await k(`${base}/${ns}/1`)).toBe("plain text");
     expect(await k(`${base}/${ns}`)).toContain("plain text");
     expect((await k(`${base}/${ns}/1/s`)).trim()).toMatch(/\/i\/[A-Za-z0-9_-]{14}$/);
