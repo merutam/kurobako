@@ -227,15 +227,19 @@ server as a systemd service, with Garage on the same machine if asked:
 imports = [ kurobako.nixosModules.default ];
 services.kurobako = {
   enable = true;
+  domain = "box.example"; # HTTPS through Caddy, with its certificate
   garage.enable = true; # one node; its keys, bucket and layout are made on first boot
-  settings.PUBLIC_URL = "https://box.example";
   environmentFile = "/run/secrets/kurobako.env"; # ADMIN_KEY, ACCESS_KEY
 };
 ```
 
-Without `garage.enable`, set `s3.endpoint`, `s3.region` and `s3.bucket`, and
-the store's keys in `environmentFile`. The SQLite files are in
-`/var/lib/kurobako`.
+`domain` puts Caddy in front, opens ports 80 and 443 (`openFirewall`), and
+sets `PUBLIC_URL` and `CLIENT_IP_HEADER`; without it, the server answers
+plain HTTP on `127.0.0.1:3000`, for a proxy of your own. Other settings go
+in `settings` (`settings.MAX_ITEMS = 50;`), or with the secrets in
+`environmentFile`, a `.env` as compose uses. Without `garage.enable`, set
+`s3.endpoint`, `s3.region` and `s3.bucket`, and the store's keys in
+`environmentFile`. The SQLite files are in `/var/lib/kurobako`.
 
 **Replicated storage.** With `garage.mode = "cluster"`, Garage keeps
 `garage.replicationFactor` copies of each file (3 by default: it reads and

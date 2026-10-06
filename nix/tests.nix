@@ -20,7 +20,11 @@ in
       services.kurobako = {
         enable = true;
         garage.enable = true;
+        domain = "box.test";
       };
+      # No ACME in a test: Caddy's own certificate authority instead.
+      services.caddy.virtualHosts."box.test".extraConfig = "tls internal";
+      networking.hosts."127.0.0.1" = [ "box.test" ];
       environment.systemPackages = [ pkgs.curl ];
     };
     testScript = ''
@@ -33,6 +37,15 @@ in
       # The keys are kept: after a restart, the same files are there.
       machine.succeed("systemctl restart garage kurobako")
       machine.wait_until_succeeds("curl -sf http://127.0.0.1:3000/first/1 | cmp - /tmp/first.bin")
+      # Through Caddy, over HTTPS: links name the domain, and the client's
+      # address is the one Caddy saw, never one the client claims.
+      machine.wait_for_unit("caddy.service")
+      machine.wait_until_succeeds("curl -skf https://box.test/k/healthz")
+      machine.succeed("curl -skf https://box.test/first/1 | cmp - /tmp/first.bin")
+      machine.succeed("curl -skf https://box.test/first/1/s | grep -q '^https://box.test/i/'")
+      machine.succeed("curl -skf -H 'X-Forwarded-For: 203.0.113.9' https://box.test/k/healthz")
+      machine.fail("journalctl -u kurobako | grep -q 203.0.113.9")
+
       # Not readable by anyone else.
       machine.succeed("[ $(stat -c %a /var/lib/kurobako-keys) = 700 ]")
     '';
