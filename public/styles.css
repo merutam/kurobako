@@ -961,6 +961,40 @@ button.media-preview img {
   font-size: inherit;
 }
 
+/* Each third-party notice stays distinct, and its full legal text is there
+   without making the page long until someone asks to read it. */
+.license-notice {
+  max-width: var(--prose-width);
+  margin: var(--space-5) 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.license-notice h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+}
+.license-notice h3 small {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  font-weight: normal;
+}
+.license-notice summary {
+  color: var(--link);
+  cursor: pointer;
+}
+.license-notice details[open] summary {
+  margin-bottom: var(--space-2);
+}
+.license-notice pre {
+  max-height: 28rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* --- Tables --------------------------------------------------------------- */
 
 .table-scroll {

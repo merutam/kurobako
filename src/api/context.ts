@@ -158,6 +158,7 @@ export const createContext = (
     admin: build(assets.adminHtml),
     item: build(assets.itemHtml),
     protocol: build(assets.protocolHtml),
+    licenses: build(assets.licensesHtml),
     login: build(assets.loginHtml),
   };
   const page = (c: AppContext, html: string) => {

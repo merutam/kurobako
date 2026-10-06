@@ -358,4 +358,6 @@ bun pm version minor # new version, in package.json and public/k.mjs
 
 ## License
 
-[AGPL-3.0-or-later](LICENSE). `public/vendor/*` have they own licenses.
+[AGPL-3.0-or-later](LICENSE). Third-party production dependencies keep their
+own notices in [`LICENSES/`](LICENSES), also published at `/k/licenses` on
+every instance.

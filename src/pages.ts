@@ -18,6 +18,8 @@ export type WebAssets = {
   itemHtml: string;
   /** The protocol, plain and encrypted, /k/protocol. */
   protocolHtml: string;
+  /** The project and dependency licenses, /k/licenses. */
+  licensesHtml: string;
   /** A private instance's login, /k/login. */
   loginHtml: string;
   /** Static files served from the site root, keyed by path. */
@@ -30,6 +32,7 @@ const PAGES = {
   adminHtml: "admin.html",
   itemHtml: "item.html",
   protocolHtml: "protocol.html",
+  licensesHtml: "licenses.html",
   loginHtml: "login.html",
 } as const;
 
@@ -100,6 +103,7 @@ export const loadAssets = async (read: (path: string) => Promise<string>): Promi
     adminHtml: page("adminHtml"),
     itemHtml: page("itemHtml"),
     protocolHtml: page("protocolHtml"),
+    licensesHtml: page("licensesHtml"),
     loginHtml: page("loginHtml"),
     files,
   };

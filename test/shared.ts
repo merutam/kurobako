@@ -1176,6 +1176,18 @@ export const sharedTests = (harness: Harness) => {
       );
     });
 
+    test("publishes the project and production dependency licenses separately", async () => {
+      const html = await (await call("/k/licenses")).text();
+      expect(html).toContain("AGPL-3.0-or-later");
+      expect(html).toContain("Hono");
+      expect(html).toContain("Highlight.js 11.12.0");
+      expect(html).toContain("uQR 0.1.3");
+      expect(html).toContain("Garage 2.1.0");
+      expect(html).toContain("Optional service");
+      expect(html).toContain("Full MIT license and notice");
+      expect(html).not.toContain("%APP_VERSION%");
+    });
+
     test("exposes the public config the client needs", async () => {
       const body = await json<PublicConfig>("/.well-known/kurobako");
       expect(body).toMatchObject({
