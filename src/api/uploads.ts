@@ -12,18 +12,49 @@ import {
   TEXT_PREVIEW_CHARS,
 } from "../model";
 import type { Saved, SaveInput } from "../namespace";
-import { type Api, type AppContext, jsonError } from "./context";
+import { type Api, type AppContext, jsonError, readLimited } from "./context";
 
 /** A file-backed item before its bytes are in the blob store. */
-type ObjectInput = DistributiveOmit<Extract<SaveInput, { object: string }>, "object" | "size">;
+export type ObjectInput = DistributiveOmit<
+  Extract<SaveInput, { object: string }>,
+  "object" | "size"
+>;
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 const BURN_HEADER_VALUES = new Set(["1", "true", "yes"]);
 /** Request types stored as text: what the page sends, and what `curl -d` sends. */
 const TEXT_TYPES = new Set(["text/plain", "application/x-www-form-urlencoded"]);
-const TEXT_MIME = "text/plain; charset=utf-8";
+export const TEXT_MIME = "text/plain; charset=utf-8";
 
-class InvalidUtf8Error extends Error {}
+export class InvalidUtf8Error extends Error {}
+
+/** A decoder that refuses anything but UTF-8, as texts must be (a new one each time: it keeps state). */
+export const strictUtf8 = () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
+
+/** Where an item's contents go in the blob store: never shown, never reused. */
+export const objectKey = (ref: NamespaceRef) => `${ref.space}/${ref.name}/${crypto.randomUUID()}`;
+
+/** SHA-256 of bytes, as the server keeps it to spot the same contents sent again. */
+export const sha256Of = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+
+/**
+ * The stream as it is, its SHA-256 worked out on the way through: `digest()`
+ * once it has been read whole.
+ */
+export const hashing = (stream: ReadableStream<Uint8Array>) => {
+  const hash = createHash("sha256");
+  return {
+    stream: stream.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          hash.update(chunk);
+          controller.enqueue(chunk);
+        },
+      }),
+    ),
+    digest: () => hash.digest("hex"),
+  };
+};
 
 /** The name a send gives, or null when it gives none. */
 export const decodeFilename = (value: string | undefined): string | null => {
@@ -43,7 +74,7 @@ const burnRequested = (c: AppContext) =>
  * A file upload, streamed to the blob store without holding it in memory.
  * The store needs the length up front and fails if the body does not match.
  */
-type Upload = {
+export type Upload = {
   body: ReadableStream;
   size: number;
   /** The first bytes, enough to recognize an image, read before uploading. */
@@ -51,7 +82,7 @@ type Upload = {
 };
 
 /** Reads the first `length` bytes and returns a stream that still yields everything. */
-const peek = async (body: ReadableStream<Uint8Array>, length: number) => {
+export const peek = async (body: ReadableStream<Uint8Array>, length: number) => {
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let read = 0;
@@ -97,8 +128,8 @@ const streamedBody = async (c: AppContext, limit: number): Promise<Upload | Resp
 };
 
 /** Validates streamed UTF-8 while retaining just enough text for list previews. */
-const validatedText = (upload: Upload) => {
-  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
+export const validatedText = (upload: Upload) => {
+  const decoder = strictUtf8();
   const input: ObjectInput = { kind: "text", preview: "" };
   let invalid = false;
   const appendPreview = (value: string) => {
@@ -140,20 +171,16 @@ const validatedText = (upload: Upload) => {
   };
 };
 
-/** Reads a (small) request body, enforcing `limit` before and after reading. */
+/** Reads a (small) request body, stopping at `limit`. */
 const readBody = async (c: AppContext, limit: number) => {
-  const declared = Number(c.req.header("content-length"));
-  if (Number.isFinite(declared) && declared > limit) {
-    return jsonError(c, 413, `The limit is ${limit} bytes.`);
-  }
-  const bytes = await c.req.arrayBuffer();
+  const bytes = await readLimited(c, limit);
+  if (!bytes) return jsonError(c, 413, `The limit is ${limit} bytes.`);
   if (bytes.byteLength === 0) return jsonError(c, 400, "The content is empty.");
-  if (bytes.byteLength > limit) return jsonError(c, 413, `The limit is ${limit} bytes.`);
   return bytes;
 };
 
 /** The type comes from the bytes themselves, never from what the client claims. */
-const describePlainFile = (upload: Upload, filename: string | null): ObjectInput => {
+export const describePlainFile = (upload: Upload, filename: string | null): ObjectInput => {
   const detected = detectImage(upload.head);
   // A send without a name gets a default one, which never renames an item.
   const named = filename !== null;
@@ -191,7 +218,7 @@ export const createUploads = (api: Api) => {
     validate?: () => void,
   ): Promise<Saved> => {
     // The file's own key, never shown: the item's ID is picked by the namespace.
-    const object = `${ref.space}/${ref.name}/${crypto.randomUUID()}`;
+    const object = objectKey(ref);
     const contentType =
       input.kind === "sealed"
         ? "application/octet-stream"
@@ -201,23 +228,13 @@ export const createUploads = (api: Api) => {
     const { blobs } = platformOf(c);
     // Plain files are hashed on the way to storage, so the same contents sent
     // again can be spotted; encrypted ones never match, so they are not.
-    const hash = input.kind === "sealed" ? null : createHash("sha256");
-    const body = hash
-      ? upload.body.pipeThrough(
-          new TransformStream<Uint8Array, Uint8Array>({
-            transform(chunk, controller) {
-              hash.update(chunk);
-              controller.enqueue(chunk);
-            },
-          }),
-        )
-      : upload.body;
-    await blobs.put(object, body, upload.size, contentType);
+    const hashed = input.kind === "sealed" ? null : hashing(upload.body);
+    await blobs.put(object, hashed?.stream ?? upload.body, upload.size, contentType);
     try {
       validate?.();
       const saved = (await namespace(c, ref).save(
         ref,
-        { ...input, object, size: upload.size, ...(hash ? { sha256: hash.digest("hex") } : {}) },
+        { ...input, object, size: upload.size, ...(hashed ? { sha256: hashed.digest() } : {}) },
         burnRequested(c),
         visit(c),
       )) as Saved;
@@ -269,7 +286,7 @@ export const createUploads = (api: Api) => {
     if (bytes instanceof Response) return bytes;
     let text: string;
     try {
-      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+      text = strictUtf8().decode(bytes);
     } catch {
       return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
     }
@@ -288,7 +305,7 @@ export const createUploads = (api: Api) => {
           kind: "text",
           text,
           size: bytes.byteLength,
-          sha256: createHash("sha256").update(new Uint8Array(bytes)).digest("hex"),
+          sha256: sha256Of(bytes),
         },
         burnRequested(c),
         visit(c),

@@ -9,15 +9,21 @@
 </head>
 <main>
   <h1>/a</h1>
-  <p class="lead" id="summary">Admin</p>
+  <p class="intro" id="summary">Admin</p>
 
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
-  <form id="login-form" class="login" hidden>
+  <form id="login-form" class="login-form" hidden>
     <fieldset>
       <legend>Log in</legend>
       <label for="key">Admin key</label>
-      <input id="key" name="key" type="password" autocomplete="current-password" required />
+      <input
+        id="key"
+        name="key"
+        type="password"
+        autocomplete="current-password"
+        required
+      />
       <p class="actions">
         <button type="submit" class="primary">Log in</button>
       </p>
@@ -25,7 +31,7 @@
   </form>
 
   <div id="dashboard" hidden>
-    <p class="admin-controls">
+    <p class="toolbar">
       <label for="server" hidden>Server</label>
       <select id="server" hidden></select>
       <label for="refresh-interval">Auto-refresh</label>
@@ -39,33 +45,78 @@
     </p>
 
     <div class="columns">
-      <section aria-labelledby="system-title">
+      <section class="stack" aria-labelledby="system-title">
         <h2 id="system-title">System</h2>
-        <table class="wikitable stats-table">
+        <table class="data-table stats-table">
           <tbody id="system-stats"></tbody>
         </table>
       </section>
 
-      <section id="logs" aria-labelledby="logs-title" hidden>
+      <section id="logs" class="stack" aria-labelledby="logs-title" hidden>
         <h2 id="logs-title">Requests, errors and logs</h2>
         <p id="logs-link"></p>
       </section>
     </div>
 
-    <section aria-labelledby="namespaces-title">
+    <section class="stack" aria-labelledby="backup-title">
+      <h2 id="backup-title">Backup</h2>
+      <p class="hint">
+        Every namespace as a zip or a tar. Items that delete when opened are
+        left out. A backup larger than a request may be split in parts: see the
+        README.
+      </p>
+      <p class="actions">
+        <button id="backup-zip" type="button">Download zip</button>
+        <button id="backup-tar" type="button">Download tar</button>
+      </p>
+      <form id="restore-form">
+        <fieldset>
+          <legend id="restore-legend">Restore</legend>
+          <input
+            id="restore-file"
+            class="visually-hidden"
+            type="file"
+            accept=".zip,.tar,application/zip,application/x-tar"
+            aria-labelledby="restore-legend"
+            aria-describedby="restore-hint"
+            required
+          />
+          <label id="restore-zone" class="dropzone" for="restore-file">
+            Drop a backup here, or click to pick one
+          </label>
+          <p id="restore-hint" class="hint">
+            A backup of the instance or of a namespace (zip or tar).
+          </p>
+          <p class="actions">
+            <button type="submit" class="primary">Restore</button>
+          </p>
+        </fieldset>
+      </form>
+    </section>
+
+    <section class="stack" aria-labelledby="namespaces-title">
       <h2 id="namespaces-title">Namespaces</h2>
-      <p class="admin-controls">
-        <input id="namespace-search" type="search" placeholder="Filter namespaces" aria-label="Filter namespaces" />
+      <p class="toolbar">
+        <input
+          id="namespace-search"
+          type="search"
+          placeholder="Filter namespaces"
+          aria-label="Filter namespaces"
+        />
       </p>
       <div class="table-scroll">
-        <table class="wikitable">
+        <table class="data-table">
           <thead>
-            <tr><th>Namespace</th><th>Items</th><th>Links</th></tr>
+            <tr>
+              <th>Namespace</th>
+              <th>Items</th>
+              <th>Links</th>
+            </tr>
           </thead>
           <tbody id="namespaces"></tbody>
         </table>
       </div>
-      <p id="namespaces-pager" class="pager"></p>
+      <p id="namespaces-pagination" class="pagination"></p>
     </section>
   </div>
 </main>

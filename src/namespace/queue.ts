@@ -93,6 +93,19 @@ export class Queue {
     return row?.position ?? 1;
   }
 
+  /** When the newest item was sent, in milliseconds; 0 when there is none. */
+  newestTime(): number {
+    const [row] = this.sql().exec<{ data: string }>(
+      "SELECT data FROM items ORDER BY seq DESC LIMIT 1",
+    );
+    return row ? Date.parse((JSON.parse(row.data) as StoredItem).createdAt) : 0;
+  }
+
+  /** Whether an item has exactly this ID. */
+  hasId(id: string): boolean {
+    return this.sql().exec("SELECT 1 FROM items WHERE id = ?", id).length > 0;
+  }
+
   /** An ID no item here has. */
   freshId(): string {
     let id = newItemId();
@@ -116,6 +129,26 @@ export class Queue {
       expiryOf(item),
       JSON.stringify(item),
     );
+  }
+
+  /**
+   * Puts the queue in order of when each item was sent, as after restoring
+   * older items: they were added last, but belong further down.
+   */
+  sortByDate(): void {
+    // Stable, oldest first: items sent in the same millisecond keep their order.
+    const items = this.all()
+      .reverse()
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    this.sql().exec("DELETE FROM items");
+    for (const item of items) {
+      this.sql().exec(
+        "INSERT INTO items (id, expires_at, data) VALUES (?, ?, ?)",
+        item.id,
+        expiryOf(item),
+        JSON.stringify(item),
+      );
+    }
   }
 
   /** Writes an item's new details, keeping its place. */

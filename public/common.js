@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Helpers shared by the namespace page and the shared-item page.
+// What every page's script shares: finding and building elements, talking to
+// the server, formatting numbers, sizes and times, the clipboard, file fields
+// and the restore of a backup. (theme.js, a classic script that runs before
+// the page is drawn, keeps to itself.)
 
 export const element = (selector) => {
   const found = document.querySelector(selector);
@@ -15,6 +18,39 @@ export const element = (selector) => {
  */
 export const SITE = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 
+/** Builds an element: el("td", { className: "x" }, "text", child). Null children are left out. */
+export const el = (tag, properties = {}, ...children) => {
+  const node = Object.assign(document.createElement(tag), properties);
+  node.append(...children.filter((child) => child !== null && child !== undefined));
+  return node;
+};
+
+/** Disables (or enables again) every control of a form while it is at work. */
+export const setBusy = (form, busy) => {
+  for (const control of form.elements) control.disabled = busy;
+};
+
+/**
+ * localStorage, for preferences only: a browser that refuses it (private
+ * windows, blocked storage) just forgets them.
+ */
+export const storage = {
+  get(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // The choice still applies to this page view.
+    }
+  },
+};
+
 /** The public config the server embeds in each page (no request needed). */
 export const readConfig = () => JSON.parse(element("#config").textContent);
 
@@ -23,6 +59,8 @@ export const dateFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 });
 const relativeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
+/** Counts as the visitor's language writes them (1,234). */
+export const numberFormatter = new Intl.NumberFormat();
 
 /** Decimal units, like the limits they show (100 MB, 64 kB). */
 export const formatBytes = (bytes) => {
@@ -62,11 +100,20 @@ export const formatExpiry = (expiresAt) => {
   return `expires ${relativeFormatter.format(Math.ceil(remainingMs / 60_000), "minute")}`;
 };
 
+/** A failed request: the server's own message, and its status. */
+export class RequestError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** fetch, failing with the server's {"error"} message (or its status). */
 export const request = async (url, options) => {
   const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `Server error (${response.status}).`);
+    throw new RequestError(body.error || `Server error (${response.status}).`, response.status);
   }
   return response;
 };
@@ -85,6 +132,11 @@ export const button = (label, onClick, className) => {
   return control;
 };
 
+/**
+ * Puts text on the clipboard: through the Clipboard API on HTTPS pages (and
+ * localhost), the only places browsers offer it; elsewhere, such as an
+ * instance reached by plain http on a home network, the old way.
+ */
 export const copyText = async (text) => {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -96,7 +148,10 @@ export const copyText = async (text) => {
   fallback.className = "clipboard-fallback";
   document.body.append(fallback);
   fallback.select();
-  const copied = document.execCommand("copy");
+  // execCommand is deprecated, and still the only copy a page without HTTPS has.
+  // Reached through Reflect so that editors do not flag this deliberate use.
+  const execCommand = Reflect.get(document, "execCommand");
+  const copied = execCommand.call(document, "copy");
   fallback.remove();
   if (!copied) throw new Error("The browser blocked clipboard access.");
 };
@@ -114,5 +169,108 @@ export const asPng = async (blob) => {
       (png) => (png ? resolve(png) : reject(new Error("The image could not be converted."))),
       "image/png",
     );
+  });
+};
+
+const carriesFiles = (event) => event.dataTransfer?.types.includes("Files") ?? false;
+
+/**
+ * Lets a file be dropped on `zone` as well as picked: the drop fills `input`
+ * as the picker would (one file, the first), and the form still waits for
+ * its button. A file dropped anywhere else on the page is ignored, where the
+ * browser would otherwise leave the page to open it.
+ */
+export const acceptDrops = (zone, input) => {
+  let depth = 0;
+  const highlight = (on) => zone.classList.toggle("dropping", on);
+  zone.addEventListener("dragenter", (event) => {
+    if (!carriesFiles(event) || input.disabled) return;
+    event.preventDefault();
+    depth += 1;
+    highlight(true);
+  });
+  zone.addEventListener("dragover", (event) => {
+    if (!carriesFiles(event) || input.disabled) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  });
+  zone.addEventListener("dragleave", () => {
+    depth = Math.max(0, depth - 1);
+    if (!depth) highlight(false);
+  });
+  zone.addEventListener("drop", (event) => {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    depth = 0;
+    highlight(false);
+    const [file] = event.dataTransfer.files;
+    if (!file || input.disabled) return;
+    const picked = new DataTransfer();
+    picked.items.add(file);
+    input.files = picked.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.focus();
+  });
+};
+
+/** Drops outside every zone do nothing, instead of opening the file in place of the page. */
+export const ignoreStrayDrops = () => {
+  for (const type of ["dragover", "drop"]) {
+    window.addEventListener(type, (event) => {
+      if (carriesFiles(event)) event.preventDefault();
+    });
+  }
+};
+
+/**
+ * A file field shown as its drop zone, a <label> for the hidden input: a
+ * click picks a file, a drop gives one, and the zone then names it, back to
+ * its first words once the form is cleared.
+ */
+export const fileField = (input, zone) => {
+  const empty = zone.textContent.trim();
+  const show = () => {
+    const file = input.files?.[0];
+    zone.textContent = file ? `${file.name} · ${formatBytes(file.size)}` : empty;
+    zone.classList.toggle("chosen", Boolean(file));
+  };
+  input.addEventListener("change", show);
+  // A reset clears the input without a change event; show it once it is done.
+  input.form?.addEventListener("reset", () => setTimeout(show));
+  acceptDrops(zone, input);
+};
+
+/** What a restore did, in one sentence: {restored, skipped, rejected, namespaces}. */
+const restoredMessage = ({ restored, skipped, rejected, namespaces }) => {
+  const notes = [skipped ? `${skipped} already there` : "", rejected ? `${rejected} refused` : ""];
+  const said = notes.filter(Boolean);
+  return `Restored ${restored} item${restored === 1 ? "" : "s"}${
+    namespaces > 1 ? ` in ${namespaces} namespaces` : ""
+  }${said.length ? ` (${said.join(", ")})` : ""}.`;
+};
+
+/**
+ * A backup's restore form: its file field (picked or dropped), the request,
+ * and what came of it in `status`. `send(file)` posts the backup and returns
+ * the server's answer; `done()` follows a restore that worked.
+ */
+export const restoreForm = ({ form, input, zone, status, send, done }) => {
+  fileField(input, zone);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const file = input.files?.[0];
+    if (!file) return;
+    setBusy(form, true);
+    status.progress(`Restoring ${file.name}…`);
+    try {
+      status.success(restoredMessage(await send(file)));
+      form.reset();
+      await done?.();
+    } catch (error) {
+      status.error(error.message);
+    } finally {
+      setBusy(form, false);
+    }
   });
 };

@@ -1,0 +1,26 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Kurobako contributors
+-->
+<head>
+  <meta name="robots" content="noindex" />
+  <title>Log in · Kurobako</title>
+  <script type="module" src="/login.js"></script>
+</head>
+<main>
+  <h1>Private</h1>
+  <p class="intro">This Kurobako is private. Log in with its key.</p>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+
+  <form id="login-form" class="login-form">
+    <fieldset>
+      <legend>Log in</legend>
+      <label for="key">Key</label>
+      <input id="key" name="key" type="password" autocomplete="current-password" required />
+      <p class="actions">
+        <button type="submit" class="primary">Log in</button>
+      </p>
+    </fieldset>
+  </form>
+</main>

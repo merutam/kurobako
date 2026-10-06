@@ -19,7 +19,9 @@
 //
 // <item> is an item's position in the queue (1 is the newest), its ID or its name.
 import { Hono } from "hono";
+import { mountAccess } from "./api/access";
 import { mountAdmin } from "./api/admin";
+import { mountArchives } from "./api/archives";
 import { createContents } from "./api/contents";
 import { type AppContext, type AppEnv, createContext, jsonError } from "./api/context";
 import { mountItems } from "./api/items";
@@ -74,9 +76,12 @@ export const createApp = (
 
   // The order matters: fixed paths first, items last, since an item can have
   // any name.
+  // Before every route: a private instance turns away whoever has no session.
+  if (config.accessKey) mountAccess(app, api, config.accessKey);
   mountSite(app, api);
   if (config.adminKey) mountAdmin(app, api, config.adminKey);
   mountShares(app, api, contents);
+  mountArchives(app, api);
   mountNamespaces(app, api, createUploads(api));
   mountItems(app, api, contents);
 

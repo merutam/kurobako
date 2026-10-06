@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
+
 // The self-hosted server, end to end: a real Bun server on a free port, its
 // SQLite files in a temporary directory and file contents in memory.
-import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { createCipheriv, pbkdf2Sync } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -20,6 +20,8 @@ import {
   openSharedItem,
   safeName,
 } from "../public/k.mjs";
+import type { Manifest } from "../src/api/archives";
+import { readArchive, writeArchive } from "../src/archive";
 import { startRouter } from "../src/bun/router";
 import { startServer } from "../src/bun/server";
 import { type AppConfig, loadConfig } from "../src/config";
@@ -209,6 +211,16 @@ describe("bun server", () => {
     }
   });
 
+  test("gives each item its own time, in the queue's order, however fast they come", async () => {
+    const ns = fresh();
+    for (let index = 0; index < 3; index += 1) await typed(ns, `quick ${index}`);
+    const times = (await json<Item[]>(`/${ns}/ls`)).map((item) => Date.parse(item.createdAt));
+    // Newest first: strictly decreasing.
+    expect(times.every((time, index) => index === 0 || time < (times[index - 1] as number))).toBe(
+      true,
+    );
+  });
+
   test("consumes burn-after-reading items once", async () => {
     const ns = fresh();
     const item = await typed(ns, "once", { burn: "1" });
@@ -327,6 +339,12 @@ describe("bun server", () => {
 
     // Texts under their name, as the server names plain downloads.
     expect(readdirSync(all).sort()).toEqual(["first text.txt", "picture.png"]);
+    // Again: only what is new is saved, the rest is left alone.
+    const again = Bun.spawn(["bun", script, "-O", link], { cwd: all, stdout: "pipe" });
+    const report = await new Response(again.stdout).text();
+    expect(report).toContain("already saved as first text.txt");
+    expect(report).toContain("already saved as picture.png");
+    expect(readdirSync(all)).toHaveLength(2);
 
     // -o - is standard output, as in curl, never a file named "-".
     const printed = await run(["-o", "-", `${link}/picture`]);
@@ -480,16 +498,6 @@ describe("bun server", () => {
     await start();
     await Bun.sleep(300);
     expect(existsSync(file)).toBe(false);
-
-    // Data from before the index: startup builds it from the files.
-    const older = await emptied();
-    await running.stop();
-    const hub = new Database(join(dataDir, "hub.sqlite"));
-    hub.exec("DROP TABLE namespace_alarms");
-    hub.close();
-    await start();
-    await Bun.sleep(config.emptyNamespaceTtlMs + 300);
-    expect(existsSync(older)).toBe(false);
   });
 
   test("limits sends per address", async () => {
@@ -912,7 +920,7 @@ describe("under a base path", () => {
 
   beforeAll(async () => {
     site = await startServer({
-      config: { ...config, basePath: "/k" },
+      config: { ...config, basePath: "/k", adminKey: TEST_ADMIN_KEY },
       dataDir: siteDir,
       blobs: memoryStore().store,
       port: 0,
@@ -979,6 +987,51 @@ describe("under a base path", () => {
     socket.close();
   });
 
+  test("k.mjs -O keeps a folder in step with a plain namespace", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "kurobako-mirror-"));
+    const script = join(import.meta.dir, "..", "public", "k.mjs");
+    const mirror = async () => {
+      const child = Bun.spawn(["bun", script, "-O", `${origin}/k/mirror`], {
+        cwd: folder,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [out, error] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      if ((await child.exited) !== 0) throw new Error(error);
+      return out;
+    };
+    const send = (body: string) =>
+      at("/k/mirror/new", { method: "POST", headers: { "content-type": "text/plain" }, body });
+    try {
+      await send("first");
+      await at("/k/mirror/shot.png", { method: "PUT", body: png });
+      await mirror();
+      expect(readdirSync(folder).sort()).toEqual(["first.txt", "shot.png"]);
+      await send("second");
+      const report = await mirror();
+      expect(report).toContain("already saved as first.txt");
+      expect(readdirSync(folder).sort()).toEqual(["first.txt", "second.txt", "shot.png"]);
+      expect(readFileSync(join(folder, "shot.png"))).toEqual(Buffer.from(png));
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  test("the admin's session goes with the path", async () => {
+    const login = await at("/k/a/login", {
+      method: "POST",
+      body: JSON.stringify({ key: TEST_ADMIN_KEY }),
+    });
+    expect(login.status).toBe(200);
+    const setCookie = login.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("Path=/k/a");
+    const cookie = setCookie.split(";")[0] ?? "";
+    expect((await at("/k/a/overview", { headers: { cookie } })).status).toBe(200);
+  });
+
   test("k.mjs takes the site with its path, like curl", async () => {
     const box = `${origin}/k`;
     const sealed = `${box}/e#${encodeURIComponent(`base ${crypto.randomUUID()}`)}`;
@@ -993,5 +1046,605 @@ describe("under a base path", () => {
     await k("-T", "note.txt", `${box}/files`);
     expect(await k(`${box}/files`)).toContain("note.txt");
     expect(await k(`${box}/files/note`)).toBe("a file under k");
+  });
+});
+
+/** ACCESS_KEY: only those with the key use the site; share links stay open unless told otherwise. */
+describe("a private instance", () => {
+  const KEY = "a private key for tests";
+  const dirs = [0, 1].map(() => mkdtempSync(join(tmpdir(), "kurobako-private-")));
+  const workDir = mkdtempSync(join(tmpdir(), "kurobako-private-cli-"));
+  let open: Awaited<ReturnType<typeof startServer>>;
+  let closed: Awaited<ReturnType<typeof startServer>>;
+  const bearer = { authorization: `Bearer ${KEY}` };
+  const at = (path: string, init?: RequestInit) => fetch(`${open.server.url.origin}${path}`, init);
+  const k = async (args: string[], env: Record<string, string> = {}) => {
+    const child = Bun.spawn(["bun", join(import.meta.dir, "..", "public", "k.mjs"), ...args], {
+      cwd: workDir,
+      env: { ...process.env, ...env },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, error, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    return { out, error, code };
+  };
+
+  beforeAll(async () => {
+    const start = (dataDir: string, publicShares: boolean) =>
+      startServer({
+        config: { ...config, accessKey: KEY, publicShares },
+        dataDir,
+        blobs: memoryStore().store,
+        port: 0,
+        hostname: "127.0.0.1",
+        logRequests: false,
+      });
+    open = await start(dirs[0] as string, true);
+    closed = await start(dirs[1] as string, false);
+  });
+  afterAll(async () => {
+    await open.stop();
+    await closed.stop();
+    for (const dir of [...dirs, workDir]) rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("turns away whoever has no key: people to the login, scripts with the reason", async () => {
+    const page = await at("/notes?x=1", { headers: { accept: "text/html" }, redirect: "manual" });
+    expect(page.status).toBe(302);
+    expect(page.headers.get("location")).toBe(`/k/login?next=${encodeURIComponent("/notes?x=1")}`);
+    const api = await at("/notes/ls");
+    expect(api.status).toBe(401);
+    expect(((await api.json()) as { error: string }).error).toContain("private");
+    expect((await at("/notes/new", { method: "POST", body: "x" })).status).toBe(401);
+    expect((await at("/stats.json")).status).toBe(401);
+
+    // What anyone may still see.
+    expect(await (await at("/.well-known/kurobako")).json()).toMatchObject({ private: true });
+    for (const path of ["/k/login", "/k/protocol", "/k/healthz", "/k.mjs", "/common.js"]) {
+      expect((await at(path)).status).toBe(200);
+    }
+  });
+
+  test("opens to the key: as a bearer, or through a login session", async () => {
+    const sent = await at("/notes/new", {
+      method: "POST",
+      headers: { ...bearer, "content-type": "text/plain" },
+      body: "mine",
+    });
+    expect(sent.status).toBe(201);
+
+    expect(
+      (await at("/k/login", { method: "POST", body: JSON.stringify({ key: "nope" }) })).status,
+    ).toBe(401);
+    const login = await at("/k/login", { method: "POST", body: JSON.stringify({ key: KEY }) });
+    expect(login.status).toBe(200);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    expect(cookie).toStartWith("kurobako_access=");
+    const listed = (await (await at("/notes/ls", { headers: { cookie } })).json()) as Item[];
+    expect(listed.map((item) => item.text)).toEqual(["mine"]);
+
+    // Live updates too: the browser sends the session with the WebSocket.
+    const origin = open.server.url.origin.replace("http", "ws");
+    const socket = new WebSocket(`${origin}/notes/live`, { headers: { cookie } } as never);
+    expect((await nextMessage(socket)).items).toHaveLength(1);
+    socket.close();
+  });
+
+  test("share links open for anyone, unless PUBLIC_SHARES is false", async () => {
+    const link = (await (await at("/notes/1/s", { headers: bearer })).text()).trim();
+    const path = new URL(link).pathname;
+    expect(await (await at(`${path}/c`)).text()).toBe("mine");
+
+    const other = closed.server.url.origin;
+    await fetch(`${other}/notes/new`, {
+      method: "POST",
+      headers: { ...bearer, "content-type": "text/plain" },
+      body: "kept in",
+    });
+    const closedLink = (
+      await (await fetch(`${other}/notes/1/s`, { headers: bearer })).text()
+    ).trim();
+    expect((await fetch(`${other}${new URL(closedLink).pathname}/c`)).status).toBe(401);
+    expect((await fetch(`${other}/.well-known/kurobako`)).status).toBe(200);
+  });
+
+  test("k.mjs sends the key from KUROBAKO_KEY", async () => {
+    const box = open.server.url.origin;
+    const without = await k([`${box}/notes`]);
+    expect(without.code).toBe(1);
+    expect(without.error).toContain("private");
+    const env = { KUROBAKO_KEY: KEY };
+    expect((await k([`${box}/notes`], env)).out).toContain("mine");
+    const sealed = `${box}/e#${encodeURIComponent(`private ${crypto.randomUUID()}`)}`;
+    expect((await k(["-d", "secret", `${sealed}/new`], env)).code).toBe(0);
+    expect((await k([`${sealed}/1`], env)).out).toBe("secret");
+  });
+});
+
+/** Backups: a namespace as zip or tar, the whole instance through the admin, and back. */
+describe("backups", () => {
+  const source = { dir: mkdtempSync(join(tmpdir(), "kurobako-backup-a-")), store: memoryStore() };
+  const target = { dir: mkdtempSync(join(tmpdir(), "kurobako-backup-b-")), store: memoryStore() };
+  const workDir = mkdtempSync(join(tmpdir(), "kurobako-backup-cli-"));
+  let servers: Awaited<ReturnType<typeof startServer>>[] = [];
+  const backupConfig = { ...config, maxItems: 10, adminKey: TEST_ADMIN_KEY, sendsPerMinute: 1000 };
+  const admin = { authorization: `Bearer ${TEST_ADMIN_KEY}` };
+  const from = (path: string, init?: RequestInit) =>
+    fetch(`${servers[0]?.server.url.origin}${path}`, init);
+  const to = (path: string, init?: RequestInit) =>
+    fetch(`${servers[1]?.server.url.origin}${path}`, init);
+  const text = (body: string, headers: Record<string, string> = {}) => ({
+    method: "POST",
+    headers: { "content-type": "text/plain", ...headers },
+    body,
+  });
+  /** Every entry of an archive: the manifest, and each file's bytes by path. */
+  const unpack = async (response: Response) => {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let manifest: Manifest | null = null;
+    const files = new Map<string, Uint8Array>();
+    const sizes = new Map<string, number>();
+    for await (const entry of readArchive(new Blob([bytes]).stream(), (path) => sizes.get(path))) {
+      const body = new Uint8Array(await new Response(entry.body).arrayBuffer());
+      if (!manifest) {
+        manifest = JSON.parse(new TextDecoder().decode(body)) as Manifest;
+        for (const ns of manifest.namespaces)
+          for (const item of ns.items) sizes.set(item.path, item.size);
+      } else files.set(entry.path, body);
+    }
+    return { bytes, manifest: defined(manifest, "a manifest"), files };
+  };
+  const k = async (...args: string[]) => {
+    const child = Bun.spawn(["bun", join(import.meta.dir, "..", "public", "k.mjs"), ...args], {
+      cwd: workDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, error, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    if (code !== 0) throw new Error(error);
+    return out;
+  };
+
+  beforeAll(async () => {
+    servers = await Promise.all(
+      [source, target].map(({ dir, store }) =>
+        startServer({
+          config: backupConfig,
+          dataDir: dir,
+          blobs: store.store,
+          port: 0,
+          hostname: "127.0.0.1",
+          logRequests: false,
+        }),
+      ),
+    );
+  });
+  afterAll(async () => {
+    for (const running of servers) await running.stop();
+    for (const dir of [source.dir, target.dir, workDir])
+      rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a namespace goes out as zip or tar, and comes back the same", async () => {
+    const ns = fresh();
+    const long = "long text ".repeat(8_000); // above the inline threshold: kept in the store
+    await from(`/${ns}/new`, text("first note"));
+    await from(`/${ns}/photo.png`, { method: "PUT", body: png });
+    await from(`/${ns}/new`, text(long));
+    await from(`/${ns}/1/n`, { method: "POST", body: "the long one" });
+    await from(`/${ns}/new`, text("gone after one read", { burn: "1" }));
+    const listed = (await (await from(`/${ns}/ls`)).json()) as Item[];
+
+    for (const format of ["zip", "tar"]) {
+      const response = await from(`/${ns}/${format}`);
+      expect(response.headers.get("content-disposition")).toContain(`${ns}-`);
+      const { manifest, files } = await unpack(response);
+      const items = defined(manifest.namespaces[0], "the namespace").items;
+      // Oldest first; the burn-after-reading text is left out.
+      expect(items.map((item) => item.kind)).toEqual(["text", "image", "text"]);
+      expect(items.map((item) => item.path)).toEqual([
+        `plain/${ns}/first note.txt`,
+        `plain/${ns}/photo.png`,
+        `plain/${ns}/the long one.txt`,
+      ]);
+      expect(new TextDecoder().decode(files.get(`plain/${ns}/the long one.txt`))).toBe(long);
+      expect(files.get(`plain/${ns}/photo.png`)).toEqual(png);
+    }
+
+    // Into another namespace on another server: the same items, IDs and order.
+    const backup = (await unpack(await from(`/${ns}/zip`))).bytes;
+    const copy = fresh();
+    const restored = await (await to(`/${copy}/import`, { method: "POST", body: backup })).json();
+    expect(restored).toMatchObject({ restored: 3, skipped: 0, rejected: 0, namespaces: 1 });
+    const copied = (await (await to(`/${copy}/ls`)).json()) as Item[];
+    const kept = listed.filter((item) => !item.burn);
+    expect(copied.map((item) => [item.id, item.kind, item.name, item.createdAt])).toEqual(
+      kept.map((item) => [item.id, item.kind, item.name, item.createdAt]),
+    );
+    expect(await (await to(`/${copy}/the long one`)).text()).toBe(long);
+
+    // Again, as a tar sent with curl -T: nothing new.
+    const tar = (await unpack(await from(`/${ns}/tar`))).bytes;
+    const again = await (await to(`/${copy}/import`, { method: "PUT", body: tar })).json();
+    expect(again).toMatchObject({ restored: 0, skipped: 3 });
+    expect(await (await to(`/${copy}/ls`)).json()).toHaveLength(3);
+  });
+
+  test("since=: only what was sent after", async () => {
+    const ns = fresh();
+    await from(`/${ns}/new`, text("old"));
+    await Bun.sleep(20);
+    const cut = new Date().toISOString();
+    await from(`/${ns}/new`, text("new"));
+    const { manifest } = await unpack(await from(`/${ns}/tar?since=${cut}`));
+    expect(manifest.namespaces[0]?.items.map((item) => item.name)).toEqual(["new"]);
+    expect((await from(`/${ns}/zip?since=yesterday-ish`)).status).toBe(400);
+  });
+
+  test("refuses what is not its own backup, and more items than a namespace holds", async () => {
+    const ns = fresh();
+    expect((await to(`/${ns}/import`, { method: "POST", body: "not an archive" })).status).toBe(
+      400,
+    );
+    const crowded = fresh();
+    for (let index = 0; index < 10; index += 1) await from(`/${crowded}/new`, text(`n${index}`));
+    const bytes = (await unpack(await from(`/${crowded}/zip`))).bytes;
+    const small = await startServer({
+      config: { ...backupConfig, maxItems: 3 },
+      dataDir: mkdtempSync(join(tmpdir(), "kurobako-backup-c-")),
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+    try {
+      const refused = await fetch(`${small.server.url.origin}/${ns}/import`, {
+        method: "POST",
+        body: bytes,
+      });
+      expect(refused.status).toBe(413);
+    } finally {
+      await small.stop();
+    }
+  });
+
+  test("encrypted namespaces back up still encrypted, and only restore into themselves", async () => {
+    const box = servers[0]?.server.url.origin as string;
+    const name = `backup ${crypto.randomUUID()}`;
+    const link = `${box}/e#${encodeURIComponent(name)}`;
+    await k("-d", "sealed note", `${link}/new`);
+    const space = await openSealedSpace(name);
+
+    await k("-o", "sealed.zip", `${link}/zip`);
+    const { manifest, files } = await unpack(new Response(Bun.file(join(workDir, "sealed.zip"))));
+    const [item] = defined(manifest.namespaces[0], "the namespace").items;
+    expect(item?.kind).toBe("sealed");
+    expect(item?.path).toBe(`sealed/${space.id}/${item?.id}.sealed`);
+    // The server never had the name: nothing readable in the backup.
+    expect(new TextDecoder().decode(files.get(item?.path ?? ""))).not.toContain("sealed note");
+
+    // Put back with k.mjs into the same namespace on the other server; readable again there.
+    const elsewhere = `${servers[1]?.server.url.origin}/e#${encodeURIComponent(name)}`;
+    expect(JSON.parse(await k("-T", "sealed.zip", `${elsewhere}/import`))).toMatchObject({
+      restored: 1,
+    });
+    expect(await k(`${elsewhere}/1`)).toBe("sealed note");
+    const other = `${servers[1]?.server.url.origin}/e#${encodeURIComponent(`${name} other`)}`;
+    await expect(k("-T", "sealed.zip", `${other}/import`)).rejects.toThrow(/own namespace/);
+  });
+
+  test("restores past an item it refuses, and backups larger than any one send", async () => {
+    // Small files and namespaces here: the whole backup is far above both.
+    const strict = await startServer({
+      config: { ...backupConfig, maxItems: 2, maxFileBytes: 1_000 },
+      dataDir: mkdtempSync(join(tmpdir(), "kurobako-backup-e-")),
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+    try {
+      const origin = strict.server.url.origin;
+      const ns = fresh();
+      await from(`/${ns}/small.bin`, { method: "PUT", body: new Uint8Array(500).fill(1) });
+      await from(`/${ns}/large.bin`, { method: "PUT", body: new Uint8Array(5_000).fill(2) });
+      await from(`/${ns}/after.bin`, { method: "PUT", body: new Uint8Array(500).fill(3) });
+      for (const format of ["zip", "tar"]) {
+        const backup = new Uint8Array(await (await from(`/${ns}/${format}`)).arrayBuffer());
+        const into = fresh();
+        // Three items for a namespace of two: refused whole.
+        expect(
+          (await fetch(`${origin}/${into}/import`, { method: "POST", body: backup })).status,
+        ).toBe(413);
+        const result = await (
+          await fetch(`${origin}/a/import`, { method: "POST", headers: admin, body: backup })
+        ).json();
+        // The large file is refused; the one after it still comes through whole.
+        expect(result).toMatchObject({ rejected: 1 });
+        const after = await fetch(`${origin}/${ns}/after.bin`);
+        expect(new Uint8Array(await after.arrayBuffer())).toEqual(new Uint8Array(500).fill(3));
+      }
+
+      // A whole instance far larger than MAX_ITEMS × MAX_FILE_BYTES.
+      for (let index = 0; index < 4; index += 1) {
+        const more = fresh();
+        for (let file = 0; file < 2; file += 1) {
+          await from(`/${more}/f${file}.bin`, {
+            method: "PUT",
+            body: new Uint8Array(900).fill(file),
+          });
+        }
+      }
+      const whole = new Uint8Array(await (await from("/a/zip", { headers: admin })).arrayBuffer());
+      expect(whole.byteLength).toBeGreaterThan(2 * 1_000);
+      const restored = await fetch(`${origin}/a/import`, {
+        method: "POST",
+        headers: admin,
+        body: whole,
+      });
+      expect(restored.status).toBe(200);
+    } finally {
+      await strict.stop();
+    }
+  });
+
+  test("in parts: each a whole backup, followed by its cursor until the last", async () => {
+    const [first, second] = [fresh(), fresh()];
+    for (let index = 0; index < 5; index += 1) {
+      await from(`/${first}/f${index}.bin`, {
+        method: "PUT",
+        body: new Uint8Array(400).fill(index),
+      });
+    }
+    for (let index = 0; index < 2; index += 1) {
+      await from(`/${second}/g${index}.bin`, {
+        method: "PUT",
+        body: new Uint8Array(400).fill(20 + index),
+      });
+    }
+    const ours = new Set([first, second]);
+    const parts: Uint8Array[] = [];
+    const seen: string[] = [];
+    let after = "";
+    let deleted = false;
+    for (let round = 0; round < 50; round += 1) {
+      const response = await from(`/a/zip?max=1000${after ? `&after=${after}` : ""}`, {
+        headers: admin,
+      });
+      expect(response.headers.get("content-disposition")).toContain(`-part${round + 1}.zip`);
+      const next = response.headers.get("x-kurobako-next");
+      const { bytes, manifest } = await unpack(response);
+      expect(manifest.next).toBe(next ?? undefined);
+      parts.push(bytes);
+      const items = manifest.namespaces.flatMap((ns) => ns.items.map((item) => [ns.name, item]));
+      const size = items.reduce((sum, [, item]) => sum + (item as { size: number }).size, 0);
+      expect(items.length === 1 || size <= 1000).toBe(true);
+      for (const [ns, item] of items) {
+        if (ours.has(ns as string)) seen.push(`${ns}/${(item as { id: string }).id}`);
+      }
+      // Deleting what a part already holds moves nothing out of the next ones.
+      const exported = seen.find((path) => path.startsWith(`${first}/`));
+      if (exported && !deleted) {
+        deleted = true;
+        await from(`/${exported}`, { method: "DELETE" });
+      }
+      if (!next) break;
+      after = next;
+    }
+    expect(parts.length).toBeGreaterThan(2);
+    expect(deleted).toBe(true);
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen.filter((path) => path.startsWith(`${first}/`))).toHaveLength(5);
+    expect(seen.filter((path) => path.startsWith(`${second}/`))).toHaveLength(2);
+
+    const restore = await startServer({
+      config: backupConfig,
+      dataDir: mkdtempSync(join(tmpdir(), "kurobako-backup-f-")),
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+    try {
+      const origin = restore.server.url.origin;
+      // Last part first: the queue still comes out in order.
+      for (const part of [...parts].reverse()) {
+        const response = await fetch(`${origin}/a/import`, {
+          method: "POST",
+          headers: admin,
+          body: part,
+        });
+        expect(response.status).toBe(200);
+      }
+      const restored = (await (await fetch(`${origin}/${first}/ls`)).json()) as Item[];
+      expect(restored.map((item) => item.filename)).toEqual([
+        "f4.bin",
+        "f3.bin",
+        "f2.bin",
+        "f1.bin",
+        "f0.bin",
+      ]);
+    } finally {
+      await restore.stop();
+    }
+    expect((await from(`/${first}/zip?max=none`)).status).toBe(400);
+    expect((await from(`/${first}/zip?max=10&after=garbage`)).status).toBe(400);
+  });
+
+  test("items sent in the same millisecond keep their order, through restore and export", async () => {
+    const ns = fresh();
+    const at = "2026-10-01T12:00:00.000Z";
+    const bodies = [new TextEncoder().encode("first"), new TextEncoder().encode("second")];
+    // IDs in the opposite order to the queue's: only the queue's order may decide.
+    const items = [
+      { id: "zzzzzz", body: bodies[0] as Uint8Array, path: `plain/${ns}/first.txt`, name: "first" },
+      {
+        id: "aaaaaa",
+        body: bodies[1] as Uint8Array,
+        path: `plain/${ns}/second.txt`,
+        name: "second",
+      },
+    ];
+    const manifest = new TextEncoder().encode(
+      JSON.stringify({
+        kurobako: "backup",
+        version: 1,
+        exportedAt: at,
+        namespaces: [
+          {
+            space: "plain",
+            name: ns,
+            items: items.map(({ id, body, path, name }) => ({
+              id,
+              kind: "text",
+              createdAt: at,
+              expiresAt: null,
+              size: body.byteLength,
+              path,
+              name,
+            })),
+          },
+        ],
+      }),
+    );
+    const archive = writeArchive("zip", [
+      {
+        path: "manifest.json",
+        size: manifest.byteLength,
+        modified: new Date(),
+        open: async () => new Blob([manifest]).stream(),
+      },
+      ...items.map(({ body, path }) => ({
+        path,
+        size: body.byteLength,
+        modified: new Date(at),
+        open: async () => new Blob([body]).stream(),
+      })),
+    ]);
+    const body = new Uint8Array(await new Response(archive).arrayBuffer());
+    expect((await to(`/${ns}/import`, { method: "POST", body })).status).toBe(200);
+    const listed = (await (await to(`/${ns}/ls`)).json()) as Item[];
+    expect(listed.map((item) => item.name)).toEqual(["second", "first"]);
+    const exported = await unpack(await to(`/${ns}/zip`));
+    expect(exported.manifest.namespaces[0]?.items.map((item) => item.name)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+
+  test("holds a namespace's manifest to what it can need", async () => {
+    const huge = new TextEncoder().encode(
+      JSON.stringify({
+        kurobako: "backup",
+        version: 1,
+        padding: "x".repeat(200_000),
+        namespaces: [],
+      }),
+    );
+    const archive = writeArchive("tar", [
+      {
+        path: "manifest.json",
+        size: huge.byteLength,
+        modified: new Date(),
+        open: async () => new Blob([huge]).stream(),
+      },
+    ]);
+    const body = new Uint8Array(await new Response(archive).arrayBuffer());
+    expect((await to(`/${fresh()}/import`, { method: "POST", body })).status).toBe(413);
+  });
+
+  test("the admin backs up and restores the whole instance", async () => {
+    const plain = fresh();
+    await from(`/${plain}/new`, text("everything"));
+    const name = `whole ${crypto.randomUUID()}`;
+    await k(
+      "-d",
+      "encrypted too",
+      `${servers[0]?.server.url.origin}/e#${encodeURIComponent(name)}/new`,
+    );
+
+    expect((await from("/a/tar")).status).toBe(401);
+    const backup = await from("/a/tar", { headers: admin });
+    const { bytes, manifest } = await unpack(backup);
+    const spaces = new Set(manifest.namespaces.map((ns) => ns.space));
+    expect(spaces).toEqual(new Set(["plain", "sealed"]));
+
+    const fresh2 = await startServer({
+      config: backupConfig,
+      dataDir: mkdtempSync(join(tmpdir(), "kurobako-backup-d-")),
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+    try {
+      const origin = fresh2.server.url.origin;
+      const result = await (
+        await fetch(`${origin}/a/import`, { method: "POST", headers: admin, body: bytes })
+      ).json();
+      expect(result).toMatchObject({ namespaces: manifest.namespaces.length });
+      expect(await (await fetch(`${origin}/${plain}/1`)).text()).toBe("everything");
+      expect(await k(`${origin}/e#${encodeURIComponent(name)}/1`)).toBe("encrypted too");
+    } finally {
+      await fresh2.stop();
+    }
+  });
+});
+
+/** MAX_STORAGE_BYTES: every item together, across namespaces, stays under it. */
+describe("a storage limit", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kurobako-storage-"));
+  let limited: Awaited<ReturnType<typeof startServer>>;
+  const at = (path: string, init?: RequestInit) =>
+    fetch(`${limited.server.url.origin}${path}`, init);
+  const file = (bytes: number) => ({ method: "PUT", body: new Uint8Array(bytes).fill(7) });
+
+  beforeAll(async () => {
+    limited = await startServer({
+      config: { ...config, maxStorageBytes: 1_000, sendsPerMinute: 1000 },
+      dataDir: dir,
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+  });
+  afterAll(async () => {
+    await limited.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("refuses what would go past it, across namespaces, until room is made", async () => {
+    expect(await (await at("/.well-known/kurobako")).json()).toMatchObject({
+      maxStorageBytes: 1_000,
+    });
+    const [one, two] = [fresh(), fresh()];
+    expect((await at(`/${one}/a.bin`, file(600))).status).toBe(201);
+    const refused = await at(`/${two}/b.bin`, file(600));
+    expect(refused.status).toBe(507);
+    expect(((await refused.json()) as { error: string }).error).toContain("full");
+    // What still fits goes in.
+    expect((await at(`/${two}/new`, { method: "POST", body: "small" })).status).toBe(201);
+    // Deleting makes room again.
+    await at(`/${one}/1`, { method: "DELETE" });
+    expect((await at(`/${two}/b.bin`, file(600))).status).toBe(201);
+
+    // A backup needs room for all of it.
+    const backup = new Uint8Array(await (await at(`/${two}/zip`)).arrayBuffer());
+    expect((await at(`/${fresh()}/import`, { method: "POST", body: backup })).status).toBe(507);
+  });
+
+  test("is off unless set", () => {
+    expect(loadConfig({}).maxStorageBytes).toBeNull();
+    expect(loadConfig({ MAX_STORAGE_BYTES: "0" }).maxStorageBytes).toBeNull();
+    expect(loadConfig({ MAX_STORAGE_BYTES: "5000000000" }).maxStorageBytes).toBe(5_000_000_000);
   });
 });

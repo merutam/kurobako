@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { Context } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import type { Api, App } from "./context";
+import { getCookie } from "hono/cookie";
+import { type Api, type App, jsonError } from "./context";
+import { hasBearer, loginWith, logoutOf, type SessionCookie, signedSessions } from "./session";
 
 const SESSION_COOKIE = "kurobako_admin";
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 500;
-
-/** Equal-length digests, so the comparison time reveals nothing about the input. */
-const sameSecret = (a: string, b: string) =>
-  timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 
 const integerQuery = (c: Context, name: string, fallback: number, max: number) => {
   const value = Number(c.req.query(name));
@@ -34,22 +30,16 @@ const pageQuery = (c: Context) => ({
  * gets them (behind src/bun/router.ts, always the first).
  */
 export const mountAdmin = (app: App, api: Api, key: string) => {
-  const { hub, clientIp, page, pages, log, platformOf, appVersion } = api;
-  const { adminSessionHours: sessionHours } = api.config;
-
-  const sign = (expires: string) =>
-    createHmac("sha256", key).update(`admin-session:${expires}`).digest("base64url");
-
-  const hasSession = (c: Context) => {
-    const [expires, signature] = (getCookie(c, SESSION_COOKIE) ?? "").split(".");
-    if (!expires || !signature || Number(expires) < Date.now()) return false;
-    return sameSecret(signature, sign(expires));
+  const { hub, page, pages, platformOf, appVersion } = api;
+  const sessions = signedSessions(key, "admin-session");
+  // Sent to the admin's routes only, under the site's base path.
+  const cookie: SessionCookie = {
+    name: SESSION_COOKIE,
+    path: `${api.config.basePath}/a`,
+    sameSite: "Strict",
+    ms: api.config.adminSessionHours * 3_600_000,
   };
-
-  const hasBearer = (c: Context) => {
-    const header = c.req.header("authorization") ?? "";
-    return header.startsWith("Bearer ") && sameSecret(header.slice("Bearer ".length), key);
-  };
+  const hasSession = (c: Context) => sessions.valid(getCookie(c, SESSION_COOKIE));
 
   // Registered before the routes below so it guards all of them; the page
   // itself and the login are open.
@@ -57,41 +47,14 @@ export const mountAdmin = (app: App, api: Api, key: string) => {
   app.use("/a/*", async (c, next) => {
     if (OPEN_PATHS.has(c.req.path)) return next();
     c.header("Cache-Control", "no-store");
-    if (hasSession(c) || hasBearer(c)) return next();
-    return c.json({ error: "Unauthorized." }, 401);
+    if (hasSession(c) || hasBearer(c, key)) return next();
+    return jsonError(c, 401, "Unauthorized.");
   });
 
   app.get("/a", (c) => page(c, pages.admin));
 
-  app.post("/a/login", async (c) => {
-    const ip = clientIp(c);
-    if (await hub(c).loginLockedOut(ip)) {
-      return c.json({ error: "Too many failed attempts. Try again in 15 minutes." }, 429);
-    }
-    const body = (await c.req.json().catch(() => ({}))) as { key?: unknown };
-    if (typeof body.key !== "string" || !sameSecret(body.key, key)) {
-      await hub(c).loginFailed(ip);
-      log(c, "warn", `Admin login failed from ${ip}.`);
-      return c.json({ error: "Wrong key." }, 401);
-    }
-
-    await hub(c).loginSucceeded(ip);
-    const expires = String(Date.now() + sessionHours * 3_600_000);
-    setCookie(c, SESSION_COOKIE, `${expires}.${sign(expires)}`, {
-      path: "/a",
-      httpOnly: true,
-      secure: true,
-      sameSite: "Strict",
-      maxAge: sessionHours * 3_600,
-    });
-    log(c, "info", `Admin login from ${ip}.`);
-    return c.json({ ok: true });
-  });
-
-  app.post("/a/logout", (c) => {
-    deleteCookie(c, SESSION_COOKIE, { path: "/a", secure: true });
-    return c.json({ ok: true });
-  });
+  app.post("/a/login", loginWith(api, key, sessions, cookie, "Admin login"));
+  app.post("/a/logout", logoutOf(cookie));
 
   app.get("/a/overview", async (c) => {
     const platform = platformOf(c);
@@ -99,6 +62,7 @@ export const mountAdmin = (app: App, api: Api, key: string) => {
       version: appVersion,
       ...platform.deployment(c),
       ...(await hub(c).overview()),
+      maxStorageBytes: api.config.maxStorageBytes,
       logsUrl: platform.logsUrl,
       logsHint: platform.logsHint,
     });

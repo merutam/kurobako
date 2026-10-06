@@ -55,6 +55,7 @@ export type NamespaceApi = Async<
     | "remove"
     | "accessLog"
     | "cleanUpIfEmpty"
+    | "restore"
   >
 >;
 export type HubApi = Async<
@@ -74,6 +75,8 @@ export type HubApi = Async<
     | "stats"
     | "overview"
     | "namespacesPage"
+    | "allNamespaces"
+    | "storedBytes"
   >
 >;
 

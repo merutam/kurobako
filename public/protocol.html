@@ -7,7 +7,7 @@
 </head>
 <main class="prose">
   <h1>Protocol</h1>
-  <p class="lead">
+  <p class="intro">
     This page is the complete protocol of a Kurobako server, for plain and
     encrypted namespaces. With what is below, and nothing else, a client can
     read, write, rename, delete, download and share items.
@@ -40,10 +40,14 @@
     <code>inlineTextBytes</code> (longer texts are listed with a preview),
     <code>maxItems</code> (older items fall off the queue),
     <code>itemTtlSeconds</code> (<code>0</code>: no expiry),
-    <code>sendsPerMinute</code> per client address and
-    <code>sealed.maxNameLength</code>. A send beyond the limit gets
-    <code>429</code>; wait for the minute to pass. Every error is JSON:
-    <code>{"error": "…"}</code>.
+    <code>sendsPerMinute</code> per client address,
+    <code>maxStorageBytes</code> (every item together; <code>null</code>: no
+    limit) and <code>sealed.maxNameLength</code>. A send beyond the limit
+    gets <code>429</code>, so wait for the minute to pass; one that would
+    fill the storage gets <code>507</code>. Every error is JSON:
+    <code>{"error": "…"}</code>. With <code>"private": true</code>, every
+    request but this one, the protocol and (usually) share links needs
+    <code>Authorization: Bearer &lt;key&gt;</code>, or gets <code>401</code>.
   </p>
 
   <h2>Every namespace</h2>
@@ -56,7 +60,7 @@
     never changes; plain namespaces also take its name (below).
   </p>
   <div class="table-scroll">
-    <table class="wikitable">
+    <table class="data-table">
       <thead>
         <tr>
           <th>Request</th>
@@ -96,6 +100,30 @@
             send <code>ping</code> and get <code>pong</code>
           </td>
         </tr>
+        <tr>
+          <td><code>GET &lt;ns&gt;/zip</code>, <code>/tar</code></td>
+          <td>
+            the namespace as an archive: <code>manifest.json</code> first
+            (each item's details and the path of its contents), then the
+            contents; encrypted items stay sealed (<code>&lt;id&gt;.sealed</code>,
+            their header in the manifest). <code>?since=&lt;date&gt;</code>:
+            only items sent since. Burn-after-reading items are left out.
+            <code>?max=&lt;bytes&gt;</code>: in parts, each a whole backup of
+            its own items, stopping at about that size; while more remain,
+            the <code>X-Kurobako-Next</code> header (also
+            <code>next</code> in the manifest), given back as
+            <code>?after=</code>, is the next part.
+          </td>
+        </tr>
+        <tr>
+          <td><code>POST &lt;ns&gt;/import</code></td>
+          <td>
+            puts such an archive back (<code>PUT</code> too), keeping IDs and
+            dates and skipping what is already there:
+            <code>{"restored": …, "skipped": …, "rejected": …}</code>. An
+            encrypted namespace only takes back its own items.
+          </td>
+        </tr>
       </tbody>
     </table>
   </div>
@@ -119,7 +147,7 @@
     <code>k</code> are taken.
   </p>
   <div class="table-scroll">
-    <table class="wikitable">
+    <table class="data-table">
       <thead>
         <tr>
           <th>Request</th>
@@ -196,7 +224,7 @@
     </li>
     <li>
       Derive 32 bytes (one SHA-256 block) with PBKDF2:
-      <table class="wikitable">
+      <table class="data-table">
         <tbody>
           <tr>
             <th scope="row">Hash</th>
@@ -244,7 +272,7 @@
     second on a fast GPU; without that data, every guess has to go
     through the site itself. With 1,000 such GPUs:
   </p>
-  <table class="wikitable">
+  <table class="data-table">
     <thead>
       <tr>
         <th>Name</th>
@@ -298,7 +326,7 @@
     <li>
       Metadata is JSON, sealed with the item key, holding only what cannot
       be told otherwise:
-      <table class="wikitable">
+      <table class="data-table">
         <tbody>
           <tr>
             <th scope="row">A text</th>
@@ -345,7 +373,7 @@
     unless marked base64url.
   </p>
   <div class="table-scroll">
-    <table class="wikitable">
+    <table class="data-table">
       <tbody>
         <tr>
           <th scope="row">Name as typed</th>
@@ -406,7 +434,7 @@
     A <code>shareUrl</code> or <code>/s</code> link needs <code>#</code>
     and the item key added.
   </p>
-  <table class="wikitable">
+  <table class="data-table">
     <thead>
       <tr>
         <th>Request</th>
@@ -465,7 +493,7 @@
     <code>https://</code> may be left out of links.
   </p>
   <div class="table-scroll">
-    <table class="wikitable">
+    <table class="data-table">
       <thead>
         <tr>
           <th>Command</th>

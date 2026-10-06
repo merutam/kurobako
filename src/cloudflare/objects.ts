@@ -7,7 +7,7 @@ import { DurableObject } from "cloudflare:workers";
 import { loadConfig } from "../config";
 import { HubCore } from "../hub";
 import { type NamespaceRef, objectName } from "../model";
-import { type ItemRef, LIVE, NamespaceCore, type SaveInput } from "../namespace";
+import { type ItemRef, LIVE, NamespaceCore, type Restored, type SaveInput } from "../namespace";
 import type { HubApi, Sql, SqlValue } from "../platform";
 import type { AccessEvent } from "../request-info";
 import { CLOUDFLARE_LIMITS } from "./limits";
@@ -74,6 +74,9 @@ export class NamespaceObject extends DurableObject<Env> {
   }
   cleanUpIfEmpty(ref: NamespaceRef) {
     return this.core.cleanUpIfEmpty(ref);
+  }
+  restore(ref: NamespaceRef, items: Restored[]) {
+    return this.core.restore(ref, items);
   }
   alarm() {
     return this.core.alarm();
@@ -177,5 +180,11 @@ export class HubObject extends DurableObject<Env> {
   }
   namespacesPage(...args: Parameters<HubCore["namespacesPage"]>) {
     return this.core.namespacesPage(...args);
+  }
+  allNamespaces() {
+    return this.core.allNamespaces();
+  }
+  storedBytes() {
+    return this.core.storedBytes();
   }
 }

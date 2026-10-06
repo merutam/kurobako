@@ -11,6 +11,7 @@ import { createApp } from "../app";
 import { type AppConfig, loadConfig } from "../config";
 import { ICON_FILES, isPublicFile, loadAssets } from "../pages";
 import type { BlobStore } from "../platform";
+import { firstValue } from "../request-info";
 import { sitePath } from "../routing";
 import { logRequestLine, printJsonLines } from "./log";
 import { type BunEnv, createBunPlatform } from "./platform";
@@ -62,9 +63,7 @@ export const startServer = async (options: ServerOptions) => {
    */
   const clientIp = (request: Request, server: Server<unknown>) => {
     const header = options.clientIpHeader;
-    return header
-      ? request.headers.get(header)?.split(",")[0]?.trim()
-      : server.requestIP(request)?.address;
+    return header ? firstValue(request.headers.get(header)) : server.requestIP(request)?.address;
   };
 
   const logRequest = (
@@ -108,12 +107,13 @@ export const startServer = async (options: ServerOptions) => {
 
   await resume();
   const pruning = setInterval(prune, MAINTENANCE_MS);
-  const largestBody = Math.max(options.config.maxFileBytes, options.config.maxTextBytes);
   const server = Bun.serve({
     port: options.port,
     hostname: options.hostname,
-    // Room for the largest file plus the request around it.
-    maxRequestBodySize: Math.min(Number.MAX_SAFE_INTEGER, largestBody + 1_000_000),
+    // No limit here: each route holds its body to its own (a file to
+    // MAX_FILE_BYTES, a rename to a short name), reading as it arrives, and a
+    // backup of the whole instance may be larger than any of them.
+    maxRequestBodySize: Number.MAX_SAFE_INTEGER,
     async fetch(request, server) {
       const url = new URL(request.url);
       if (request.method === "GET") {

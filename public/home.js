@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { readConfig, SITE } from "./common.js";
+// The home page: opening a namespace, plain or encrypted (with a random
+// name, and how strong a typed one is), and the instance's stats.
+import { element, formatDuration, numberFormatter, readConfig, request, SITE } from "./common.js";
 import { encryptionAvailable, normalizeSecretName, secretNameProblem } from "./k.mjs";
 import { createStatus } from "./status.js";
-
-const element = (selector) => {
-  const found = document.querySelector(selector);
-  if (!found) throw new Error("Something went wrong. Reload the page.");
-  return found;
-};
 
 const form = element("#namespace-form");
 const input = element("#namespace");
@@ -24,7 +20,6 @@ const status = createStatus(element("#home-status"));
 const maxItems = element("#max-items");
 const expiry = element("#expiry");
 
-const numberFormatter = new Intl.NumberFormat();
 const regionNames = new Intl.DisplayNames(undefined, { type: "region" });
 const countryName = (code) => {
   try {
@@ -36,24 +31,6 @@ const countryName = (code) => {
 };
 /** Lowercase letters and digits are valid in both modes. */
 const RANDOM_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
-
-const formatDuration = (seconds) => {
-  const units = [
-    ["day", 86_400],
-    ["hour", 3_600],
-    ["minute", 60],
-    ["second", 1],
-  ];
-  const [unit, size] = units.find(([, size]) => seconds >= size) ?? units.at(-1);
-  const value = Math.round(seconds / size);
-  return `${value} ${unit}${value === 1 ? "" : "s"}`;
-};
-
-const fetchJson = async (url) => {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Server error (${response.status}).`);
-  return response.json();
-};
 
 const RANDOM_NAME_CHARACTERS = 16;
 /** Four groups of four characters: 80 bits, far beyond guessing. */
@@ -192,7 +169,7 @@ const statFormats = {
 const statCells = document.querySelectorAll("[data-stat]");
 
 try {
-  const stats = await fetchJson(`${SITE}/stats.json`);
+  const stats = await (await request(`${SITE}/stats.json`, { cache: "no-store" })).json();
   for (const cell of statCells) {
     const value = stats[cell.dataset.stat];
     const format = statFormats[cell.dataset.stat] ?? ((number) => numberFormatter.format(number));

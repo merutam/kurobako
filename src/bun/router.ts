@@ -14,6 +14,7 @@
 import type { Server, ServerWebSocket } from "bun";
 import { loadConfig } from "../config";
 import { logError } from "../log";
+import { firstValue } from "../request-info";
 import { routeOf, sitePath, slotOfKey, slotOwners } from "../routing";
 import { printJsonLines } from "./log";
 
@@ -114,7 +115,7 @@ export const startRouter = (options: RouterOptions) => {
   const clientIp = (request: Request, server: Server<Relay>) => {
     const header = options.clientIpHeader;
     const ip = header
-      ? request.headers.get(header)?.split(",")[0]?.trim()
+      ? firstValue(request.headers.get(header))
       : server.requestIP(request)?.address;
     return ip || "unknown";
   };

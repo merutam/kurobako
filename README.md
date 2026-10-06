@@ -69,6 +69,62 @@ encrypted, is at `/k/protocol` on every instance. Every instance describes itsel
 - **Access log** at `<ns>/log`. The home page shows aggregate stats only,
   counted from page views, whose address and country are kept for a day.
 
+## Backups
+
+A namespace comes out whole as a zip or a tar, and goes back the same way.
+Encrypted items stay encrypted in it, so a backup needs no secret:
+
+```sh
+curl -OJ $BOX/ns/zip                       # ns-2026-10-06.zip (or /tar)
+curl -OJ "$BOX/ns/zip?since=2026-10-01"    # only what was sent since
+curl -T ns-2026-10-06.zip $BOX/ns/import   # put back (into any plain namespace)
+node k.mjs -O "$BOX/e#secret name"         # every item, decrypted, into this folder
+```
+
+Run again, `k.mjs -O` saves only what is new, so it keeps a folder in step
+with a namespace. With `ADMIN_KEY` set, `/a/zip` and `/a/tar` back up every
+namespace, and `/a/import` restores them:
+
+```sh
+curl -H "Authorization: Bearer $ADMIN_KEY" -o backup.tar $BOX/a/tar
+```
+
+Restoring keeps each item's ID and dates and skips what is already there.
+Items that burn after reading are left out of backups.
+
+A backup also comes in parts, each a whole backup of its own items, for
+anything with a request size limit (Cloudflare takes 100 MB per request):
+`?max=<bytes>` stops a part at about that size, and its `X-Kurobako-Next`
+header, given back as `?after=`, starts the next one. The last part has none:
+
+```sh
+next=
+while :; do
+  curl -fsS -OJ -D head -H "Authorization: Bearer $ADMIN_KEY" \
+    "$BOX/a/zip?max=90000000&after=$next" || break
+  next=$(sed -n 's/^x-kurobako-next: *//Ip' head | tr -d '\r')
+  [ -n "$next" ] || break
+done
+for part in kurobako-*-part*.zip; do
+  curl -fsS -H "Authorization: Bearer $ADMIN_KEY" -T "$part" "$BOX/a/import"
+done
+```
+
+## A private instance
+
+Kurobako forgets by design. For one that keeps things, just for you:
+
+```sh
+ITEM_TTL_SECONDS=0          # items never expire
+MAX_STORAGE_BYTES=50000000000   # but never more than 50 GB in all
+ACCESS_KEY=...              # 16 characters or more: only who has it gets in
+```
+
+Pages then ask for the key once (a session lasts `ACCESS_SESSION_DAYS`).
+Scripts send it as `Authorization: Bearer <key>`, and `k.mjs` reads it from
+`KUROBAKO_KEY`. Share links still open for anyone, one item each, unless
+`PUBLIC_SHARES=false`. Add a daily backup, above, and keep it elsewhere.
+
 ## Running it
 
 Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
@@ -82,9 +138,13 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 | `MAX_ITEMS` | `20` | per namespace; 1,000 at most |
 | `EMPTY_NAMESPACE_TTL_SECONDS` | `3600` | before an empty namespace is deleted |
 | `MAX_LIVE_CONNECTIONS` | `100` | per namespace |
+| `MAX_STORAGE_BYTES` | unset | every item together, across namespaces; sends past it get `507` |
 | `SENDS_PER_MINUTE` | `30` | per client address; on Cloudflare, also set `UPLOAD_LIMITER`'s limit in `wrangler.jsonc` |
 | `ADMIN_KEY` | unset | enables `/a`; 32 characters or more |
 | `ADMIN_SESSION_HOURS` | `12` | |
+| `ACCESS_KEY` | unset | makes the instance private (see "A private instance"); 16 characters or more |
+| `ACCESS_SESSION_DAYS` | `30` | how long a login to a private instance lasts |
+| `PUBLIC_SHARES` | `true` | in a private instance, whether share links open for anyone |
 | `BASE_PATH` | unset | e.g. `/k`, to share a domain with another site: `$BOX` is then `https://example.com/k` |
 
 Values beyond a platform's technical limits are refused at start.

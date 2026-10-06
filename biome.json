@@ -11,7 +11,8 @@
   "javascript": {
     "formatter": {
       "quoteStyle": "double"
-    }
+    },
+    "globals": ["Bun", "FixedLengthStream", "WebSocketPair", "WebSocketRequestResponsePair"]
   },
   "assist": {
     "actions": {
@@ -22,7 +23,10 @@
   },
   "linter": {
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "correctness": {
+        "noUndeclaredVariables": "error"
+      }
     }
   }
 }

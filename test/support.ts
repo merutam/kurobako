@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
+
 // Shapes of the JSON the tests read, and small helpers shared by both suites.
 
 /** An item as the JSON shows it; which fields are set depends on its kind. */
@@ -11,6 +12,8 @@ export type Item = {
   expiresAt: string | null;
   burn?: true;
   text?: string;
+  /** A text's name. */
+  name?: string;
   preview?: string;
   filename?: string;
   mime?: string;

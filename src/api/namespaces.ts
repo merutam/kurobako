@@ -63,7 +63,20 @@ export const mountNamespaces = (
   api: Api,
   { uploadFile, uploadPlain, uploadSealed }: ReturnType<typeof createUploads>,
 ) => {
-  const { namespace, visit, page, pageView, pages, build, assets, platformOf, sendAllowed } = api;
+  const {
+    namespace,
+    visit,
+    page,
+    pageView,
+    pages,
+    build,
+    assets,
+    platformOf,
+    sendAllowed,
+    storageFull,
+  } = api;
+  /** A send's size, as it declares it (a text sent without one is small). */
+  const declaredSize = (c: AppContext) => Number(c.req.header("content-length")) || 0;
 
   for (const space of SPACES) {
     const { prefix } = space;
@@ -90,6 +103,8 @@ export const mountNamespaces = (
       `${prefix}/new`,
       inNamespace(async (c, ref) => {
         if (!(await sendAllowed(c))) return jsonError(c, 429, TOO_MANY_SENDS);
+        const full = await storageFull(c, declaredSize(c));
+        if (full) return full;
         return space.kind === "sealed" ? uploadSealed(c, ref) : uploadPlain(c, ref);
       }),
     );
@@ -138,6 +153,8 @@ export const mountNamespaces = (
     if (!name) return jsonError(c, 404, "Invalid namespace.");
     c.header("Cache-Control", "no-store");
     if (!(await sendAllowed(c))) return jsonError(c, 429, TOO_MANY_SENDS);
+    const full = await storageFull(c, declaredSize(c));
+    if (full) return full;
     const filename = c.req.param("filename") ?? c.req.header("x-filename");
     return uploadFile(c, { space: "plain", name }, decodeFilename(filename));
   });
