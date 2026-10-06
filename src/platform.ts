@@ -81,7 +81,10 @@ export type HubApi = Async<
 >;
 
 /** Where a request comes from, as far as the platform can tell. */
-export type Client = Pick<AccessEvent, "ip" | "country" | "region" | "city">;
+export type Client = Pick<AccessEvent, "ip" | "country" | "region" | "city"> & {
+  /** The client's network (autonomous system number), when the platform knows it. */
+  asn: number | null;
+};
 
 export interface Platform {
   namespace(ref: NamespaceRef): NamespaceApi;
@@ -89,8 +92,12 @@ export interface Platform {
   blobs: BlobStore;
   /** Answers a WebSocket upgrade with the namespace's live updates. */
   live(c: Context, ref: NamespaceRef, visit: AccessEvent): Response | Promise<Response>;
-  /** Whether this address may send another item now. */
-  allowSend(c: Context, ip: string): Promise<boolean>;
+  /** Whether this client may send another item now; `key` is its clientKey. */
+  allowSend(c: Context, key: string): Promise<boolean>;
+  /** Counts a request of this client that found nothing (see src/api/misses.ts). */
+  recordMiss(c: Context, key: string): Promise<void>;
+  /** Whether this client has found nothing too often lately to read anything now. */
+  missesExceeded(c: Context, key: string): boolean;
   /** Keeps work going after the response; failures are logged. */
   later(c: Context, work: Promise<unknown>): void;
   client(c: Context): Client;

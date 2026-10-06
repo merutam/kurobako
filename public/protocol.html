@@ -40,11 +40,19 @@
     <code>inlineTextBytes</code> (longer texts are listed with a preview),
     <code>maxItems</code> (older items fall off the queue),
     <code>itemTtlSeconds</code> (<code>0</code>: no expiry),
-    <code>sendsPerMinute</code> per client address,
+    <code>sendsPerMinute</code> per client address (an IPv6 address
+    counts by its /64 network),
     <code>maxStorageBytes</code> (every item together; <code>null</code>: no
     limit) and <code>sealed.maxNameLength</code>. A send beyond the limit
     gets <code>429</code>, so wait for the minute to pass; one that would
-    fill the storage gets <code>507</code>. Every error is JSON:
+    fill the storage gets <code>507</code>. A client that asks for more than
+    <code>missesPerMinute</code> namespaces, items or share links that are not
+    there in a minute (a 404, or an empty queue) gets <code>429</code> for
+    every read of a namespace or share link until the minute is over.
+    Depending on <code>automatedNetworks</code>, sends from hosting, cloud
+    and VPN networks or Tor are counted by network block
+    (<code>"limit"</code>) or refused with <code>403</code>
+    (<code>"block"</code>). Every error is JSON:
     <code>{"error": "…"}</code>. With <code>"private": true</code>, every
     request but this one, the protocol and (usually) share links needs
     <code>Authorization: Bearer &lt;key&gt;</code>, or gets <code>401</code>.

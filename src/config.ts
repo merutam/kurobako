@@ -19,8 +19,19 @@ export type AppConfig = {
   maxLiveConnections: number;
   /** Sends allowed per client address per minute. */
   sendsPerMinute: number;
+  /**
+   * Requests per client per minute that find nothing (a namespace, item or
+   * share link that is not there); past them, it reads nothing for a while.
+   */
+  missesPerMinute: number;
   /** The most every item together may take, in bytes; null for no limit. */
   maxStorageBytes: number | null;
+  /**
+   * Clients on hosting, cloud and VPN networks or Tor (see networks.ts):
+   * "allow" counts them like anyone, "limit" counts their sends and misses
+   * by network block (IPv4 /24, IPv6 /48), "block" refuses their sends.
+   */
+  automatedNetworks: AutomatedNetworks;
   /** Unset disables the admin dashboard at /a. */
   adminKey: string | null;
   adminSessionHours: number;
@@ -56,6 +67,19 @@ export const ADMIN_KEY_MIN_LENGTH = 32;
 export const ACCESS_KEY_MIN_LENGTH = 16;
 
 type Vars = Record<string, unknown>;
+
+export type AutomatedNetworks = "allow" | "limit" | "block";
+const AUTOMATED_NETWORKS: AutomatedNetworks[] = ["allow", "limit", "block"];
+
+const automatedNetworks = (vars: Vars): AutomatedNetworks => {
+  const raw = typeof vars.AUTOMATED_NETWORKS === "string" ? vars.AUTOMATED_NETWORKS.trim() : "";
+  if (!raw) return "limit";
+  const value = raw.toLowerCase() as AutomatedNetworks;
+  if (!AUTOMATED_NETWORKS.includes(value)) {
+    throw new Error(`AUTOMATED_NETWORKS must be one of ${AUTOMATED_NETWORKS.join(", ")}.`);
+  }
+  return value;
+};
 
 const integer = (
   vars: Vars,
@@ -149,7 +173,9 @@ export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMIT
     maxItems: integer(vars, "MAX_ITEMS", 20, 1, 1_000),
     maxLiveConnections: integer(vars, "MAX_LIVE_CONNECTIONS", 100, 1, 10_000),
     sendsPerMinute: integer(vars, "SENDS_PER_MINUTE", 30, 1, 100_000),
+    missesPerMinute: integer(vars, "MISSES_PER_MINUTE", 30, 1, 100_000),
     maxStorageBytes: integer(vars, "MAX_STORAGE_BYTES", 0, 0, Number.MAX_SAFE_INTEGER) || null,
+    automatedNetworks: automatedNetworks(vars),
     emptyNamespaceTtlMs:
       integer(vars, "EMPTY_NAMESPACE_TTL_SECONDS", 60 * 60, 60, 30 * 24 * 60 * 60) * 1000,
     adminKey: adminKey(vars),

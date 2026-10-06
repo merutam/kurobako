@@ -444,6 +444,58 @@ export const sharedTests = (harness: Harness) => {
     });
   });
 
+  describe("automated networks", () => {
+    test("a cloud's addresses share their block's budget; a home in it keeps its own", async () => {
+      const ns = fresh("cloud");
+      // Addresses of one /24 on Amazon's network (ASN 16509), as a script spread over them.
+      const cloud = (last: number) => ({
+        "cf-connecting-ip": `100.64.5.${last}`,
+        "cf-asn": "16509",
+      });
+      const statuses: number[] = [];
+      for (let index = 0; index < 30; index += 1) {
+        statuses.push((await sendText(ns, `cloud ${index}`, cloud(index + 1))).status);
+      }
+      expect(statuses.every((status) => status === 201)).toBe(true);
+      expect((await sendText(ns, "one more", cloud(200))).status).toBe(429);
+      // Another provider block, and a home address in the same /24, are counted apart.
+      expect(
+        (await sendText(ns, "next block", { "cf-connecting-ip": "100.64.6.1", "cf-asn": "16509" }))
+          .status,
+      ).toBe(201);
+      expect((await sendText(ns, "a home", { "cf-connecting-ip": "100.64.5.250" })).status).toBe(
+        201,
+      );
+    });
+  });
+
+  describe("miss limit", () => {
+    test("after 30 requests for things that are not there, the client reads nothing", async () => {
+      const ns = fresh("present");
+      await sendText(ns, "here all along");
+      const scanner = { "cf-connecting-ip": "192.0.2.210" };
+      // Names, items and share links that do not exist: each one a miss.
+      for (let index = 0; index < 31; index += 1) {
+        const path =
+          index % 3 === 0
+            ? `/${fresh("absent")}/ls`
+            : index % 3 === 1
+              ? `/${ns}/zzzzzz`
+              : "/i/AAAAAAAAAAAAAA";
+        expect((await call(path, { headers: scanner })).status).not.toBe(429);
+      }
+      // Now even what exists answers 429: otherwise the answers would tell
+      // a script which names exist.
+      const blocked = await call(`/${ns}/1`, { headers: scanner });
+      expect(blocked.status).toBe(429);
+      expect(blocked.headers.get("retry-after")).toBe("60");
+      // Another client reads as usual, and pages outside namespaces stay open.
+      const other = await call(`/${ns}/1`, { headers: { "cf-connecting-ip": "192.0.2.211" } });
+      expect(await other.text()).toBe("here all along");
+      expect((await call("/.well-known/kurobako", { headers: scanner })).status).toBe(200);
+    });
+  });
+
   describe("access logs", () => {
     test("logs each namespace separately, with location", async () => {
       const [alpha, beta] = [fresh(), fresh()];

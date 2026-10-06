@@ -22,6 +22,13 @@ const LOGS_URL = "https://dash.cloudflare.com/?to=/:account/workers/observabilit
 const UNKNOWN = "unknown";
 const text = (value: unknown): string | null => (typeof value === "string" && value ? value : null);
 
+/**
+ * Clients past their misses (see src/api/misses.ts), until when. MISS_LIMITER
+ * counts the misses; it can only be asked by counting one more, so its answer
+ * is kept here, for this isolate: approximate, as the limiter is by design.
+ */
+const missBlocked = new Map<string, number>();
+
 const platformFor = (env: Env, ctx: ExecutionContext): Platform => ({
   namespace: (ref) => env.NAMESPACES.getByName(objectName(ref)) as unknown as NamespaceApi,
   hub: () => hubOf(env),
@@ -34,7 +41,16 @@ const platformFor = (env: Env, ctx: ExecutionContext): Platform => ({
     upgrade.headers.set(VISIT_HEADER, JSON.stringify(visit));
     return env.NAMESPACES.getByName(objectName(ref)).fetch(upgrade);
   },
-  allowSend: async (_c, ip) => (await env.UPLOAD_LIMITER.limit({ key: ip })).success,
+  allowSend: async (_c, key) => (await env.UPLOAD_LIMITER.limit({ key })).success,
+  recordMiss: async (_c, key) => {
+    if ((await env.MISS_LIMITER.limit({ key })).success) return;
+    const now = Date.now();
+    if (missBlocked.size > 10_000) {
+      for (const [stale, until] of missBlocked) if (until <= now) missBlocked.delete(stale);
+    }
+    missBlocked.set(key, now + 60_000);
+  },
+  missesExceeded: (_c, key) => (missBlocked.get(key) ?? 0) > Date.now(),
   later: (_c, work) =>
     ctx.waitUntil(work.catch((error: unknown) => logError("Background work failed", error))),
   client(c) {
@@ -45,6 +61,14 @@ const platformFor = (env: Env, ctx: ExecutionContext): Platform => ({
       country: text(cf.country) ?? text(c.req.header("cf-ipcountry")),
       region: text(cf.region) ?? text(c.req.header("cf-region")),
       city: text(cf.city) ?? text(c.req.header("cf-ipcity")),
+      // Cloudflare's own, which a client cannot fake; the header only where
+      // there is no request.cf at all (tests).
+      asn:
+        typeof cf.asn === "number"
+          ? cf.asn
+          : Object.keys(cf).length
+            ? null
+            : Number(c.req.header("cf-asn")) || null,
     };
   },
   origin: (c) => new URL(c.req.url).origin,

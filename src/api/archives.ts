@@ -27,7 +27,7 @@ import {
   sealedName,
 } from "../model";
 import type { Restored, SaveInput } from "../namespace";
-import { type Api, type App, type AppContext, jsonError, TOO_MANY_SENDS } from "./context";
+import { type Api, type App, type AppContext, jsonError } from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
 import {
   describePlainFile,
@@ -129,7 +129,7 @@ const readAll = async (body: ReadableStream<Uint8Array>) =>
   new Uint8Array(await new Response(body).arrayBuffer());
 
 export const mountArchives = (app: App, api: Api) => {
-  const { namespace, hub, platformOf, config, sendAllowed, storageFull } = api;
+  const { namespace, hub, platformOf, config, refuseSend, storageFull } = api;
 
   // --- Export -------------------------------------------------------------
 
@@ -223,6 +223,9 @@ export const mountArchives = (app: App, api: Api) => {
       // A namespace backed up alone is listed even when empty.
       if (items.length || refs.length === 1) manifest.namespaces.push({ ...ref, items });
     }
+    // A namespace's backup with nothing in it is what a name that does not
+    // exist answers too (see misses.ts); a later part may just be the end.
+    if (refs.length === 1 && !entries.length && !after) c.set("miss", true);
     const part = (after?.part ?? 0) + 1;
     const next = more && last ? encodeCursor({ ...last, part }) : null;
     if (next) manifest.next = next;
@@ -506,7 +509,8 @@ export const mountArchives = (app: App, api: Api) => {
       ["POST", "PUT"],
       `${space.prefix}/import`,
       inNamespace(async (c, ref) => {
-        if (!(await sendAllowed(c))) return jsonError(c, 429, TOO_MANY_SENDS);
+        const refused = await refuseSend(c);
+        if (refused) return refused;
         return importArchive(c, ref, config.maxItems);
       }),
     );

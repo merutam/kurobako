@@ -7,6 +7,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { Context } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
+import { clientKey } from "../request-info";
 import { type Api, type AppContext, jsonError, readLimited } from "./context";
 
 /** Equal-length digests, so the comparison time reveals nothing about the input. */
@@ -76,16 +77,18 @@ export const loginWith = (
   const { hub, clientIp, log } = api;
   return async (c: AppContext) => {
     const ip = clientIp(c);
-    if (await hub(c).loginLockedOut(ip)) {
+    // Failed attempts are counted like sends: an IPv6 network as one.
+    const who = clientKey(ip);
+    if (await hub(c).loginLockedOut(who)) {
       return jsonError(c, 429, "Too many failed attempts. Try again in 15 minutes.");
     }
     const body = parseLogin(await readLimited(c, MAX_LOGIN_BYTES));
     if (typeof body.key !== "string" || !sameSecret(body.key, key)) {
-      await hub(c).loginFailed(ip);
+      await hub(c).loginFailed(who);
       log(c, "warn", `${label} failed from ${ip}.`);
       return jsonError(c, 401, "Wrong key.");
     }
-    await hub(c).loginSucceeded(ip);
+    await hub(c).loginSucceeded(who);
     setCookie(c, cookie.name, sessions.issue(cookie.ms), {
       path: cookie.path,
       httpOnly: true,

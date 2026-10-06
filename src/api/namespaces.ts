@@ -16,7 +16,7 @@ import {
   summaryItem,
 } from "../model";
 import { renderLogPage } from "../pages";
-import { type Api, type App, type AppContext, jsonError, TOO_MANY_SENDS } from "./context";
+import { type Api, type App, type AppContext, jsonError } from "./context";
 import { type createUploads, decodeFilename } from "./uploads";
 
 export type Space = {
@@ -72,7 +72,7 @@ export const mountNamespaces = (
     build,
     assets,
     platformOf,
-    sendAllowed,
+    refuseSend,
     storageFull,
   } = api;
   /** A send's size, as it declares it (a text sent without one is small). */
@@ -93,6 +93,8 @@ export const mountNamespaces = (
       `${prefix}/ls`,
       inNamespace(async (c, ref) => {
         const items = (await namespace(c, ref).list(visit(c))) as StoredItem[];
+        // Nothing here is what a name that does not exist answers too.
+        if (!items.length) c.set("miss", true);
         // ?summary is what the page uses: long texts as previews.
         const shape = c.req.query("summary") === undefined ? publicItem : summaryItem;
         return c.json(items.map((item) => shape(item)));
@@ -102,7 +104,8 @@ export const mountNamespaces = (
     app.post(
       `${prefix}/new`,
       inNamespace(async (c, ref) => {
-        if (!(await sendAllowed(c))) return jsonError(c, 429, TOO_MANY_SENDS);
+        const refused = await refuseSend(c);
+        if (refused) return refused;
         const full = await storageFull(c, declaredSize(c));
         if (full) return full;
         return space.kind === "sealed" ? uploadSealed(c, ref) : uploadPlain(c, ref);
@@ -141,6 +144,8 @@ export const mountNamespaces = (
       if (c.req.header("upgrade")?.toLowerCase() !== "websocket") {
         return jsonError(c, 426, "Expected a WebSocket upgrade.");
       }
+      // The live queue shows what /ls does, so an empty one counts as a miss too.
+      if (!((await namespace(c, ref).list()) as StoredItem[]).length) c.set("miss", true);
       return platformOf(c).live(c, ref, visit(c));
     });
   }
@@ -152,7 +157,8 @@ export const mountNamespaces = (
     const name = plainName(c.req.param("namespace"));
     if (!name) return jsonError(c, 404, "Invalid namespace.");
     c.header("Cache-Control", "no-store");
-    if (!(await sendAllowed(c))) return jsonError(c, 429, TOO_MANY_SENDS);
+    const refused = await refuseSend(c);
+    if (refused) return refused;
     const full = await storageFull(c, declaredSize(c));
     if (full) return full;
     const filename = c.req.param("filename") ?? c.req.header("x-filename");

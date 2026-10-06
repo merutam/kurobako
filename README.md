@@ -56,7 +56,10 @@ encrypted, is at `/k/protocol` on every instance. Every instance describes itsel
   names creates nothing. Once its items are gone, it is
   deleted after an hour.
 - **Limits:** texts up to 1 MB, files up to 100 MB, 30 sends a minute per
-  address.
+  address (an IPv6 /64 network counts as one).
+- **Guessing names gets slow:** an address that asks for 30 namespaces, items
+  or share links that are not there in a minute reads nothing for the rest of
+  it. Plain names are still best long: a short one is easy to find.
 - **File types** come from the bytes: PNG, JPEG, GIF, WebP, AVIF and HEIC are
   shown as images; anything else is a download.
 - **Burn after reading** (`Burn: 1`): only one reader gets the item.
@@ -139,7 +142,9 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 | `EMPTY_NAMESPACE_TTL_SECONDS` | `3600` | before an empty namespace is deleted |
 | `MAX_LIVE_CONNECTIONS` | `100` | per namespace |
 | `MAX_STORAGE_BYTES` | unset | every item together, across namespaces; sends past it get `507` |
-| `SENDS_PER_MINUTE` | `30` | per client address; on Cloudflare, also set `UPLOAD_LIMITER`'s limit in `wrangler.jsonc` |
+| `MISSES_PER_MINUTE` | `30` | per client: requests for namespaces, items or share links that are not there; past it, the client reads nothing for a minute. On Cloudflare, also set `MISS_LIMITER`'s limit |
+| `AUTOMATED_NETWORKS` | `limit` | hosting, cloud and VPN networks and Tor, where scripts run: `allow` counts them like anyone; `limit` counts their sends and misses by network block (IPv4 /24, IPv6 /48), so a script cannot spread over a provider's addresses; `block` refuses their sends (`403`). Reading is never blocked |
+| `SENDS_PER_MINUTE` | `30` | per client address (an IPv6 /64 network counts as one); on Cloudflare, also set `UPLOAD_LIMITER`'s limit in `wrangler.jsonc` |
 | `ADMIN_KEY` | unset | enables `/a`; 32 characters or more |
 | `ADMIN_SESSION_HOURS` | `12` | |
 | `ACCESS_KEY` | unset | makes the instance private (see "A private instance"); 16 characters or more |
@@ -169,10 +174,12 @@ podman compose up -d --build   # or docker compose
 It listens on `127.0.0.1:3000`; put a reverse proxy with HTTPS in front.
 Besides the settings above it takes `S3_ENDPOINT`, `S3_BUCKET`,
 `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `DATA_DIR`, `PORT`,
-`HOST`, `SQLITE_MAX_OPEN`, `SQLITE_IDLE_SECONDS`,
-`PUBLIC_URL` and, behind a proxy,
-`CLIENT_IP_HEADER` (e.g. `x-forwarded-for`). It logs each request and
-error, as one JSON line when not in a terminal: `podman compose logs -f kurobako`.
+`HOST`, `SQLITE_MAX_OPEN`, `SQLITE_IDLE_SECONDS`, `PUBLIC_URL` and, behind a
+proxy, `CLIENT_IP_HEADER` (e.g. `x-forwarded-for`). Behind Cloudflare, a
+Transform Rule that sets the header `cf-asn` to `ip.src.asnum` lets
+`AUTOMATED_NETWORKS` tell networks apart; without it, every client counts as
+a home. It logs each request and error, as one JSON line when not in a
+terminal: `podman compose logs -f kurobako`.
 
 **Several servers.** Each server keeps its own data directory, and all share
 one S3 store. `src/bun/router.ts` sits in front, keeps no state and sends
