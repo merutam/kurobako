@@ -555,6 +555,47 @@ fieldset .status {
   max-height: 30rem;
   background: #000;
 }
+/* A video with a layer of our own over its picture (see videoPlayer): taps
+   there play, pause and seek; the controls strip below stays the browser's. */
+.video-player {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+}
+.video-gestures {
+  position: absolute;
+  inset: 0 0 56px;
+  cursor: pointer;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+}
+.video-seek-flash {
+  position: absolute;
+  top: 40%;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 60%);
+  color: #fff;
+  font-weight: bold;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms;
+}
+.video-seek-flash[data-side="left"] {
+  left: 12%;
+}
+.video-seek-flash[data-side="right"] {
+  right: 12%;
+}
+.video-seek-flash.shown {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .video-seek-flash {
+    transition: none;
+  }
+}
 .item img,
 .shared-item img {
   display: block;
@@ -657,6 +698,11 @@ body:has(.media-viewer[open]) {
   object-fit: contain;
   border: 0;
   background: #000;
+}
+/* A video sits in its player (see videoPlayer), whose height follows it:
+   the screen, less the gallery's bar and margins, bounds it instead. */
+.media-viewer-content .video-player video {
+  max-height: calc(100dvh - 7rem);
 }
 .media-viewer-content .hint,
 .media-viewer-error {
@@ -803,6 +849,90 @@ a.icon-button:hover {
 .editor-controls .hint {
   margin: 0 auto 0 0;
   white-space: nowrap;
+}
+.text-editor {
+  position: relative;
+  height: 13rem;
+  min-height: 10rem;
+  overflow: hidden;
+  resize: vertical;
+}
+.item-editor .text-editor {
+  height: 20rem;
+  min-height: 16rem;
+}
+.text-editor > textarea,
+.text-editor > pre.text-editor-highlight {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  padding: 6px 3rem 6px var(--space-2);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+  tab-size: 2;
+  white-space: pre-wrap;
+}
+.text-editor > pre.text-editor-highlight {
+  background: var(--background);
+  pointer-events: none;
+}
+.text-editor-highlight code {
+  font: inherit;
+  white-space: inherit;
+}
+.text-editor > textarea {
+  z-index: 1;
+  resize: none;
+  background: transparent;
+  caret-color: var(--text);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.text-editor-expand {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  z-index: 2;
+  background: var(--surface);
+  color: var(--text-subtle);
+}
+.text-editor-options {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+.text-editor-options label {
+  margin: 0;
+}
+.text-editor-options select {
+  width: auto;
+  max-width: 16rem;
+}
+.text-editor-fullscreen:fullscreen {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: var(--space-3);
+  flex-direction: column;
+  background: var(--background);
+  color: var(--text);
+}
+.text-editor-fullscreen:fullscreen > .text-editor {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  resize: none;
 }
 .error-text {
   color: var(--error-text);

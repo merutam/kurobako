@@ -1,0 +1,217 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Kurobako contributors
+
+// The namespace's full-screen image/video gallery: keyboard and swipe
+// navigation, bounded neighbor prefetch, and cleanup of temporary Blob URLs.
+import { el, element } from "./common.js";
+import { videoPlayer } from "./items.js";
+
+export const createMediaViewer = (sourceOf) => {
+  const dialog = element("#media-viewer");
+  const title = element("#media-viewer-title");
+  const count = element("#media-viewer-count");
+  const stage = element("#media-viewer-stage");
+  const content = element("#media-viewer-content");
+
+  let entries = [];
+  let index = -1;
+  let entry = null;
+  let load = 0;
+  /** The current medium and its two neighbors, already loaded for quick navigation. */
+  const cachedMedia = new Map();
+
+  const releaseMedium = ({ source, preloader, medium }) => {
+    for (const node of new Set([preloader, medium].filter(Boolean))) {
+      // A video comes in its player (see videoPlayer).
+      const video = node.localName === "video" ? node : node.querySelector?.("video");
+      if (video) {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      } else {
+        node.removeAttribute("src");
+      }
+    }
+    source.revoke?.();
+  };
+
+  /** Starts fetching and decoding an image, or just a video's metadata. */
+  const loadMedium = (nextEntry, current = false) => {
+    const { id } = nextEntry.item;
+    let pending = cachedMedia.get(id);
+    if (!pending) {
+      pending = (async () => {
+        const source = await sourceOf(nextEntry);
+        if (nextEntry.info.isVideo) {
+          const preloader = el("video", {
+            src: source.src,
+            preload: "metadata",
+            muted: true,
+            playsInline: true,
+          });
+          preloader.load();
+          return { source, preloader, medium: null };
+        }
+        const preloader = el("img", {
+          alt: nextEntry.info.title,
+          src: source.src,
+          draggable: false,
+          decoding: "async",
+          fetchPriority: current ? "high" : "low",
+        });
+        if (typeof preloader.decode === "function") await preloader.decode().catch(() => {});
+        return { source, preloader, medium: preloader };
+      })();
+      cachedMedia.set(id, pending);
+      pending.catch(() => {
+        if (cachedMedia.get(id) === pending) cachedMedia.delete(id);
+      });
+    }
+    if (current) {
+      pending
+        .then(({ preloader }) => {
+          if (preloader.localName === "img") preloader.fetchPriority = "high";
+        })
+        .catch(() => {});
+    }
+    return pending;
+  };
+
+  /** Keeps no more than the current, previous and next media in memory. */
+  const preloadNeighbors = () => {
+    const indexes = new Set([
+      index,
+      (index - 1 + entries.length) % entries.length,
+      (index + 1) % entries.length,
+    ]);
+    const wanted = new Set([...indexes].map((at) => entries[at]?.item.id));
+    for (const [id, pending] of cachedMedia) {
+      if (wanted.has(id)) continue;
+      cachedMedia.delete(id);
+      pending.then(releaseMedium).catch(() => {});
+    }
+
+    const current = loadMedium(entry, true);
+    for (const at of indexes) {
+      const neighbor = entries[at];
+      if (neighbor && neighbor !== entry) loadMedium(neighbor).catch(() => {});
+    }
+    return current;
+  };
+
+  const clearMedia = () => {
+    for (const pending of cachedMedia.values()) pending.then(releaseMedium).catch(() => {});
+    cachedMedia.clear();
+  };
+
+  const updateChrome = () => {
+    title.textContent = entry?.info.title ?? "Media";
+    count.textContent = entries.length ? `${index + 1} / ${entries.length}` : "";
+  };
+
+  const show = async (nextIndex) => {
+    if (!entries.length) {
+      dialog.close();
+      return;
+    }
+    index = (nextIndex + entries.length) % entries.length;
+    entry = entries[index];
+    updateChrome();
+
+    const requested = ++load;
+    content.querySelector("video")?.pause();
+    content.replaceChildren(el("p", { className: "hint", textContent: "Loading…" }));
+
+    try {
+      const cached = await preloadNeighbors();
+      if (requested !== load || !dialog.open) return;
+      if (cached.preloader.localName === "img") cached.preloader.alt = entry.info.title;
+      cached.medium ??= videoPlayer(cached.source.src);
+      content.replaceChildren(cached.medium);
+    } catch (error) {
+      if (requested === load) {
+        content.replaceChildren(
+          el("p", { className: "media-viewer-error", textContent: error.message }),
+        );
+      }
+    }
+  };
+
+  const move = (offset) => {
+    if (entries.length > 1) void show(index + offset);
+  };
+
+  const open = (nextEntry) => {
+    const nextIndex = entries.findIndex(({ item }) => item.id === nextEntry.item.id);
+    if (nextIndex < 0) return;
+    if (!dialog.open) dialog.showModal();
+    void show(nextIndex);
+  };
+
+  const update = (nextEntries) => {
+    entries = nextEntries;
+    if (!dialog.open) return;
+    const current = entries.findIndex(({ item }) => item.id === entry?.item.id);
+    if (current >= 0) {
+      index = current;
+      entry = entries[current];
+      updateChrome();
+      preloadNeighbors().catch(() => {});
+    } else if (entries.length) {
+      void show(Math.min(index, entries.length - 1));
+    } else {
+      dialog.close();
+    }
+  };
+
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      move(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      move(1);
+    } else if (event.key === "Home" && entries.length > 1) {
+      event.preventDefault();
+      void show(0);
+    } else if (event.key === "End" && entries.length > 1) {
+      event.preventDefault();
+      void show(entries.length - 1);
+    }
+  });
+  dialog.addEventListener("close", () => {
+    load += 1;
+    content.querySelector("video")?.pause();
+    content.replaceChildren();
+    clearMedia();
+    entry = null;
+    index = -1;
+  });
+
+  // A deliberate horizontal drag changes media; vertical touch remains native.
+  let pointer = null;
+  stage.addEventListener("pointerdown", (event) => {
+    if (!event.isPrimary || event.target.closest("button")) return;
+    pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    // Capturing the pointer over a video would keep its taps (play, seek) and
+    // controls from their pointerup. The stage still sees that event during
+    // the capture phase, so a swipe there changes media all the same.
+    if (!event.target.closest(".video-player")) stage.setPointerCapture(event.pointerId);
+  });
+  stage.addEventListener(
+    "pointerup",
+    (event) => {
+      if (!pointer || pointer.id !== event.pointerId) return;
+      const x = event.clientX - pointer.x;
+      const y = event.clientY - pointer.y;
+      pointer = null;
+      if (Math.abs(x) >= 50 && Math.abs(x) > Math.abs(y) * 1.25) move(x < 0 ? 1 : -1);
+    },
+    true,
+  );
+  stage.addEventListener("pointercancel", () => {
+    pointer = null;
+  });
+
+  return { open, update };
+};

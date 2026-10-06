@@ -46,6 +46,12 @@
         <fieldset>
           <legend id="text-legend">Text</legend>
           <textarea id="text" name="text" rows="8" aria-labelledby="text-legend" aria-describedby="text-limit" required></textarea>
+          <p class="text-editor-options">
+            <label for="text-language">Highlight</label>
+            <select id="text-language" aria-label="Syntax highlighting">
+              <option value="">Plain text</option>
+            </select>
+          </p>
           <p id="text-limit" class="hint"></p>
           <button data-icon="send" type="submit" class="primary">Send</button>
         </fieldset>

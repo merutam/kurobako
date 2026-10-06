@@ -36,7 +36,6 @@ import {
   extensionOf,
   highlightedText,
   itemSummary,
-  seekVideoAt,
   streamAddress,
   videoPlayer,
 } from "./items.js";
@@ -49,8 +48,14 @@ import {
   secretNameProblem,
   splitFragment,
 } from "./k.mjs";
+import { createMediaViewer } from "./media-viewer.js";
 import { createStatus } from "./status.js";
-import hljs from "./vendor/highlight.js";
+import {
+  createTextEditor,
+  languageOptions,
+  MAX_HIGHLIGHT_CHARACTERS,
+  withExtension,
+} from "./text-editor.js";
 import { renderSVG } from "./vendor/uqr.js";
 
 const itemsList = element("#items");
@@ -60,6 +65,7 @@ const status = createStatus(element("#status"));
 const textForm = element("#text-form");
 const fileForm = element("#file-form");
 const textInput = element("#text");
+const textLanguage = element("#text-language");
 const fileInput = element("#file");
 const refreshButton = element("#refresh");
 const textLimit = element("#text-limit");
@@ -90,11 +96,6 @@ const keyInput = element("#key-input");
 const lockButton = element("#lock-button");
 const unlockButton = element("#unlock-button");
 const forgetKeyButton = element("#forget-key");
-const mediaViewer = element("#media-viewer");
-const mediaViewerTitle = element("#media-viewer-title");
-const mediaViewerCount = element("#media-viewer-count");
-const mediaViewerStage = element("#media-viewer-stage");
-const mediaViewerContent = element("#media-viewer-content");
 
 /** Embedded in the page by the server; see readConfig. */
 let config = null;
@@ -376,8 +377,6 @@ const canWrite = () => !locked || Boolean(writeKey());
  */
 const opened = new Map();
 let serverItems = [];
-/** Image and video entries in queue order, navigated by the open viewer. */
-let mediaEntries = [];
 /** Whether the queue has arrived once, by the live connection or a fetch. */
 let itemsShown = false;
 
@@ -425,205 +424,7 @@ const mediaAddress = async (entry, { preview = false } = {}) => {
   return { src, revoke: () => URL.revokeObjectURL(src) };
 };
 
-let viewerIndex = -1;
-let viewerEntry = null;
-let viewerLoad = 0;
-/** The current medium and its two neighbors, already loaded for quick navigation. */
-const viewerMedia = new Map();
-
-const releaseViewerMedium = ({ source, preloader, medium }) => {
-  for (const node of new Set([preloader, medium].filter(Boolean))) {
-    if (node.localName === "video") {
-      node.pause();
-      node.removeAttribute("src");
-      node.load();
-    } else {
-      node.removeAttribute("src");
-    }
-  }
-  source.revoke?.();
-};
-
-/** Starts fetching and decoding an image, or just a video's metadata. */
-const loadViewerMedium = (entry, current = false) => {
-  const { id } = entry.item;
-  let pending = viewerMedia.get(id);
-  if (!pending) {
-    pending = (async () => {
-      const source = await mediaAddress(entry);
-      if (entry.info.isVideo) {
-        const preloader = el("video", {
-          src: source.src,
-          preload: "metadata",
-          muted: true,
-          playsInline: true,
-        });
-        preloader.load();
-        return { source, preloader, medium: null };
-      }
-      const preloader = el("img", {
-        alt: entry.info.title,
-        src: source.src,
-        draggable: false,
-        decoding: "async",
-        fetchPriority: current ? "high" : "low",
-      });
-      if (typeof preloader.decode === "function") await preloader.decode().catch(() => {});
-      return { source, preloader, medium: preloader };
-    })();
-    viewerMedia.set(id, pending);
-    pending.catch(() => {
-      if (viewerMedia.get(id) === pending) viewerMedia.delete(id);
-    });
-  }
-  if (current) {
-    pending
-      .then(({ preloader }) => {
-        if (preloader.localName === "img") preloader.fetchPriority = "high";
-      })
-      .catch(() => {});
-  }
-  return pending;
-};
-
-/** Keeps no more than the current, previous and next media in memory. */
-const preloadAroundViewer = () => {
-  const count = mediaEntries.length;
-  const indexes = new Set([
-    viewerIndex,
-    (viewerIndex - 1 + count) % count,
-    (viewerIndex + 1) % count,
-  ]);
-  const wanted = new Set([...indexes].map((index) => mediaEntries[index]?.item.id));
-  for (const [id, pending] of viewerMedia) {
-    if (wanted.has(id)) continue;
-    viewerMedia.delete(id);
-    pending.then(releaseViewerMedium).catch(() => {});
-  }
-
-  const current = loadViewerMedium(viewerEntry, true);
-  for (const index of indexes) {
-    const entry = mediaEntries[index];
-    if (entry && entry !== viewerEntry) loadViewerMedium(entry).catch(() => {});
-  }
-  return current;
-};
-
-const clearViewerMedia = () => {
-  for (const pending of viewerMedia.values()) {
-    pending.then(releaseViewerMedium).catch(() => {});
-  }
-  viewerMedia.clear();
-};
-
-const updateViewerChrome = () => {
-  const count = mediaEntries.length;
-  mediaViewerTitle.textContent = viewerEntry?.info.title ?? "Media";
-  mediaViewerCount.textContent = count ? `${viewerIndex + 1} / ${count}` : "";
-};
-
-/** Shows one medium without closing the dialog, so keys and swipes form a gallery. */
-const showMedia = async (index) => {
-  if (!mediaEntries.length) {
-    mediaViewer.close();
-    return;
-  }
-  viewerIndex = (index + mediaEntries.length) % mediaEntries.length;
-  viewerEntry = mediaEntries[viewerIndex];
-  updateViewerChrome();
-
-  const load = ++viewerLoad;
-  mediaViewerContent.querySelector("video")?.pause();
-  mediaViewerContent.replaceChildren(el("p", { className: "hint", textContent: "Loading…" }));
-
-  try {
-    const cached = await preloadAroundViewer();
-    if (load !== viewerLoad || !mediaViewer.open) return;
-    if (cached.preloader.localName === "img") cached.preloader.alt = viewerEntry.info.title;
-    cached.medium ??= videoPlayer(cached.source.src);
-    const medium = cached.medium;
-    mediaViewerContent.replaceChildren(medium);
-  } catch (error) {
-    if (load === viewerLoad) {
-      mediaViewerContent.replaceChildren(
-        el("p", { className: "media-viewer-error", textContent: error.message }),
-      );
-    }
-  }
-};
-
-const moveMedia = (offset) => {
-  if (mediaEntries.length > 1) void showMedia(viewerIndex + offset);
-};
-
-const openMediaViewer = (entry) => {
-  const index = mediaEntries.findIndex(({ item }) => item.id === entry.item.id);
-  if (index < 0) return;
-  if (!mediaViewer.open) mediaViewer.showModal();
-  void showMedia(index);
-};
-
-mediaViewer.addEventListener("keydown", (event) => {
-  if (event.key === "ArrowLeft") {
-    event.preventDefault();
-    moveMedia(-1);
-  } else if (event.key === "ArrowRight") {
-    event.preventDefault();
-    moveMedia(1);
-  } else if (event.key === "Home" && mediaEntries.length > 1) {
-    event.preventDefault();
-    void showMedia(0);
-  } else if (event.key === "End" && mediaEntries.length > 1) {
-    event.preventDefault();
-    void showMedia(mediaEntries.length - 1);
-  }
-});
-mediaViewer.addEventListener("close", () => {
-  viewerLoad += 1;
-  mediaViewerContent.querySelector("video")?.pause();
-  mediaViewerContent.replaceChildren();
-  clearViewerMedia();
-  viewerEntry = null;
-  viewerIndex = -1;
-});
-
-// Capture double-click before native video controls so seeking works reliably
-// in the viewer. The player itself handles the same gesture outside it.
-mediaViewerStage.addEventListener(
-  "dblclick",
-  (event) => {
-    const video = event.target.closest("video");
-    if (!video) return;
-    event.preventDefault();
-    event.stopPropagation();
-    seekVideoAt(video, event.clientX);
-  },
-  true,
-);
-
-// A deliberate horizontal drag changes media; vertical touch remains native.
-let viewerPointer = null;
-mediaViewerStage.addEventListener("pointerdown", (event) => {
-  if (!event.isPrimary || event.target.closest("button")) return;
-  viewerPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
-  // Capturing a video pointer would prevent its native controls from receiving
-  // pointerup. The stage still sees that event during the capture phase.
-  if (!event.target.closest("video")) mediaViewerStage.setPointerCapture(event.pointerId);
-});
-mediaViewerStage.addEventListener(
-  "pointerup",
-  (event) => {
-    if (!viewerPointer || viewerPointer.id !== event.pointerId) return;
-    const x = event.clientX - viewerPointer.x;
-    const y = event.clientY - viewerPointer.y;
-    viewerPointer = null;
-    if (Math.abs(x) >= 50 && Math.abs(x) > Math.abs(y) * 1.25) moveMedia(x < 0 ? 1 : -1);
-  },
-  true,
-);
-mediaViewerStage.addEventListener("pointercancel", () => {
-  viewerPointer = null;
-});
+const mediaViewer = createMediaViewer(mediaAddress);
 
 const downloadItem = async (entry) => {
   try {
@@ -719,55 +520,6 @@ let renaming = false;
 /** Whether text contents are being edited; live updates wait until it is done. */
 let editing = false;
 
-const PREFERRED_EXTENSIONS = {
-  bash: "sh",
-  csharp: "cs",
-  javascript: "js",
-  kotlin: "kt",
-  markdown: "md",
-  objectivec: "m",
-  perl: "pl",
-  plaintext: "txt",
-  python: "py",
-  ruby: "rb",
-  rust: "rs",
-  typescript: "ts",
-  vbnet: "vb",
-  xml: "html",
-  yaml: "yml",
-};
-
-const languageOptions = (selected) => {
-  const options = [el("option", { value: "", textContent: "Auto · no extension" })];
-  for (const language of hljs.listLanguages()) {
-    const details = hljs.getLanguage(language);
-    const extension = PREFERRED_EXTENSIONS[language] ?? language;
-    options.push(
-      el("option", {
-        value: extension,
-        textContent: `${details?.name ?? language} · .${extension}`,
-      }),
-    );
-  }
-  if (selected && !options.some((option) => option.value === selected)) {
-    const details = hljs.getLanguage(selected);
-    options.splice(
-      1,
-      0,
-      el("option", {
-        value: selected,
-        textContent: `${details?.name ?? selected} · .${selected}`,
-      }),
-    );
-  }
-  return options;
-};
-
-const withExtension = (title, extension) => {
-  const base = title.replace(/\.[A-Za-z0-9_+-]+$/, "");
-  return extension ? `${base}.${extension}` : base;
-};
-
 /** Renames in place: Enter or leaving the field saves, Escape cancels. */
 const renameItem = (entry, title) => {
   const holder = title.closest(".item-toggle") ?? title.parentElement;
@@ -827,6 +579,19 @@ const iconButton = (name, label, onClick, className) => {
   return control;
 };
 
+const textInputNext = textInput.nextSibling;
+const textInputParent = textInput.parentNode;
+textLanguage.replaceChildren(...languageOptions("", { plain: true }));
+const mainTextEditor = createTextEditor(textInput, {
+  title: () =>
+    textLanguage.value && textLanguage.value !== "auto" ? `source.${textLanguage.value}` : "",
+  autoDetect: () => textLanguage.value === "auto",
+  fullscreenRoot: textForm.querySelector("fieldset"),
+  onError: (message) => status.error(message),
+});
+textInputParent.insertBefore(mainTextEditor.editor, textInputNext);
+textLanguage.addEventListener("change", () => mainTextEditor.refresh({ immediate: true }));
+
 /** Opens a text editor in its preview. Save is conditional on the version shown. */
 const editItem = async (entry, preview) => {
   if (editing) return;
@@ -853,13 +618,25 @@ const editItem = async (entry, preview) => {
     ...languageOptions(initialExtension),
   );
   language.value = initialExtension;
+  const editor = createTextEditor(textarea, {
+    title: () => withExtension(entry.info.title, language.value),
+    fullscreenRoot: form,
+    onError: (message) => status.error(message),
+  });
+  language.addEventListener("change", () => editor.refresh({ immediate: true }));
   const size = el("span", { className: "hint" });
+  let sizeTimer = null;
   const showSize = () => {
+    sizeTimer = null;
     const bytes = new Blob([textarea.value]).size;
-    size.textContent = `${formatBytes(bytes)} / ${formatBytes(config.maxTextBytes)}`;
+    const paused = textarea.value.length > MAX_HIGHLIGHT_CHARACTERS;
+    size.textContent = `${formatBytes(bytes)} / ${formatBytes(config.maxTextBytes)}${paused ? " · highlighting paused" : ""}`;
     size.classList.toggle("error-text", bytes > config.maxTextBytes);
   };
-  textarea.addEventListener("input", showSize);
+  textarea.addEventListener("input", () => {
+    clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(showSize, 300);
+  });
   showSize();
 
   const cancel = button("Cancel", () => {
@@ -871,7 +648,7 @@ const editItem = async (entry, preview) => {
   });
   const save = el("button", { type: "submit", className: "primary", textContent: "Save" });
   const controls = el("div", { className: "editor-controls" }, language, size, cancel, save);
-  form.append(textarea, controls);
+  form.append(editor.editor, controls);
   preview.replaceChildren(form);
   textarea.focus();
 
@@ -974,7 +751,7 @@ const renderItem = (entry, position) => {
               },
               image,
             );
-            open.addEventListener("click", () => openMediaViewer(entry));
+            open.addEventListener("click", () => mediaViewer.open(entry));
             preview.replaceChildren(open);
           }
         }
@@ -1043,7 +820,7 @@ const renderItem = (entry, position) => {
     actions.append(button("Open once", () => openOnce(entry), undefined, "burn"));
   } else {
     if (info.isImage || info.isVideo) {
-      actions.append(iconButton("expand", "Open media viewer", () => openMediaViewer(entry)));
+      actions.append(iconButton("expand", "Open media viewer", () => mediaViewer.open(entry)));
     }
     if (!entry.opened && info.kind === "text" && canWrite()) {
       actions.append(
@@ -1144,24 +921,12 @@ const renderItems = async (items, { force = false } = {}) => {
     ...openedOnly.map((entry) => ({ item: entry.item, info: entry.info, opened: entry })),
   ].sort((a, b) => b.item.createdAt.localeCompare(a.item.createdAt));
 
-  const currentViewerId = viewerEntry?.item.id;
-  mediaEntries = entries.filter(
-    (entry) =>
-      (entry.info.isImage || entry.info.isVideo) && (!entry.item.burn || Boolean(entry.opened)),
+  mediaViewer.update(
+    entries.filter(
+      (entry) =>
+        (entry.info.isImage || entry.info.isVideo) && (!entry.item.burn || Boolean(entry.opened)),
+    ),
   );
-  if (mediaViewer.open) {
-    const current = mediaEntries.findIndex((entry) => entry.item.id === currentViewerId);
-    if (current >= 0) {
-      viewerIndex = current;
-      viewerEntry = mediaEntries[current];
-      updateViewerChrome();
-      preloadAroundViewer().catch(() => {});
-    } else if (mediaEntries.length) {
-      void showMedia(Math.min(viewerIndex, mediaEntries.length - 1));
-    } else {
-      mediaViewer.close();
-    }
-  }
 
   // Rows of unchanged items stay as they are (only their position moves),
   // so a busy queue neither reloads previews nor opens and closes them.
@@ -1317,6 +1082,7 @@ textForm.addEventListener("submit", async (event) => {
   try {
     const response = await mode.sendText(text, { burn: burnInput.checked });
     textInput.value = "";
+    mainTextEditor.refresh({ immediate: true });
     showTextSize();
     status.success(await sentMessage(response));
     await refreshUnlessLive();
@@ -1601,19 +1367,22 @@ const showPage = () => {
 
 /** Under the text: its characters and its size against the limit, red past it. */
 const encoder = new TextEncoder();
-let sizeFrame = null;
+let textSizeTimer = null;
 const showTextSize = () => {
-  sizeFrame = null;
+  clearTimeout(textSizeTimer);
+  textSizeTimer = null;
   const text = textInput.value;
   const bytes = encoder.encode(text).byteLength;
   let characters = 0;
   for (const _ of text) characters += 1;
-  textLimit.textContent = `${numberFormatter.format(characters)} character${characters === 1 ? "" : "s"} · ${formatBytes(bytes)} of ${formatBytes(config.maxTextBytes)}`;
+  const paused = text.length > MAX_HIGHLIGHT_CHARACTERS;
+  textLimit.textContent = `${numberFormatter.format(characters)} character${characters === 1 ? "" : "s"} · ${formatBytes(bytes)} of ${formatBytes(config.maxTextBytes)}${paused ? " · highlighting paused" : ""}`;
   textLimit.classList.toggle("over", bytes > config.maxTextBytes);
 };
-// At most once a frame: counting a long text on every key would lag typing.
+// Counting and UTF-8 encoding a long text on every key would lag typing.
 textInput.addEventListener("input", () => {
-  if (sizeFrame === null) sizeFrame = requestAnimationFrame(showTextSize);
+  clearTimeout(textSizeTimer);
+  textSizeTimer = setTimeout(showTextSize, 300);
 });
 
 const applyConfig = () => {
