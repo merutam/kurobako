@@ -46,7 +46,8 @@ node k.mjs -d 'hello' "$BOX/e#secret name/new"
 node k.mjs -O "$BOX/e#secret name"             # save every item here
 ```
 
-`node k.mjs` lists everything it does. The whole protocol, plain and
+With [Nix](https://nixos.org/), `nix run github:merutam/kurobako#k -- <options> <link>`
+runs it without Node installed. `node k.mjs` lists everything it does. The whole protocol, plain and
 encrypted, is at `/k/protocol` on every instance. Every instance describes itself
 (base path, version, limits) at `/.well-known/kurobako`.
 
@@ -177,6 +178,28 @@ R2: set `S3_ENDPOINT` (for R2, `https://<account id>.r2.cloudflarestorage.com`),
 alone with `podman compose up -d --build --no-deps kurobako`. Give it a bucket
 of its own as two instances sharing one would delete each other's files.
 
+With [Nix](https://nixos.org/), the flake runs the same server without a
+container, with settings from the environment (it reads no `.env`):
+
+```sh
+S3_ENDPOINT=https://<account id>.r2.cloudflarestorage.com S3_REGION=auto \
+S3_BUCKET=kurobako S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=... \
+nix run github:merutam/kurobako
+```
+
+Or with a single-node Garage next to it, as `compose.yaml` runs, in one
+command and with no S3 settings:
+
+```sh
+nix run github:merutam/kurobako#with-garage
+```
+
+`nix build` leaves the server in `./result/bin/kurobako`. It listens on
+`127.0.0.1:3000` and keeps its SQLite files in `~/.local/share/kurobako`
+(`$XDG_DATA_HOME/kurobako`); `HOST`, `PORT` and `DATA_DIR` change them.
+`with-garage` keeps Garage's files, keys and log in `garage/` there, and
+listens on `127.0.0.1:3900` and `3901` (`GARAGE_S3_PORT`, `GARAGE_RPC_PORT`).
+
 It listens on `127.0.0.1:3000`; put a reverse proxy with HTTPS in front.
 Besides the settings above it takes `S3_ENDPOINT`, `S3_BUCKET`,
 `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `DATA_DIR`, `PORT`,
@@ -206,6 +229,8 @@ admin logins go to the first. `/a` shows one server at a time, with a picker
 twice).
 
 ## Development
+
+`nix develop` gives a shell with Bun, Node.js and Garage.
 
 ```sh
 bun install
