@@ -25,7 +25,7 @@
         required
       />
       <p class="actions">
-        <button type="submit" class="primary">Log in</button>
+        <button data-icon="login" type="submit" class="primary">Log in</button>
       </p>
     </fieldset>
   </form>
@@ -40,8 +40,8 @@
         <option value="5" selected>5 s</option>
         <option value="30">30 s</option>
       </select>
-      <button id="refresh" type="button">Refresh</button>
-      <button id="logout" type="button">Log out</button>
+      <button data-icon="refresh" id="refresh" type="button">Refresh</button>
+      <button data-icon="logout" id="logout" type="button">Log out</button>
     </p>
 
     <div class="columns">
@@ -66,8 +66,8 @@
         README.
       </p>
       <p class="actions">
-        <button id="backup-zip" type="button">Download zip</button>
-        <button id="backup-tar" type="button">Download tar</button>
+        <button data-icon="download" id="backup-zip" type="button">Download zip</button>
+        <button data-icon="download" id="backup-tar" type="button">Download tar</button>
       </p>
       <form id="restore-form">
         <fieldset>
@@ -88,7 +88,7 @@
             A backup of the instance or of a namespace (zip or tar).
           </p>
           <p class="actions">
-            <button type="submit" class="primary">Restore</button>
+            <button data-icon="upload" type="submit" class="primary">Restore</button>
           </p>
         </fieldset>
       </form>

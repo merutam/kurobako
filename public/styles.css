@@ -47,6 +47,10 @@ a:hover {
 .actions a:hover {
   color: var(--link-hover);
 }
+/* A page of prose keeps ordinary links, in its opening paragraph too. */
+.prose :where(.intro) a:visited {
+  color: var(--link-visited);
+}
 
 :focus-visible {
   outline: 2px solid var(--focus);
@@ -282,6 +286,14 @@ a.button {
   font-weight: bold;
   cursor: pointer;
 }
+/* A label with its icon (see icons.js) in front. */
+button:has(> svg),
+a.button:has(> svg) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
 button:hover,
 a.button:hover {
   background: var(--background);
@@ -475,61 +487,174 @@ fieldset .status {
 
 /* --- Item list ------------------------------------------------------------ */
 
+/* One row per item: position, what it is, name, size and age, actions. Its
+   contents open under it. On phones the actions go to a second line. */
 .items {
   margin: 0;
-  padding: 0 0 0 1.75em;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border-subtle);
 }
 .item {
-  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--border-subtle);
 }
-.item:first-child {
-  padding-top: var(--space-1);
+.item-row {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--space-2);
+  min-height: 44px;
 }
-.item summary {
+.item-row:hover,
+.item.open > .item-row {
+  background: var(--surface);
+}
+.item-position {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  text-align: right;
+}
+.item-toggle,
+.rename-input {
+  grid-column: 2;
+}
+.item-toggle {
   display: flex;
-  gap: 6px;
-  list-style: none;
-  cursor: pointer;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-weight: normal;
+  text-align: left;
 }
-.item summary::-webkit-details-marker {
+/* Renaming: the field takes the name's place. */
+.item-toggle[hidden] {
   display: none;
 }
-.item summary::before {
-  content: "▸";
+button.item-toggle:hover,
+button.item-toggle:active {
+  background: none;
+}
+.item-kind {
+  display: inline-flex;
   flex: none;
   color: var(--text-subtle);
 }
-.item details[open] > summary::before {
-  content: "▾";
+.item.burn .item-kind {
+  color: var(--destructive);
 }
-/* The full text lives in the expanded box; the title only hints at it. */
 .item-title {
+  flex: 1 1 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.item-heading {
-  margin: 0;
-  padding-left: calc(1ch + 6px);
+.item.burn .item-title {
+  color: var(--text-subtle);
+  font-style: italic;
+}
+.item-facts {
+  color: var(--text-subtle);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+.item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.item-actions > button:not(.icon-button) {
+  min-height: 30px;
+  padding: 2px var(--space-2);
+  font-size: var(--text-small);
+}
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  color: var(--text-subtle);
+}
+.icon-button:hover,
+a.icon-button:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-strong);
+  color: var(--text);
+}
+.icon-button.destructive:hover {
+  color: var(--destructive);
+}
+.item-body {
+  padding: 0 0 var(--space-3) calc(2ch + var(--space-2));
+}
+.item-body[hidden] {
+  display: none;
 }
 .item-meta {
-  margin: var(--space-1) 0 var(--space-2);
+  margin: var(--space-1) 0 0;
   color: var(--text-subtle);
   font-size: var(--text-small);
 }
 .item pre {
   max-height: 24rem;
-  margin: var(--space-2) 0;
+  margin: var(--space-1) 0 0;
 }
 .item img {
   max-height: 30rem;
-  margin: var(--space-2) 0;
+  margin: var(--space-1) 0 0;
 }
+@media (max-width: 480px) {
+  .item-row {
+    grid-template-columns: 2ch minmax(0, 1fr) auto;
+  }
+  .item-toggle,
+  .rename-input {
+    grid-column: 2 / -1;
+  }
+  .item-facts {
+    grid-column: 2;
+  }
+  .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* The rows of options over the send forms and over the list sit side by
+   side: the same height, so the forms and the list start level. */
+.send-options,
+.list-options {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  margin: 0;
+}
+/* How items open, over the list. */
+.list-options {
+  justify-content: flex-end;
+}
+.list-options label {
+  margin: 0;
+}
+.list-options select {
+  width: auto;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+}
+
 /* Renaming an item in place, where its name was. */
 .rename-input {
   margin: 0 0 var(--space-1);
@@ -737,6 +862,11 @@ fieldset .status {
 }
 .stack > :is(h1, h2, .section-heading) + * {
   margin-top: 0;
+}
+/* The list's top border level with the Text box's beside it, which runs
+   through the middle of its legend: half a line down. */
+.stack > .list-options + .items {
+  margin-top: calc(var(--space-5) + 0.8rem);
 }
 /* A QR code and the link it encodes belong together. */
 .stack > .qr-code + .copy-link {

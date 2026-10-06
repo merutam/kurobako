@@ -9,8 +9,10 @@ import {
   button,
   compactText,
   copyText,
+  el,
   element,
   fileField,
+  formatAge,
   formatBytes,
   formatDuration,
   formatExpiry,
@@ -22,7 +24,9 @@ import {
   restoreForm,
   SITE,
   setBusy,
+  storage,
 } from "./common.js";
+import { icon } from "./icons.js";
 import {
   canCopyImages,
   copyImage,
@@ -66,10 +70,25 @@ const qrImage = element("#qr");
 const pageUrl = element("#page-url");
 const copyLinkButton = element("#copy-link");
 const burnInput = element("#burn");
+const expandModeSelect = element("#expand-mode");
 
 /** Embedded in the page by the server; see readConfig. */
 let config = null;
+/** Items shown open; with "all", the ones closed by hand instead. */
 const expandedItems = new Set();
+const closedItems = new Set();
+/**
+ * How items open: "one" at a time (opening one closes the other), "several"
+ * at once, or "all" of them. Remembered on this device.
+ */
+const EXPAND_MODES = ["one", "several", "all"];
+const EXPAND_MODE_KEY = "kurobako-expand";
+let expandMode = EXPAND_MODES.includes(storage.get(EXPAND_MODE_KEY))
+  ? storage.get(EXPAND_MODE_KEY)
+  : "one";
+const isExpanded = (id) => (expandMode === "all" ? !closedItems.has(id) : expandedItems.has(id));
+/** Opens or closes a shown item, by id: filled in by each render. */
+const itemOpeners = new Map();
 let renderedSignature = "";
 let renderToken = 0;
 let objectUrls = [];
@@ -78,6 +97,9 @@ let objectUrls = [];
 const updateExpiries = () => {
   for (const label of itemsList.querySelectorAll("[data-expires-at]")) {
     label.textContent = formatExpiry(label.dataset.expiresAt);
+  }
+  for (const label of itemsList.querySelectorAll("[data-created-at]")) {
+    label.textContent = formatAge(label.dataset.createdAt);
   }
 };
 
@@ -344,7 +366,7 @@ let renaming = false;
 
 /** Renames in place: Enter or leaving the field saves, Escape cancels. */
 const renameItem = (entry, title) => {
-  const holder = title.closest("details") ?? title.parentElement;
+  const holder = title.closest(".item-toggle") ?? title.parentElement;
   const input = document.createElement("input");
   input.type = "text";
   input.className = "rename-input";
@@ -392,130 +414,182 @@ const renameItem = (entry, title) => {
   input.addEventListener("blur", () => void finish(true));
 };
 
-const renderItem = (entry) => {
+/** A button that is only an icon: its label is for screen readers and tooltips. */
+const iconButton = (name, label, onClick, className) => {
+  const control = button("", onClick, `icon-button${className ? ` ${className}` : ""}`);
+  control.append(icon(name));
+  control.setAttribute("aria-label", label);
+  control.title = label;
+  return control;
+};
+
+/**
+ * One row per item: its position (1 is the newest, as in $BOX/ns/1), what it
+ * is, its name, size and age, and its actions as icons. Clicking the row
+ * opens it: the contents of a text or an image, and every detail.
+ */
+const renderItem = (entry, position) => {
   const { item, info } = entry;
   const unopenedBurn = item.burn && !entry.opened;
-  const listItem = document.createElement("li");
-  listItem.className = "item";
+  const listItem = el("li", { className: unopenedBurn ? "item burn" : "item" });
+  const row = el("div", { className: "item-row" });
+  row.append(el("span", { className: "item-position" }, position ? String(position) : ""));
 
-  const title = document.createElement("span");
-  title.className = "item-title";
-  title.textContent = info.title;
-  // Double-click the name to rename it (not an item already read and gone).
-  const renamable = !entry.opened && info.kind !== "unreadable";
-  if (renamable) {
-    title.title = "Double-click to rename";
-    title.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      renameItem(entry, title);
-    });
-  }
+  const kind = unopenedBurn
+    ? "burn"
+    : info.kind === "unreadable"
+      ? "unreadable"
+      : info.kind === "text"
+        ? "text"
+        : info.isImage
+          ? "image"
+          : "file";
+  const title = el("span", { className: "item-title", textContent: info.title });
+  const heading = [el("span", { className: "item-kind" }, icon(kind)), title];
+  const age = el("span", { textContent: formatAge(item.createdAt) });
+  age.dataset.createdAt = item.createdAt;
+  const facts = el(
+    "span",
+    { className: "item-facts" },
+    `${formatBytes(info.size ?? item.size)} · `,
+    age,
+  );
 
-  const previewable = !unopenedBurn && (info.kind === "text" || info.isImage);
-  if (previewable) {
-    const details = document.createElement("details");
-    details.open = expandedItems.has(item.id);
-    const summary = document.createElement("summary");
-    summary.append(title);
-    const body = document.createElement("div");
-    details.append(summary, body);
+  // Opening a burn-after-reading item reads it: only its own button does that.
+  const expandable = !unopenedBurn;
+  if (!expandable) {
+    row.append(el("span", { className: "item-toggle" }, ...heading), facts);
+  } else {
+    const bodyId = `item-${item.id}`;
+    const toggle = el("button", { type: "button", className: "item-toggle" }, ...heading);
+    toggle.setAttribute("aria-controls", bodyId);
+    const body = el("div", { className: "item-body", id: bodyId });
+    const previewable = info.kind === "text" || info.isImage;
+    const preview = el("div");
 
     let loaded = false;
     const load = async () => {
-      if (loaded || !details.open) return;
+      if (loaded || !previewable) return;
       loaded = true;
       try {
         if (info.kind === "text") {
-          const content = document.createElement("pre");
-          content.textContent = await textOf(entry);
-          body.replaceChildren(content);
+          preview.replaceChildren(el("pre", { textContent: await textOf(entry) }));
         } else {
-          const image = document.createElement("img");
-          image.alt = info.title;
           // Plain images load straight from the server; anything else is
           // fetched (and decrypted) here.
-          image.src =
+          const src =
             !entry.opened && item.kind === "image" && !item.burn
               ? `${mode.basePath}/${item.id}`
               : objectUrl(await blobOf(entry));
-          body.replaceChildren(image);
+          preview.replaceChildren(el("img", { alt: info.title, src }));
         }
       } catch (error) {
         loaded = false;
         status.error(error.message);
       }
     };
-    // A double-click renames: its second click must not toggle the preview
-    // again, and the first one is undone.
-    let openBeforeClicks = details.open;
-    summary.addEventListener("click", (event) => {
-      if (event.detail === 1) openBeforeClicks = details.open;
-      else if (renamable && event.target === title) event.preventDefault();
-    });
-    if (renamable) title.addEventListener("dblclick", () => (details.open = openBeforeClicks));
-    details.addEventListener("toggle", () => {
-      if (details.open) expandedItems.add(item.id);
-      else expandedItems.delete(item.id);
-      void load();
-    });
-    void load();
-    listItem.append(details);
-  } else {
-    const heading = document.createElement("p");
-    heading.className = "item-heading";
-    heading.append(title);
-    listItem.append(heading);
-  }
 
-  const meta = document.createElement("p");
-  meta.className = "item-meta";
-  meta.textContent = itemSummary(item, info);
-  if (entry.opened) {
-    meta.append(" · ", noteSpan("deleted from the server"));
-  } else {
-    if (item.burn) meta.append(" · ", noteSpan("deletes when opened"));
-    if (item.expiresAt) {
-      const expiry = document.createElement("span");
-      expiry.dataset.expiresAt = item.expiresAt;
-      expiry.textContent = formatExpiry(item.expiresAt);
-      meta.append(" · ", expiry);
+    const setOpen = (open) => {
+      body.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      listItem.classList.toggle("open", open);
+      if (open) void load();
+    };
+    itemOpeners.set(item.id, setOpen);
+    const toggleOpen = () => {
+      const open = !isExpanded(item.id);
+      if (expandMode === "all") {
+        if (open) closedItems.delete(item.id);
+        else closedItems.add(item.id);
+      } else if (open) {
+        if (expandMode === "one") {
+          for (const id of expandedItems) itemOpeners.get(id)?.(false);
+          expandedItems.clear();
+        }
+        expandedItems.add(item.id);
+      } else {
+        expandedItems.delete(item.id);
+      }
+      setOpen(open);
+    };
+    // The second click of a double-click (a rename) leaves the row as it was.
+    toggle.addEventListener("click", (event) => {
+      if (event.detail <= 1) toggleOpen();
+    });
+
+    const renamable = !entry.opened && info.kind !== "unreadable";
+    if (renamable) {
+      title.title = "Double-click to rename";
+      title.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        toggleOpen();
+        renameItem(entry, title);
+      });
     }
+
+    const details = el("p", { className: "item-meta", textContent: itemSummary(item, info) });
+    if (entry.opened) {
+      details.append(" · ", noteSpan("deleted from the server"));
+    } else if (item.expiresAt) {
+      const expiry = el("span", { textContent: formatExpiry(item.expiresAt) });
+      expiry.dataset.expiresAt = item.expiresAt;
+      details.append(" · ", expiry);
+    }
+    body.append(preview, details);
+    row.append(toggle, facts);
+    listItem.append(row, body);
+    setOpen(isExpanded(item.id));
   }
 
-  const actions = document.createElement("p");
-  actions.className = "actions";
+  const actions = el("span", { className: "item-actions" });
   if (unopenedBurn) {
-    actions.append(button("Open once", () => openOnce(entry)));
+    actions.append(button("Open once", () => openOnce(entry), undefined, "burn"));
   } else {
     if (info.kind === "text" || (info.isImage && canCopyImages())) {
-      actions.append(button("Copy", () => copyItem(entry)));
+      actions.append(iconButton("copy", "Copy", () => copyItem(entry)));
     }
     if (info.kind === "file") {
       const href = !entry.opened && mode.downloadUrl?.(item);
       if (href) {
-        const download = document.createElement("a");
-        download.href = href;
-        download.textContent = "Download";
-        download.className = "button";
+        const download = el(
+          "a",
+          { href, className: "icon-button", title: "Download" },
+          icon("download"),
+        );
+        download.setAttribute("aria-label", "Download");
         actions.append(download);
       } else {
         // Decrypted (or already consumed) files are fetched only on click.
-        actions.append(button("Download", () => downloadItem(entry)));
+        actions.append(iconButton("download", "Download", () => downloadItem(entry)));
       }
     }
   }
-  if (!entry.opened && info.kind !== "unreadable") {
-    actions.append(button("Share", () => shareItem(item)));
+  if (!entry.opened && info.kind !== "unreadable" && !unopenedBurn) {
+    actions.append(iconButton("share", "Share", () => shareItem(item)));
   }
   actions.append(
     entry.opened
-      ? button("Dismiss", () => dismiss(item.id))
-      : button("Delete", () => deleteItem(item), "destructive"),
+      ? iconButton("dismiss", "Dismiss", () => dismiss(item.id))
+      : iconButton("delete", "Delete", () => deleteItem(item), "destructive"),
   );
-
-  listItem.append(meta, actions);
+  row.append(actions);
+  if (!expandable) listItem.append(row);
   return listItem;
 };
+
+expandModeSelect.value = expandMode;
+expandModeSelect.addEventListener("change", () => {
+  expandMode = expandModeSelect.value;
+  storage.set(EXPAND_MODE_KEY, expandMode);
+  closedItems.clear();
+  // One at a time keeps the newest of those open.
+  if (expandMode === "one" && expandedItems.size > 1) {
+    const keep = serverItems.find((item) => expandedItems.has(item.id))?.id;
+    expandedItems.clear();
+    if (keep) expandedItems.add(keep);
+  }
+  for (const [id, setOpen] of itemOpeners) setOpen(isExpanded(id));
+});
 
 const renderItems = async (items, { force = false } = {}) => {
   serverItems = items;
@@ -551,7 +625,11 @@ const renderItems = async (items, { force = false } = {}) => {
 
   const previousUrls = objectUrls;
   objectUrls = [];
-  itemsList.replaceChildren(...entries.map(renderItem));
+  const positions = new Map(items.map((item, index) => [item.id, index + 1]));
+  itemOpeners.clear();
+  itemsList.replaceChildren(
+    ...entries.map((entry) => renderItem(entry, entry.opened ? 0 : positions.get(entry.item.id))),
+  );
   for (const url of previousUrls) URL.revokeObjectURL(url);
 };
 
