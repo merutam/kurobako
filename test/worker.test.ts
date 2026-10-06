@@ -278,29 +278,38 @@ describe("hub housekeeping", () => {
 });
 
 describe("live updates", () => {
-  test("push the queue over a WebSocket on connect and after each change", async () => {
-    const ns = fresh();
+  /** A live connection: the queues it got, and the viewer counts. */
+  const watch = async (ns: string) => {
     const response = await call(`/${ns}/live`, { headers: { upgrade: "websocket" } });
     expect(response.status).toBe(101);
     const socket = defined(response.webSocket, "a WebSocket");
-    const messages: LiveMessage[] = [];
+    const queues: Item[][] = [];
+    const viewers: number[] = [];
     let notify = () => {};
     socket.addEventListener("message", (event) => {
-      messages.push(JSON.parse(event.data as string));
+      const message = JSON.parse(event.data as string) as LiveMessage;
+      if (message.type === "items") queues.push(message.items);
+      else viewers.push(message.count);
       notify();
     });
     socket.accept();
-    const nextMessage = async (count: number) => {
-      while (messages.length < count) await new Promise<void>((resolve) => (notify = resolve));
-      return messages[count - 1];
+    const until = async (done: () => boolean) => {
+      while (!done()) await new Promise<void>((resolve) => (notify = resolve));
     };
+    return { socket, queues, viewers, until };
+  };
 
-    expect(await nextMessage(1)).toEqual({ type: "items", items: [] });
+  test("push the queue over a WebSocket on connect and after each change", async () => {
+    const ns = fresh();
+    const live = await watch(ns);
+    await live.until(() => live.queues.length >= 1);
+    expect(live.queues[0]).toEqual([]);
     await sendText(ns, "live");
-    expect((await nextMessage(2))?.items).toMatchObject([{ kind: "text", text: "live" }]);
+    await live.until(() => live.queues.length >= 2);
+    expect(live.queues[1]).toMatchObject([{ kind: "text", text: "live" }]);
 
     const connected = (await stats()).liveConnections;
-    socket.close(1000);
+    live.socket.close(1000);
     let after = connected;
     for (let attempt = 0; attempt < 50 && after === connected; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -309,24 +318,28 @@ describe("live updates", () => {
     expect(after).toBe(connected - 1);
   });
 
+  test("every viewer hears how many pages are open", async () => {
+    const ns = fresh("viewers");
+    const first = await watch(ns);
+    await first.until(() => first.viewers.at(-1) === 1);
+    const second = await watch(ns);
+    await first.until(() => first.viewers.at(-1) === 2);
+    await second.until(() => second.viewers.at(-1) === 2);
+    second.socket.close(1000);
+    await first.until(() => first.viewers.at(-1) === 1);
+    first.socket.close(1000);
+  });
+
   test("a device waiting on a namespace that does not exist yet gets its first item", async () => {
     const ns = fresh("wait");
-    const response = await call(`/${ns}/live`, { headers: { upgrade: "websocket" } });
-    const socket = defined(response.webSocket, "a WebSocket");
-    const messages: LiveMessage[] = [];
-    let notify = () => {};
-    socket.addEventListener("message", (event) => {
-      messages.push(JSON.parse(event.data as string));
-      notify();
-    });
-    socket.accept();
-    while (messages.length < 1) await new Promise<void>((resolve) => (notify = resolve));
-    expect(messages[0]).toEqual({ type: "items", items: [] });
+    const live = await watch(ns);
+    await live.until(() => live.queues.length >= 1);
+    expect(live.queues[0]).toEqual([]);
 
     await sendText(ns, "first one");
-    while (messages.length < 2) await new Promise<void>((resolve) => (notify = resolve));
-    expect(messages[1]?.items).toMatchObject([{ kind: "text", text: "first one" }]);
-    socket.close(1000);
+    await live.until(() => live.queues.length >= 2);
+    expect(live.queues[1]).toMatchObject([{ kind: "text", text: "first one" }]);
+    live.socket.close(1000);
   });
 });
 

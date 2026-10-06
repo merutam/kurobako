@@ -23,7 +23,10 @@ export type Item = {
 /** A file or image: these always have a name and a type. */
 export type FileItem = Item & { filename: string; mime: string };
 /** What a live connection receives. */
-export type LiveMessage = { type: "items"; items: Item[] };
+export type LiveMessage =
+  | { type: "items"; items: Item[] }
+  /** How many pages are open on the namespace, the receiver's included. */
+  | { type: "viewers"; count: number };
 /** A shared item: the same, minus its ID. */
 export type SharedItem = Omit<Item, "id">;
 

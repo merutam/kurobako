@@ -688,6 +688,9 @@ a.icon-button:hover {
 .live-status {
   color: var(--success-text);
 }
+#viewers svg {
+  vertical-align: -0.15em;
+}
 .live-status.offline {
   color: var(--error-text);
 }
