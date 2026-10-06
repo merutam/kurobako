@@ -99,10 +99,21 @@ export const mountNamespaces = (
     const { resolve, inNamespace } = namespaceOf(space);
 
     if (space.kind === "plain") {
-      app.get(prefix, (c) =>
+      app.get(prefix, async (c) => {
         // Nothing is stored until something is sent.
-        resolve(c) ? pageView(c, pages.namespace) : jsonError(c, 404, "Invalid namespace."),
-      );
+        const ref = resolve(c);
+        if (!ref) return jsonError(c, 404, "Invalid namespace.");
+        // A locked one's page comes as a reader's, so its send forms are
+        // never shown, then hidden (a key kept on the device brings them back).
+        const locked = (await namespace(c, ref).isLocked()) as boolean;
+        return pageView(
+          c,
+          // The tag itself, at the start of its line (the layout's comments name it too).
+          locked
+            ? pages.namespace.replace(/^(\s*)<main(?=[\s>])/m, "$1<main data-locked")
+            : pages.namespace,
+        );
+      });
     }
 
     app.get(

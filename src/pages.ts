@@ -44,6 +44,7 @@ export const STATIC_FILES = [
   "common.js",
   "items.js",
   "icons.js",
+  "access.js",
   "media-viewer.js",
   "text-editor.js",
   "sw.js",

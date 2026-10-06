@@ -73,6 +73,9 @@ export const sharedTests = (harness: Harness) => {
         (await call(`/${ns}/f.png`, { method: "PUT", body: png, headers: writer })).status,
       ).toBe(201);
 
+      // Its page comes as a reader's, so that no send form shows and then hides.
+      expect(await (await call(`/${ns}`)).text()).toMatch(/^\s*<main data-locked>/m);
+
       // Reading: anyone, and the queue says it is locked.
       const listed = await call(`/${ns}/ls`);
       expect(listed.headers.get("locked")).toBe("1");

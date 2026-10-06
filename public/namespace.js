@@ -362,13 +362,22 @@ let mode = null;
  * its key, sent as Write-Key. The key is kept on this device, by namespace;
  * an owner's link brings it in its fragment (#w=<key>), never to the server.
  */
-let locked = false;
+/**
+ * Whether the namespace is locked: true or false, or null while unknown (a
+ * read-only link, until the queue comes). The server marks a locked plain
+ * namespace's page (data-locked), so its state is known from the start.
+ */
+let locked = document.querySelector("main")?.hasAttribute("data-locked")
+  ? true
+  : window.location.hash.startsWith("#/")
+    ? null
+    : false;
 const writeKeyName = () => `kurobako-write:${mode.basePath}`;
 /** A plain namespace's key is kept on this device; an encrypted one's comes from its name. */
 const writeKey = () => (mode.writeKey !== undefined ? mode.writeKey : storage.get(writeKeyName()));
 const writeHeaders = () => (writeKey() ? { "Write-Key": writeKey() } : {});
 /** Whether this page may write: an open namespace, or a locked one whose key it has. */
-const canWrite = () => !locked || Boolean(writeKey());
+const canWrite = () => locked === false || Boolean(writeKey());
 
 /*
  * The list shows entries: { item, info, opened? }. `opened` holds the content
@@ -1226,6 +1235,10 @@ const fileLimit = () => mode.fileLimit(config.maxFileBytes);
 /** Shows what this page may do: send, or only read, and the Lock section's state. */
 const showAccess = () => {
   const readOnly = !canWrite();
+  // From here on the forms' hidden attribute says it: the marks that hid
+  // them before the first paint (see access.js) are done with.
+  document.documentElement.removeAttribute("data-read-link");
+  document.querySelector("main")?.removeAttribute("data-locked");
   sendSection.hidden = readOnly;
   restore.hidden = readOnly;
   // A locked namespace has no items that delete when opened.
