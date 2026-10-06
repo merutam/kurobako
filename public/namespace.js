@@ -37,10 +37,11 @@ import {
   videoPlayer,
 } from "./items.js";
 import {
+  contentSize,
   defaultTextName,
   fileMetadata,
+  openReadOnlySpace,
   openSealedSpace,
-  SEALED_OVERHEAD_BYTES,
   secretNameProblem,
   splitFragment,
 } from "./k.mjs";
@@ -140,7 +141,8 @@ const plainMode = (namespace) => {
     basePath,
     title: `/${namespace}`,
     label: "",
-    fileOverheadBytes: 0,
+    /** The largest file a send takes, in bytes of its own contents. */
+    fileLimit: (maxFileBytes) => maxFileBytes,
     shareUrl: `${window.location.origin}${basePath}`,
     describe: async (item) => describePlain(item),
     loadText: async (item) =>
@@ -183,9 +185,11 @@ const plainMode = (namespace) => {
   };
 };
 
-const sealedMode = async (secretName) => {
-  const space = await openSealedSpace(secretName);
+/** An encrypted namespace, by its secret name or a read-only link's token. */
+const sealedMode = async ({ secretName, readToken }) => {
+  const space = readToken ? await openReadOnlySpace(readToken) : await openSealedSpace(secretName);
   const basePath = `${SITE}/e/${space.id}`;
+  const readOnlyUrl = `${window.location.origin}${SITE}/e#/${space.readToken}`;
   /**
    * Metadata header → its unwrapped key and metadata (a promise; null if
    * unreadable). Keyed on the header, which a rename changes.
@@ -222,10 +226,17 @@ const sealedMode = async (secretName) => {
 
   return {
     basePath,
-    title: `/e#${secretName}`,
+    title: readToken ? "Encrypted namespace" : `/e#${secretName}`,
     label: "Encrypted",
-    fileOverheadBytes: SEALED_OVERHEAD_BYTES,
-    shareUrl: `${window.location.origin}${SITE}/e#${encodeURIComponent(secretName)}`,
+    // The limit counts the sealed body: a tag for every 64 KiB.
+    fileLimit: (maxFileBytes) => contentSize(maxFileBytes),
+    // Opened by a read-only link, that link is what it passes on.
+    shareUrl: readToken
+      ? readOnlyUrl
+      : `${window.location.origin}${SITE}/e#${encodeURIComponent(secretName)}`,
+    /** The key that writes here even locked: the name's; none by a read-only link. */
+    writeKey: space.writeKey,
+    readOnlyUrl,
     describe: async (item) => {
       const opened = await openItem(item);
       if (!opened) return { kind: "unreadable", title: "(could not decrypt)", size: item.size };
@@ -290,7 +301,8 @@ let mode = null;
  */
 let locked = false;
 const writeKeyName = () => `kurobako-write:${mode.basePath}`;
-const writeKey = () => storage.get(writeKeyName());
+/** A plain namespace's key is kept on this device; an encrypted one's comes from its name. */
+const writeKey = () => (mode.writeKey !== undefined ? mode.writeKey : storage.get(writeKeyName()));
 const writeHeaders = () => (writeKey() ? { "Write-Key": writeKey() } : {});
 /** Whether this page may write: an open namespace, or a locked one whose key it has. */
 const canWrite = () => !locked || Boolean(writeKey());
@@ -964,7 +976,7 @@ pageUrl.addEventListener("click", copyLink);
 copyLinkButton.addEventListener("click", copyLink);
 
 /** Encrypted files grow a little; the server's limit applies to what it receives. */
-const fileLimit = () => config.maxFileBytes - mode.fileOverheadBytes;
+const fileLimit = () => mode.fileLimit(config.maxFileBytes);
 
 /** Shows what this page may do: send, or only read, and the Lock section's state. */
 const showAccess = () => {
@@ -979,14 +991,25 @@ const showAccess = () => {
     .map((part) => `${part} · `)
     .join("");
 
-  // Locking comes to encrypted namespaces with their derived write key.
-  lockSection.hidden = mode.label !== "";
   const key = writeKey();
+  const sealed = mode.writeKey !== undefined;
+  // Opened by a read-only link: nothing here to lock or unlock.
+  lockSection.hidden = sealed && !key;
   lockButton.hidden = locked;
   unlockButton.hidden = !locked || !key;
-  forgetKeyButton.hidden = !key;
+  // An encrypted namespace's key is its name: nothing to forget or type in.
+  forgetKeyButton.hidden = sealed || !key;
+  keyForm.hidden = sealed || !locked || Boolean(key);
   lockLinkRow.hidden = !locked || !key;
-  keyForm.hidden = !locked || Boolean(key);
+  if (sealed) {
+    lockLink.value = mode.readOnlyUrl;
+    lockLink.setAttribute("aria-label", "Read-only link");
+    lockHint.textContent = locked
+      ? "Locked: the read-only link below opens it for reading only; the name still writes."
+      : "Locking keeps it readable with a read-only link, while only the name can send, rename or delete.";
+    return;
+  }
+  lockLink.setAttribute("aria-label", "Link that writes here");
   if (locked && key) {
     lockLink.value = `${mode.shareUrl}#w=${encodeURIComponent(key)}`;
     lockHint.textContent =
@@ -1010,10 +1033,17 @@ const setLocked = (value) => {
 
 lockButton.addEventListener("click", async () => {
   try {
-    const response = await request(`${mode.basePath}/lock`, { method: "POST" });
+    const response = await request(`${mode.basePath}/lock`, {
+      method: "POST",
+      headers: writeHeaders(),
+    });
     const { writeKey: key } = await response.json();
-    storage.set(writeKeyName(), key);
-    status.success("Locked. This device keeps its key; copy the link below to write elsewhere.");
+    if (key) {
+      storage.set(writeKeyName(), key);
+      status.success("Locked. This device keeps its key; copy the link below to write elsewhere.");
+    } else {
+      status.success("Locked. Copy the read-only link below to share it for reading.");
+    }
     setLocked(true);
     showAccess();
   } catch (error) {
@@ -1025,7 +1055,7 @@ unlockButton.addEventListener("click", async () => {
   if (!window.confirm("Unlock? Anyone with the name could then send, rename and delete.")) return;
   try {
     await request(`${mode.basePath}/lock`, { method: "DELETE", headers: writeHeaders() });
-    storage.remove(writeKeyName());
+    if (mode.writeKey === undefined) storage.remove(writeKeyName());
     status.success("Unlocked.");
     setLocked(false);
     showAccess();
@@ -1052,7 +1082,11 @@ keyForm.addEventListener("submit", (event) => {
 element("#copy-lock-link").addEventListener("click", async () => {
   try {
     await copyText(lockLink.value);
-    status.success("Link copied: it writes here, keep it to yourself.");
+    status.success(
+      mode.writeKey !== undefined
+        ? "Read-only link copied."
+        : "Link copied: it writes here, keep it to yourself.",
+    );
   } catch (error) {
     status.error(error.message);
   }
@@ -1131,14 +1165,17 @@ try {
   const path = window.location.pathname.slice(SITE.length);
   if (path === "/e") {
     // Anything after a "/" is a path for the command-line client (#name/ls).
-    const { name: secretName } = splitFragment(window.location.hash.slice(1));
-    if (!secretName) {
+    // A read-only link is #/<token>.
+    const { name: secretName, readToken } = splitFragment(window.location.hash.slice(1));
+    if (!secretName && !readToken) {
       throw new Error("Missing name. Open an encrypted namespace from the home page.");
     }
-    const problem = secretNameProblem(secretName, config.sealed.maxNameLength);
-    if (problem) throw new Error(problem);
+    if (!readToken) {
+      const problem = secretNameProblem(secretName, config.sealed.maxNameLength);
+      if (problem) throw new Error(problem);
+    }
     status.progress("Unlocking…");
-    mode = await sealedMode(secretName);
+    mode = await sealedMode({ secretName, readToken });
     status.clear();
   } else {
     mode = plainMode(decodeURIComponent(path.split("/")[1] || ""));

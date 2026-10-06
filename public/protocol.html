@@ -253,7 +253,7 @@
       (<code>/e#name/ls</code>) starts the path.
     </li>
     <li>
-      Derive 32 bytes (one SHA-256 block) with PBKDF2:
+      Derive <strong>K</strong>, 32 bytes (one SHA-256 block), with PBKDF2:
       <table class="data-table">
         <tbody>
           <tr>
@@ -266,7 +266,7 @@
           </tr>
           <tr>
             <th scope="row">Salt</th>
-            <td><code>kurobako/sealed/v3</code> (UTF-8)</td>
+            <td><code>kurobako/v4</code> (UTF-8)</td>
           </tr>
           <tr>
             <th scope="row">Iterations</th>
@@ -280,13 +280,23 @@
       </table>
     </li>
     <li>
-      <strong>Namespace ID</strong>: bytes 0-15 in base64url (22
-      characters). The namespace lives at <code>/e/&lt;id&gt;/…</code>.
+      From K, with HKDF-SHA256 (an empty salt; the info is the label, in
+      UTF-8), 16 bytes each:
+      <strong>namespace ID</strong>, info <code>kurobako/v4/id</code>, in
+      base64url (22 characters): the namespace lives at
+      <code>/e/&lt;id&gt;/…</code>;
+      <strong>write key</strong>, info <code>kurobako/v4/write</code>, in
+      base64url: the <code>Write-Key</code> of a locked namespace (see
+      Locked namespaces), so its owner never handles a key;
+      <strong>namespace key</strong>, info <code>kurobako/v4/namespace</code>,
+      an AES-128 key that only wraps item keys, with AES-KW
+      (<a class="external-link" href="https://www.rfc-editor.org/rfc/rfc3394" target="_blank" rel="noopener">RFC 3394</a>).
     </li>
     <li>
-      <strong>Namespace key</strong>: bytes 16-31, an AES-128 key that only
-      wraps item keys, with AES-KW
-      (<a class="external-link" href="https://www.rfc-editor.org/rfc/rfc3394" target="_blank" rel="noopener">RFC 3394</a>).
+      A <strong>read-only link</strong>, <code>/e#/&lt;token&gt;</code>,
+      carries base64url(namespace ID ‖ namespace key), 43 characters, and
+      never K: it reads everything, and cannot give the write key. The empty
+      name before its <code>/</code> is no name at all.
     </li>
   </ol>
 
@@ -344,11 +354,46 @@
     AES-GCM ciphertext with its 16-byte authentication tag at the end
     (exactly what Web Crypto's <code>encrypt</code> returns), with the label,
     in UTF-8, as additional authenticated data: it is checked, never sent.
-    The labels are <code>kurobako/v3/metadata</code> and
-    <code>kurobako/v3/body</code>, so that one item key's two kinds of seal
-    never open as each other. <em>Open</em> reverses it, with the same label,
-    and fails if anything was changed.
+    Metadata is sealed so, under the label <code>kurobako/v4/metadata</code>.
+    <em>Open</em> reverses it, with the same label, and fails if anything
+    was changed.
   </p>
+  <p>
+    Contents are sealed in <strong>segments</strong>, so that a part of them
+    opens without the rest (to play a video from its middle, or to download
+    a large file as it arrives):
+  </p>
+  <ul>
+    <li>
+      <strong>Body key</strong>: HKDF-SHA256(item key, an empty salt, info
+      <code>kurobako/v4/body/&lt;rev&gt;</code>), 16 bytes, where
+      <code>rev</code> is the contents' revision (0 when sent; see the
+      metadata). Each new revision has its own key, so no nonce is ever used
+      twice under one key, while the item key, and every share link that
+      carries it, stays the same.
+    </li>
+    <li>
+      The contents are cut into pieces of 65,536 bytes, the last one shorter
+      and never empty. Piece <em>i</em> becomes its AES-GCM ciphertext and
+      16-byte tag under the body key, with no additional data and a 12-byte
+      nonce: <em>i</em> in 11 big-endian bytes, then <code>1</code> for the
+      last piece and <code>0</code> for the others. A segment cannot be moved,
+      dropped from the end, or taken from another body.
+    </li>
+    <li>
+      The body is the segments, one after the other: no header, no IV. With
+      <em>n</em> bytes of contents in <em>k</em> = ⌈<em>n</em> / 65,536⌉
+      segments, it is <em>n</em> + 16<em>k</em> bytes; from a body of
+      <em>c</em> bytes, <em>k</em> = ⌈<em>c</em> / 65,552⌉ and
+      <em>n</em> = <em>c</em> − 16<em>k</em>.
+    </li>
+    <li>
+      Bytes <em>a</em> to <em>b</em> of the contents are in segments
+      <em>a</em> ÷ 65,536 to <em>b</em> ÷ 65,536; segment <em>i</em> starts
+      at <em>i</em> × 65,552 in the body. A client asks for those with
+      <code>Range</code>, opens them and cuts the ends.
+    </li>
+  </ul>
 
   <h3>Items</h3>
   <ol>
@@ -377,30 +422,31 @@
           </tr>
         </tbody>
       </table>
-      An item with a <code>filename</code> is a file; any other, a text. Its
-      size is the sealed body's, as the queue lists it, less 28 (the IV and
-      tag).
+      Either adds <code>"rev": n</code> once its contents were replaced
+      (0, left out, until then). An item with a <code>filename</code> is a
+      file; any other, a text. Its size is told by the body's, as the queue
+      lists it (see the segments above).
     </li>
     <li>
       The <code>X-Sealed-Metadata</code> header is
       <code
         >base64url(AES-KW(namespace key, item key)) "." base64url(Seal(item
-        key, kurobako/v3/metadata, metadata JSON))</code
+        key, kurobako/v4/metadata, metadata JSON))</code
       >; the wrapped key is 24 bytes.
     </li>
     <li>
-      The body is <code>Seal(item key, kurobako/v3/body, contents)</code>;
-      a text's contents
-      are its UTF-8 bytes.
+      The body is the contents sealed in segments, under the body key of
+      <code>rev</code> 0; a text's contents are its UTF-8 bytes.
     </li>
   </ol>
 
   <h3>Test vectors</h3>
   <p>
     To check an implementation. The derivation and the key wrap are
-    deterministic; the seals use fixed IVs here, where a client must pick
-    random ones. The sealed body is 33 bytes, so the item's size is 5. Bytes are hex
-    unless marked base64url.
+    deterministic, and so are the segments; the metadata's seal uses a fixed
+    IV here, where a client must pick a random one. The body of
+    <code>hello</code> is one 21-byte segment, so the item's size is 5. Bytes
+    are hex unless marked base64url.
   </p>
   <div class="table-scroll">
     <table class="data-table">
@@ -414,16 +460,24 @@
           <td><code data-vector="name">636166c3a920686f7273652062617474657279</code> (<code>café horse battery</code>)</td>
         </tr>
         <tr>
-          <th scope="row">PBKDF2 output</th>
-          <td><code data-vector="pbkdf2">a1b4c440702111410b7b30af3e54fdc883da6765bbe8b3f89f810008b573ce34</code></td>
+          <th scope="row">K (PBKDF2)</th>
+          <td><code data-vector="pbkdf2">c5fe3ce8006b431432b19384393bb5f8d38d4e81752b4da5a8f1e7484f16b731</code></td>
         </tr>
         <tr>
           <th scope="row">Namespace ID</th>
-          <td><code data-vector="id">obTEQHAhEUELezCvPlT9yA</code> (base64url)</td>
+          <td><code data-vector="id">a9mixDomFWzTt57iw4CHaQ</code> (base64url)</td>
         </tr>
         <tr>
           <th scope="row">Namespace key</th>
-          <td><code data-vector="namespace-key">83da6765bbe8b3f89f810008b573ce34</code></td>
+          <td><code data-vector="namespace-key">128c9430aa3a21d7db8b5fa3342c425a</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Write key</th>
+          <td><code data-vector="write-key">oqG0guS9qykLSg3fe2lMrg</code> (base64url)</td>
+        </tr>
+        <tr>
+          <th scope="row">Read-only link</th>
+          <td><code>/e#/</code><code data-vector="read-token">a9mixDomFWzTt57iw4CHaRKMlDCqOiHX24tfozQsQlo</code></td>
         </tr>
         <tr>
           <th scope="row">Item key</th>
@@ -435,19 +489,31 @@
         </tr>
         <tr>
           <th scope="row">Wrapped item key</th>
-          <td>AES-KW, with RFC 3394's default IV; base64url: <code data-vector="wrapped">awcZZJGr9nxAEYgEHy03_o-tHC1R7cmf</code></td>
+          <td>AES-KW, with RFC 3394's default IV; base64url: <code data-vector="wrapped">2Wttdp8noLebj59hKI4h5QurXR9E_h9r</code></td>
         </tr>
         <tr>
           <th scope="row">Sealed metadata</th>
-          <td>IV <code>202122232425262728292a2b</code>, label <code>kurobako/v3/metadata</code>; base64url: <code data-vector="sealed-metadata">ICEiIyQlJicoKSor7_bxzuVEJyjMI_CIzoXb4MzmODp1brUZtnkQbWXXZlcd</code></td>
+          <td>IV <code>202122232425262728292a2b</code>, label <code>kurobako/v4/metadata</code>; base64url: <code data-vector="sealed-metadata">ICEiIyQlJicoKSor7_bxzuVEJyjMI_CIzoXb4Mzm9sMFHqYm95kentXjPtDX</code></td>
         </tr>
         <tr>
           <th scope="row"><code>X-Sealed-Metadata</code></th>
           <td>the two above, joined by <code>.</code></td>
         </tr>
         <tr>
+          <th scope="row">Body key (<code>rev</code> 0)</th>
+          <td><code data-vector="body-key">1853be3e7804f09e0c3959d5cefed0ae</code></td>
+        </tr>
+        <tr>
           <th scope="row">Body for <code>hello</code></th>
-          <td>IV <code>303132333435363738393a3b</code>, label <code>kurobako/v3/body</code>; base64url: <code data-vector="body">MDEyMzQ1Njc4OTo7-z6BejLYqjVZH8Yfhr2otKGLK1c7</code></td>
+          <td>one segment, nonce <code>000000000000000000000001</code>; base64url: <code data-vector="body">danN8DU-C7Azi4CdPMpfr4kySstY</code></td>
+        </tr>
+        <tr>
+          <th scope="row">A body of two segments</th>
+          <td>
+            70,000 bytes of contents, byte <em>i</em> being <em>i</em> mod 251:
+            a 70,032-byte body, whose SHA-256 is
+            <code data-vector="long-body-sha256">405af809035dc36104802ade74975138139cae7b41aaebc43d06d6fb0ab9f292</code>
+          </td>
         </tr>
       </tbody>
     </table>

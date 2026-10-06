@@ -138,6 +138,10 @@ The page does it with **Lock**, keeps the key on the device and gives a
 link that writes (`$BOX/news#w=<key>`); `k.mjs` takes the key in
 `KUROBAKO_WRITE_KEY`.
 
+An encrypted namespace locks the same way, at any time, and needs no key:
+its name gives one. Locked, it has a read-only link, `$BOX/e#/<token>`,
+which opens and decrypts everything there and writes nothing.
+
 ## A private instance
 
 Kurobako forgets by design. For one that keeps things, just for you:

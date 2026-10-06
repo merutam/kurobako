@@ -13,28 +13,45 @@
 // It takes curl's own options and paths, encrypting and decrypting on the
 // way: run `node k.mjs` for the list. The secret name ends at the first "/".
 //
-// One PBKDF2 run turns the secret name into 256 bits: the first half is the
-// namespace ID the server sees, the second half the namespace key, which
-// never leaves the client. The salt and iteration count are part of the
-// protocol: changing them makes every existing encrypted namespace unreadable.
+// One PBKDF2 run turns the secret name into a 256-bit secret, K; HKDF then
+// gives from it the namespace ID the server sees, the namespace key and the
+// write key, which never leave the client. A read-only link carries the ID
+// and the namespace key, never K, so it cannot lead to the write key. The
+// salt, iteration count and HKDF labels are part of the protocol: changing
+// them makes every existing encrypted namespace unreadable.
 //
 // Each item gets its own random AES-GCM key, which encrypts its contents and
 // its metadata. The namespace key only wraps that item key (AES-KW), so handing out an
 // item key (in a share link) reveals that one item and nothing else.
-const PROTOCOL_SALT = "kurobako/sealed/v3";
+const PROTOCOL_SALT = "kurobako/v4";
 const PBKDF2_ITERATIONS = 600_000;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
-/** What encryption adds to a file's size: the IV in front and the AES-GCM tag. */
-export const SEALED_OVERHEAD_BYTES = IV_BYTES + TAG_BYTES;
 /**
- * One PBKDF2-SHA256 block (32 bytes): the first half is the namespace ID, the
- * second the namespace key. A second block would double the cost of opening a
- * namespace without costing a guesser anything, since the ID alone checks a
- * guess. All keys are AES-128: the name, not the key, is what a guesser faces.
+ * Contents are sealed in segments of this many bytes (the last one shorter),
+ * each with its own AES-GCM tag, so each opens on its own: a part of a body
+ * can be read and checked without the rest.
+ */
+export const SEGMENT_BYTES = 65_536;
+/** A body's size for `size` bytes of contents: one tag per segment. */
+export const sealedSize = (size) => size + TAG_BYTES * Math.ceil(size / SEGMENT_BYTES);
+/** The contents' size in a body of `sealed` bytes: the reverse of sealedSize. */
+export const contentSize = (sealed) =>
+  Math.max(0, sealed - TAG_BYTES * Math.ceil(sealed / (SEGMENT_BYTES + TAG_BYTES)));
+/**
+ * One PBKDF2-SHA256 block (32 bytes), K. A second block would double the cost
+ * of opening a namespace without costing a guesser anything, since the ID
+ * alone checks a guess. All keys are AES-128: the name, not the key, is what
+ * a guesser faces.
  */
 const DERIVED_BITS = 256;
 const ID_BYTES = 16;
+const NAMESPACE_KEY_BYTES = 16;
+const WRITE_KEY_BYTES = 16;
+/** HKDF labels: what each key derived from K is for. */
+const ID_INFO = "kurobako/v4/id";
+const NAMESPACE_KEY_INFO = "kurobako/v4/namespace";
+const WRITE_KEY_INFO = "kurobako/v4/write";
 /** Item keys are AES-128 too, which keeps a share link short (22 characters after the #). */
 const ITEM_KEY_BYTES = 16;
 
@@ -63,19 +80,23 @@ const importWrappingKey = (raw) =>
 /**
  * Metadata as it is sealed: only what cannot be told otherwise. A file has
  * `filename` and, unless it is application/octet-stream, `mime`; a text has
- * `title`, left out when empty. The size is the sealed body's, less
- * SEALED_OVERHEAD_BYTES.
+ * `title`, left out when empty. `rev`, the contents' revision (each edit
+ * seals them under a new body key), is left out while 0. The size is told
+ * by the body's (see contentSize).
  */
-const packMetadata = ({ kind, title, filename, mime }) =>
-  kind === "file"
+const packMetadata = ({ kind, title, filename, mime, rev }) => ({
+  ...(kind === "file"
     ? { filename, ...(mime && mime !== OCTET_STREAM ? { mime } : {}) }
     : title
       ? { title }
-      : {};
+      : {}),
+  ...(rev ? { rev } : {}),
+});
 
-/** Metadata as clients use it: { kind, title, filename?, mime?, size }. */
-const unpackMetadata = (packed, sealedSize) => {
-  const size = Math.max(0, (sealedSize ?? SEALED_OVERHEAD_BYTES) - SEALED_OVERHEAD_BYTES);
+/** Metadata as clients use it: { kind, title, filename?, mime?, size, rev }. */
+const unpackMetadata = (packed, bodySize) => {
+  const size = contentSize(bodySize ?? 0);
+  const rev = Number.isSafeInteger(packed.rev) && packed.rev > 0 ? packed.rev : 0;
   return typeof packed.filename === "string"
     ? {
         kind: "file",
@@ -83,8 +104,9 @@ const unpackMetadata = (packed, sealedSize) => {
         filename: packed.filename,
         mime: packed.mime ?? OCTET_STREAM,
         size,
+        rev,
       }
-    : { kind: "text", title: packed.title ?? "", size };
+    : { kind: "text", title: packed.title ?? "", size, rev };
 };
 const OCTET_STREAM = "application/octet-stream";
 
@@ -92,8 +114,9 @@ const OCTET_STREAM = "application/octet-stream";
  * What each seal is for, as AES-GCM's additional data: a metadata seal never
  * opens as contents, nor the other way round, though both use the item key.
  */
-const METADATA_LABEL = encoder.encode("kurobako/v3/metadata");
-const BODY_LABEL = encoder.encode("kurobako/v3/body");
+const METADATA_LABEL = encoder.encode("kurobako/v4/metadata");
+/** The body key of revision <rev> is HKDF(item key, BODY_INFO + rev). */
+const BODY_INFO = "kurobako/v4/body/";
 
 /** IV followed by the AES-GCM ciphertext and tag; `label` is authenticated, not sent. */
 const sealWith = async (key, label, bytes) => {
@@ -105,6 +128,74 @@ const sealWith = async (key, label, bytes) => {
   sealed.set(iv);
   sealed.set(ciphertext, IV_BYTES);
   return sealed;
+};
+
+/**
+ * A segment's nonce: its number in 11 big-endian bytes, then 1 for the last
+ * segment, 0 for the others. Segments cannot be moved, dropped from the end
+ * or taken from another body.
+ */
+const segmentNonce = (index, last) => {
+  const nonce = new Uint8Array(IV_BYTES);
+  let rest = index;
+  for (let at = IV_BYTES - 2; at >= 0 && rest > 0; at -= 1) {
+    nonce[at] = rest % 256;
+    rest = Math.floor(rest / 256);
+  }
+  nonce[IV_BYTES - 1] = last ? 1 : 0;
+  return nonce;
+};
+
+/** An item's body key for revision `rev`, from the item key's bytes. */
+export const bodyKey = async (itemKeyBytes, rev = 0) =>
+  crypto.subtle.importKey(
+    "raw",
+    await hkdf(itemKeyBytes, `${BODY_INFO}${rev}`, ITEM_KEY_BYTES),
+    "AES-GCM",
+    false,
+    ["encrypt", "decrypt"],
+  );
+
+/** Contents sealed as a body: their segments, one after the other. */
+const sealBody = async (key, bytes) => {
+  if (!bytes.byteLength) throw new Error("The content is empty.");
+  const count = Math.ceil(bytes.byteLength / SEGMENT_BYTES);
+  const body = new Uint8Array(sealedSize(bytes.byteLength));
+  for (let index = 0; index < count; index += 1) {
+    const piece = bytes.subarray(index * SEGMENT_BYTES, (index + 1) * SEGMENT_BYTES);
+    const sealed = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: segmentNonce(index, index === count - 1) },
+      key,
+      piece,
+    );
+    body.set(new Uint8Array(sealed), index * (SEGMENT_BYTES + TAG_BYTES));
+  }
+  return body;
+};
+
+/**
+ * Opens segments of a body: `bytes` holds segments `first` onward (whole
+ * ones, the body's last one included when `last`), as a Range request for
+ * them returns. With first 0 and last true, the whole body.
+ */
+export const openSegments = async (key, bytes, first = 0, last = true) => {
+  const sealed = new Uint8Array(bytes);
+  const step = SEGMENT_BYTES + TAG_BYTES;
+  const count = Math.ceil(sealed.byteLength / step);
+  const contents = new Uint8Array(Math.max(0, sealed.byteLength - TAG_BYTES * count));
+  try {
+    for (let index = 0; index < count; index += 1) {
+      const opened = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: segmentNonce(first + index, last && index === count - 1) },
+        key,
+        sealed.subarray(index * step, (index + 1) * step),
+      );
+      contents.set(new Uint8Array(opened), index * SEGMENT_BYTES);
+    }
+  } catch {
+    throw new Error("This item could not be decrypted.");
+  }
+  return contents;
 };
 
 const openWith = async (key, label, sealed) => {
@@ -153,7 +244,21 @@ export const defaultTextName = (text) => {
   return (space > 0 ? cut.slice(0, space) : cut).replace(/[\s,.;:!?–—-]+$/u, "");
 };
 
+/**
+ * An encrypted link's fragment (without the #): "name/path", or a read-only
+ * link's "/token/path". The first gives { name, path }; the second
+ * { name: "", readToken, path }.
+ */
 export const splitFragment = (fragment) => {
+  if (fragment.startsWith(NAME_PATH_SEPARATOR)) {
+    const rest = fragment.slice(1);
+    const cut = rest.indexOf(NAME_PATH_SEPARATOR);
+    return {
+      name: "",
+      readToken: cut === -1 ? rest : rest.slice(0, cut),
+      path: cut === -1 ? "" : rest.slice(cut + 1),
+    };
+  }
   const cut = fragment.indexOf(NAME_PATH_SEPARATOR);
   const name = cut === -1 ? fragment : fragment.slice(0, cut);
   return {
@@ -164,7 +269,23 @@ export const splitFragment = (fragment) => {
 
 export const encryptionAvailable = () => Boolean(globalThis.crypto?.subtle);
 
-export const openSealedSpace = async (secretName) => {
+/** `bytes` bytes of HKDF-SHA256 from `secret`, for `info`; the salt is empty. */
+const hkdf = async (secret, info, bytes) => {
+  const key = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveBits"]);
+  return new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(), info: encoder.encode(info) },
+      key,
+      bytes * 8,
+    ),
+  );
+};
+
+/**
+ * Everything a secret name gives: K (PBKDF2), and from it the namespace ID,
+ * the namespace key and the write key, as bytes.
+ */
+export const deriveNamespaceKeys = async (secretName) => {
   if (!encryptionAvailable()) {
     throw new Error("Encryption needs a secure (https) connection.");
   }
@@ -175,7 +296,7 @@ export const openSealedSpace = async (secretName) => {
     false,
     ["deriveBits"],
   );
-  const bits = new Uint8Array(
+  const secret = new Uint8Array(
     await crypto.subtle.deriveBits(
       {
         name: "PBKDF2",
@@ -187,10 +308,56 @@ export const openSealedSpace = async (secretName) => {
       DERIVED_BITS,
     ),
   );
-  const namespaceKey = await importWrappingKey(bits.subarray(ID_BYTES));
+  return {
+    secret,
+    id: await hkdf(secret, ID_INFO, ID_BYTES),
+    namespaceKey: await hkdf(secret, NAMESPACE_KEY_INFO, NAMESPACE_KEY_BYTES),
+    writeKey: await hkdf(secret, WRITE_KEY_INFO, WRITE_KEY_BYTES),
+  };
+};
+
+/** An encrypted namespace opened by its name: it reads, and writes with its write key. */
+export const openSealedSpace = async (secretName) => {
+  const keys = await deriveNamespaceKeys(secretName);
+  return spaceOf(keys.id, keys.namespaceKey, toBase64Url(keys.writeKey));
+};
+
+/**
+ * An encrypted namespace opened by a read-only link's token,
+ * base64url(ID ‖ namespace key): it reads everything, and writes only
+ * where nothing is locked.
+ */
+export const openReadOnlySpace = async (token) => {
+  if (!encryptionAvailable()) {
+    throw new Error("Encryption needs a secure (https) connection.");
+  }
+  let bytes;
+  try {
+    bytes = fromBase64Url(token);
+  } catch {
+    bytes = new Uint8Array();
+  }
+  if (bytes.length !== ID_BYTES + NAMESPACE_KEY_BYTES) {
+    throw new Error("This read-only link is incomplete or damaged.");
+  }
+  return spaceOf(bytes.subarray(0, ID_BYTES), bytes.subarray(ID_BYTES), null);
+};
+
+/**
+ * A namespace's operations, from its ID and namespace key; `writeKey`
+ * (base64url, for Write-Key) when opened by its name, null by a read-only link.
+ */
+const spaceOf = async (idBytes, namespaceKeyBytes, writeKey) => {
+  const namespaceKey = await importWrappingKey(namespaceKeyBytes);
+  const readToken = new Uint8Array(ID_BYTES + NAMESPACE_KEY_BYTES);
+  readToken.set(idBytes);
+  readToken.set(namespaceKeyBytes, ID_BYTES);
 
   return {
-    id: toBase64Url(bits.subarray(0, ID_BYTES)),
+    id: toBase64Url(idBytes),
+    writeKey,
+    /** The fragment of a read-only link, after "#/": base64url(ID ‖ namespace key). */
+    readToken: toBase64Url(readToken),
 
     /**
      * Encrypts one item; `header` goes in X-Sealed-Metadata, `body` is
@@ -210,7 +377,7 @@ export const openSealedSpace = async (secretName) => {
       );
       return {
         header: `${toBase64Url(wrappedKey)}.${toBase64Url(sealedMetadata)}`,
-        body: await sealWith(itemKey, BODY_LABEL, bytes),
+        body: await sealBody(await bodyKey(rawKey, 0), bytes),
         keyText: toBase64Url(rawKey),
       };
     },
@@ -260,14 +427,18 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
   if (!encryptionAvailable()) {
     throw new Error("Encryption needs a secure (https) connection.");
   }
-  const itemKey = await importKey(fromBase64Url(keyText));
+  const rawKey = fromBase64Url(keyText);
+  const itemKey = await importKey(rawKey);
   const packed = JSON.parse(
     decoder.decode(await openWith(itemKey, METADATA_LABEL, fromBase64Url(sealedMetadata))),
   );
+  const metadata = unpackMetadata(packed, sealedSize);
   return {
-    metadata: unpackMetadata(packed, sealedSize),
+    metadata,
     keyText,
-    open: (bytes) => openWith(itemKey, BODY_LABEL, bytes),
+    /** The body key of these contents' revision, for opening them in parts. */
+    bodyKey: () => bodyKey(rawKey, metadata.rev),
+    open: async (bytes) => openSegments(await bodyKey(rawKey, metadata.rev), bytes),
     sealMetadata: async (changed) =>
       toBase64Url(
         await sealWith(
@@ -317,6 +488,8 @@ Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J,
 (and -s, -S, -L, -f, -p, ignored).
 A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
 A locked namespace's write key goes in KUROBAKO_WRITE_KEY; -X POST <link>/lock locks one.
+An encrypted namespace writes with the key its name gives; locked, it answers
+with a read-only link, <site>/e#/<token>, which reads and does not write.
 As with curl, -d @file drops line breaks; --data-binary @file keeps them.
 -h or --help shows this.
 Plain links (<site>/<namespace>/...) work too, sent as they are; JSON prints
@@ -463,10 +636,13 @@ const parseLink = (text) => {
   // before /e or /i/<token> is part of the site.
   const sealed = /^((?:\/[^/]+)*)\/e$/.exec(url.pathname);
   if (sealed && fragment) {
-    const { name, path } = splitFragment(fragment);
+    const { name, readToken, path } = splitFragment(fragment);
+    const site = `${url.origin}${sealed[1]}`;
+    // A read-only link (e#/<token>): no name, only the means to read.
+    if (readToken !== undefined) return { kind: "sealed", site, name: "", readToken, path };
     const problem = secretNameProblem(name);
     if (problem) throw new Error(problem);
-    return { kind: "sealed", site: `${url.origin}${sealed[1]}`, name, path };
+    return { kind: "sealed", site, name, path };
   }
   const shared = /^((?:\/[^/]+)*)\/i\/([A-Za-z0-9_-]{14})(.*)$/.exec(url.pathname);
   if (shared && fragment) {
@@ -497,9 +673,12 @@ const parseNamespacePath = (fullPath) => {
  * sends its own Authorization header; a locked namespace's write key, in
  * KUROBAKO_WRITE_KEY, unless it sends its own Write-Key.
  */
+/** The write key of the encrypted namespace a command works on, derived from its name. */
+let namespaceWriteKey = null;
+
 const reach = async (url, init = {}) => {
   const key = globalThis.process?.env?.KUROBAKO_KEY;
-  const writeKey = globalThis.process?.env?.KUROBAKO_WRITE_KEY;
+  const writeKey = globalThis.process?.env?.KUROBAKO_WRITE_KEY ?? namespaceWriteKey;
   const headers = new Headers(init.headers);
   if (key && !headers.has("authorization")) headers.set("authorization", `Bearer ${key}`);
   // A locked namespace's write key: harmless where nothing is locked.
@@ -1163,13 +1342,16 @@ const localRequest = async (text, options) => {
 
   if (fragment || envSecret) {
     const secret = fragment?.name || envSecret;
-    const problem = secretNameProblem(secret);
+    const problem = fragment?.readToken === undefined && secretNameProblem(secret);
     if (problem) {
       throw new Error(
         "Give the backup's secret name after the path, as './backup#secret name', or in KUROBAKO_SECRET.",
       );
     }
-    const space = await openSealedSpace(secret);
+    const space =
+      fragment?.readToken !== undefined
+        ? await openReadOnlySpace(fragment.readToken)
+        : await openSealedSpace(secret);
     const namespace = manifest.namespaces.find(
       (candidate) => candidate?.space === "sealed" && candidate.name === space.id,
     );
@@ -1343,12 +1525,25 @@ const rename = async (space, site, selector, given) => {
 };
 
 /** The encrypted namespace, path by path, as the plain API answers it. */
-const sealedRequest = async ({ site, name, path: fullPath }, options) => {
+const sealedRequest = async ({ site, name, readToken, path: fullPath }, options) => {
   const { path, query, first, second, extra } = parseNamespacePath(fullPath);
-  const space = await openSealedSpace(name);
+  const space =
+    readToken !== undefined ? await openReadOnlySpace(readToken) : await openSealedSpace(name);
+  // Opened by its name, it writes even when locked; by a read-only link, it has no key.
+  namespaceWriteKey = space.writeKey;
   const base = `${site}/e/${space.id}`;
   const { method } = options;
   const sending = options.data !== null || options.upload !== null;
+
+  // Locking: the key is the one the name gives, sent along by reach. Locked,
+  // the answer adds the read-only link to hand out.
+  if (path === "lock" && (method === "POST" || method === "DELETE")) {
+    const response = await call(`${base}/lock`, { method });
+    const answer = await response.json();
+    return printJson(
+      answer.locked ? { ...answer, readOnlyLink: `${site}/e#/${space.readToken}` } : answer,
+    );
+  }
 
   // Backups go as they are: the server sends items still encrypted, and a
   // backup is restored the same way.
