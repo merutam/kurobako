@@ -171,6 +171,12 @@ ops/init-env.sh                # writes .env with fresh secrets
 podman compose up -d --build   # or docker compose
 ```
 
+Any other S3-compatible store works instead of Garage, such as Cloudflare
+R2: set `S3_ENDPOINT` (for R2, `https://<account id>.r2.cloudflarestorage.com`),
+`S3_REGION` (`auto`), `S3_BUCKET` and its keys in `.env`, and start the server
+alone with `podman compose up -d --build --no-deps kurobako`. Give it a bucket
+of its own as two instances sharing one would delete each other's files.
+
 It listens on `127.0.0.1:3000`; put a reverse proxy with HTTPS in front.
 Besides the settings above it takes `S3_ENDPOINT`, `S3_BUCKET`,
 `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `DATA_DIR`, `PORT`,

@@ -595,6 +595,26 @@ describe("rules kept in two places", () => {
     expect(told).toBe(limiter?.[1]);
   });
 
+  test("compose passes every setting on to the server", async () => {
+    const root = join(import.meta.dir, "..");
+    const read = (path: string) => Bun.file(join(root, path)).text();
+    const names = (text: string, pattern: RegExp) =>
+      new Set([...text.matchAll(pattern)].map((match) => match[1] as string));
+    const read_ = [
+      ...names(await read("src/config.ts"), /(?:integer|flag)\(\s*vars,\s*"([A-Z0-9_]+)"/g),
+      ...names(await read("src/config.ts"), /vars\.([A-Z0-9_]+)/g),
+      ...names(
+        await read("src/bun/server.ts"),
+        /(?:env\.|positiveInteger\(|required\()"?([A-Z0-9_]+)/g,
+      ),
+    ];
+    const passed = names(await read("compose.yaml"), /^ {6}([A-Z0-9_]+):/gm);
+    // Set inside the container by the Containerfile.
+    const internal = new Set(["DATA_DIR", "HOST", "PORT"]);
+    const missing = [...new Set(read_)].filter((name) => !passed.has(name) && !internal.has(name));
+    expect(missing).toEqual([]);
+  });
+
   test("the miss limit Cloudflare enforces is the one configured", async () => {
     const wrangler = await Bun.file(join(import.meta.dir, "..", "wrangler.jsonc")).text();
     const told = /"MISSES_PER_MINUTE":\s*"(\d+)"/.exec(wrangler)?.[1];

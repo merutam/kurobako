@@ -5,7 +5,8 @@
 # Starts Garage and, the first time, gives it a layout, the bucket and the
 # app's access key.
 set -eu
-: "${GARAGE_RPC_SECRET:?}" "${S3_BUCKET:?}" "${S3_ACCESS_KEY_ID:?}" "${S3_SECRET_ACCESS_KEY:?}"
+: "${GARAGE_RPC_SECRET:?run ops/init-env.sh first}" "${S3_BUCKET:?}"
+: "${S3_ACCESS_KEY_ID:?run ops/init-env.sh first}" "${S3_SECRET_ACCESS_KEY:?run ops/init-env.sh first}"
 
 garage server &
 server=$!
