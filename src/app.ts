@@ -12,6 +12,7 @@
 //   GET    /<ns>/<item>       one item's contents (/c too); /d downloads it
 //   GET    /<ns>/<item>.json  its details and a link to share it
 //   GET    /<ns>/<item>/s     a link to share it, as text (POST works too)
+//   POST   /<ns>/<item>/e     replaces a text's contents
 //   POST   /<ns>/<item>/n     renames it
 //   DELETE /<ns>/<item>       deletes it
 //   GET    /<ns>/log          who opened the namespace; log.json for JSON
@@ -85,8 +86,9 @@ export const createApp = (
   if (config.adminKey) mountAdmin(app, api, config.adminKey);
   mountShares(app, api, contents);
   mountArchives(app, api);
-  mountNamespaces(app, api, createUploads(api));
-  mountItems(app, api, contents);
+  const uploads = createUploads(api);
+  mountNamespaces(app, api, uploads);
+  mountItems(app, api, contents, uploads);
 
   app.notFound((c) => jsonError(c, 404, "Not found."));
   app.onError((error, c) => {

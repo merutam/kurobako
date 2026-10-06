@@ -410,6 +410,11 @@ const spaceOf = async (idBytes, namespaceKeyBytes, writeKey) => {
         ...opened,
         withMetadata: async (changes) =>
           `${wrappedKey}.${await opened.sealMetadata({ ...opened.metadata, ...changes })}`,
+        /** New contents under the next revision, keeping this item's key. */
+        withContents: async (bytes, changes = {}) => {
+          const changed = await opened.sealContents(bytes, changes);
+          return { ...changed, header: `${wrappedKey}.${changed.sealedMetadata}` };
+        },
       };
     },
   };
@@ -447,6 +452,26 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
           encoder.encode(JSON.stringify(packMetadata(changed))),
         ),
       ),
+    /** Seals replacement contents under rev + 1, so a body key is never reused. */
+    sealContents: async (bytes, changes = {}) => {
+      const changed = {
+        ...metadata,
+        ...changes,
+        size: bytes.byteLength,
+        rev: metadata.rev + 1,
+      };
+      return {
+        metadata: changed,
+        sealedMetadata: toBase64Url(
+          await sealWith(
+            itemKey,
+            METADATA_LABEL,
+            encoder.encode(JSON.stringify(packMetadata(changed))),
+          ),
+        ),
+        body: await sealBody(await bodyKey(rawKey, changed.rev), bytes),
+      };
+    },
   };
 };
 
@@ -480,6 +505,7 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs -d 'hello' <site>/e#<name>/new   sends a text (-d @file, -d @- for stdin)
   node k.mjs -T photo.jpg <site>/e#<name>/    sends a file
   node k.mjs -H burn:1 -d 'once' <site>/e#<name>/new
+  node k.mjs -d 'changed' <site>/e#<name>/1/e   edits a text if it has not changed
   node k.mjs -d 'new name' <site>/e#<name>/1/n   renames it (empty: a text's default)
   node k.mjs -X DELETE <site>/e#<name>/1
   node k.mjs <site>/e#<name>/1/s              a link to share it, with its key
@@ -490,7 +516,7 @@ Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J,
 (and -s, -S, -L, -f, -p, ignored).
 A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
 A locked namespace's write key goes in KUROBAKO_WRITE_KEY; -X POST <link>/lock locks one.
-<link>/live stays on and prints a line per change (new, moved, renamed, gone,
+<link>/live stays on and prints a line per change (new, moved, changed, gone,
 locked, unlocked), the encrypted ones decrypted: for scripts.
 An encrypted namespace writes with the key its name gives; locked, it answers
 with a read-only link, <site>/e#/<token>, which reads and does not write.
@@ -1546,6 +1572,37 @@ const rename = async (space, site, selector, given) => {
   );
 };
 
+/** Replaces an encrypted text under its next revision, keeping its item key. */
+const edit = async (space, site, selector, options) => {
+  const entry = await findEntry(space, site, selector);
+  if (entry.item.burn) throw new Error("An item that deletes when opened cannot be edited.");
+  if (entry.opened.metadata.kind !== "text") throw new Error("Only texts can be edited.");
+  const contents = await dataBytes(options);
+  const previous = decoder.decode(await contentsOf(entry));
+  const title =
+    entry.opened.metadata.title === defaultTextName(previous)
+      ? defaultTextName(decoder.decode(contents))
+      : entry.opened.metadata.title;
+  const replacement = await entry.opened.withContents(contents, { title });
+  const item = await (
+    await call(`${site}/e/${space.id}/${entry.item.id}/e`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "If-Match": JSON.stringify(entry.item.updatedAt ?? entry.item.createdAt),
+        "X-Sealed-Metadata": replacement.header,
+      },
+      body: replacement.body,
+    })
+  ).json();
+  printJson({
+    ...itemJson(item, replacement.metadata),
+    ...textJson(decoder.decode(contents), contents.byteLength, {
+      inlineLimit: await inlineLimitOf(`${site}/e/${space.id}/ls`),
+    }),
+  });
+};
+
 /** The encrypted namespace, path by path, as the plain API answers it. */
 const sealedRequest = async ({ site, name, readToken, path: fullPath }, options) => {
   await requireProtocol(`${site}/e`);
@@ -1602,6 +1659,9 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
   if (sending) {
     if (options.data !== null && path === "new" && method === "POST")
       return send(space, site, options);
+    if (options.data !== null && second === "e" && !FIXED_PATHS.has(first) && !extra.length) {
+      return edit(space, site, first, options);
+    }
     if (options.data !== null && second === "n" && !FIXED_PATHS.has(first) && !extra.length) {
       return rename(space, site, first, decoder.decode(await dataBytes(options)));
     }
@@ -1706,7 +1766,7 @@ const isNamespace = async (url) => {
 /**
  * Stays on a namespace's live connection and prints a line per change, for
  * scripts (`while read -r event id name`): "new <id> <name>", "moved <id>
- * <name>" (the same contents sent again), "renamed <id> <name>", "gone <id>"
+ * <name>" (the same contents sent again), "changed <id> <name>", "gone <id>"
  * (deleted, expired or burnt), "locked", "unlocked". It starts from the queue
  * as it is, reconnects by itself and, once back, prints only what changed
  * meanwhile. `nameOf(item)` names an item (decrypting it if need be).
@@ -1728,7 +1788,7 @@ const watchLive = async (base, nameOf) => {
   let locked = null;
   const names = new Map();
   const named = async (item) => {
-    // Encrypted items change their sealed metadata when renamed; plain ones, their name.
+    // Encrypted items change their sealed metadata when edited or renamed; plain ones, their name.
     const key = item.metadata ?? `${item.id}/${item.name ?? item.filename ?? ""}`;
     if (!names.has(key)) names.set(key, (await nameOf(item)) || "-");
     return names.get(key);
@@ -1749,7 +1809,7 @@ const watchLive = async (base, nameOf) => {
         const before = known.get(id);
         if (!before) print(`new ${id} ${now.name}`);
         else if (before.createdAt !== now.createdAt) print(`moved ${id} ${now.name}`);
-        else if (before.updatedAt !== now.updatedAt) print(`renamed ${id} ${now.name}`);
+        else if (before.updatedAt !== now.updatedAt) print(`changed ${id} ${now.name}`);
       }
       for (const id of known.keys()) if (!seen.has(id)) print(`gone ${id}`);
       if (Boolean(nowLocked) !== locked) print(nowLocked ? "locked" : "unlocked");
@@ -1821,6 +1881,16 @@ const plainRequest = async ({ url }, options) => {
   if (options.data !== null) {
     body = await dataBytes(options);
     headers["Content-Type"] ??= "application/x-www-form-urlencoded";
+    // The edit route is conditional. Fetch the item's current version unless
+    // the caller supplied its own If-Match, keeping the command curl-like.
+    if (
+      /\/e\/?$/.test(new URL(target).pathname) &&
+      !Object.keys(headers).some((name) => name.toLowerCase() === "if-match")
+    ) {
+      const itemUrl = target.replace(/\/e\/?(?:\?.*)?$/, ".json");
+      const item = await (await call(itemUrl)).json();
+      headers["If-Match"] = JSON.stringify(item.updatedAt ?? item.createdAt);
+    }
   } else if (options.upload !== null) {
     body = await readInput(options.upload);
     // curl -T file <url>/ appends the file's name; here a bare namespace gets

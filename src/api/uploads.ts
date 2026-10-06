@@ -9,9 +9,10 @@ import {
   type NamespaceRef,
   publicItem,
   SEALED_METADATA_PATTERN,
+  type StoredItem,
   TEXT_PREVIEW_CHARS,
 } from "../model";
-import type { Saved, SaveInput } from "../namespace";
+import type { ItemRef, Saved, SaveInput } from "../namespace";
 import { type Api, type AppContext, jsonError, readLimited } from "./context";
 
 /** A file-backed item before its bytes are in the blob store. */
@@ -330,5 +331,122 @@ export const createUploads = (api: Api) => {
     return sentResponse(c, saved);
   };
 
-  return { uploadFile, uploadPlain, uploadSealed };
+  type ReplaceResult = { item: StoredItem } | { error: string; conflict?: true } | null;
+
+  /** Uploads replacement bytes, deleting them only when they are certainly unreferenced. */
+  const replaceObject = async (
+    c: AppContext,
+    ref: NamespaceRef,
+    item: ItemRef,
+    expected: string,
+    upload: Upload,
+    input: ObjectInput,
+    validate?: () => void,
+  ): Promise<ReplaceResult> => {
+    const object = objectKey(ref);
+    const { blobs } = platformOf(c);
+    const hashed = input.kind === "sealed" ? null : hashing(upload.body);
+    const contentType = input.kind === "sealed" ? "application/octet-stream" : TEXT_MIME;
+    await blobs.put(object, hashed?.stream ?? upload.body, upload.size, contentType);
+    try {
+      validate?.();
+    } catch (error) {
+      later(c, blobs.delete([object]));
+      throw error;
+    }
+    const result = (await namespace(c, ref).replace(
+      item,
+      { ...input, object, size: upload.size, ...(hashed ? { sha256: hashed.digest() } : {}) },
+      expected,
+      visit(c),
+    )) as ReplaceResult;
+    // A null or error answer guarantees the namespace did not commit. A thrown
+    // RPC does not: leave the blob, since the committed row may point at it.
+    if (!result || "error" in result) later(c, blobs.delete([object]));
+    return result;
+  };
+
+  const editResponse = (c: AppContext, result: ReplaceResult) => {
+    if (!result) return jsonError(c, 404, "Item not found.");
+    if ("error" in result) return jsonError(c, result.conflict ? 412 : 400, result.error);
+    record(c, result.item.kind === "sealed" ? "sentEncrypted" : "sentText");
+    return c.json(publicItem(result.item));
+  };
+
+  /** Replaces one text, using the same inline/blob and UTF-8 rules as a send. */
+  const editText = async (c: AppContext, ref: NamespaceRef, item: ItemRef, expected: string) => {
+    if (ref.space === "sealed") {
+      const metadata = c.req.header("x-sealed-metadata") ?? "";
+      if (!SEALED_METADATA_PATTERN.test(metadata)) {
+        return jsonError(c, 400, "Missing or invalid X-Sealed-Metadata header.");
+      }
+      const upload = await streamedBody(c, config.maxFileBytes);
+      if (upload instanceof Response) return upload;
+      return editResponse(
+        c,
+        await replaceObject(c, ref, item, expected, upload, { kind: "sealed", metadata }),
+      );
+    }
+
+    const contentType = (c.req.header("content-type") || "").split(";", 1)[0]?.trim().toLowerCase();
+    if (!TEXT_TYPES.has(contentType ?? "")) {
+      return jsonError(c, 415, "A text edit needs Content-Type: text/plain.");
+    }
+    const declared = Number(c.req.header("content-length") ?? Number.NaN);
+    if (Number.isSafeInteger(declared) && declared > config.maxTextBytes) {
+      return jsonError(c, 413, `The limit is ${config.maxTextBytes} bytes.`);
+    }
+    if (Number.isSafeInteger(declared) && declared > config.inlineTextBytes) {
+      const upload = await streamedBody(c, config.maxTextBytes);
+      if (upload instanceof Response) return upload;
+      const external = validatedText(upload);
+      try {
+        return editResponse(
+          c,
+          await replaceObject(
+            c,
+            ref,
+            item,
+            expected,
+            external.upload,
+            external.input,
+            external.validate,
+          ),
+        );
+      } catch (error) {
+        if (error instanceof InvalidUtf8Error) {
+          return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
+        }
+        throw error;
+      }
+    }
+
+    const bytes = await readBody(c, config.maxTextBytes);
+    if (bytes instanceof Response) return bytes;
+    let text: string;
+    try {
+      text = strictUtf8().decode(bytes);
+    } catch {
+      return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
+    }
+    const result =
+      bytes.byteLength > config.inlineTextBytes
+        ? await replaceObject(
+            c,
+            ref,
+            item,
+            expected,
+            { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
+            { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS) },
+          )
+        : ((await namespace(c, ref).replace(
+            item,
+            { kind: "text", text, size: bytes.byteLength, sha256: sha256Of(bytes) },
+            expected,
+            visit(c),
+          )) as ReplaceResult);
+    return editResponse(c, result);
+  };
+
+  return { editText, uploadFile, uploadPlain, uploadSealed };
 };

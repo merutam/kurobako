@@ -14,16 +14,18 @@ this file goes away with the last.
 ## 1. Live updates for scripts (done)
 
 `k.mjs <link>/live` stays connected and prints one line per change, the
-encrypted ones decrypted: `new <id> <name>`, `gone <id>`, `locked`,
+encrypted ones decrypted: `new <id> <name>`, `changed <id> <name>`,
+`gone <id>`, `locked`,
 `unlocked`. It reconnects by itself and, after reconnecting, prints only
 what changed since. Scripts get from it what a webhook would give, without
 the server calling out.
 
-## 2. Editing texts
+## 2. Editing texts (done)
 
 A text's contents can be replaced, keeping its ID, position, expiry and
 share link: `POST <ns>/<item>/e` with the new text, a write like any other.
-The client sends the `updatedAt` it saw; if the item changed since, `409`.
+The client sends the `updatedAt` it saw (or `createdAt` before the first
+change) as a quoted `If-Match`; if the item changed since, it gets `412`.
 
 An encrypted text is sealed again under `rev + 1`: a new body key, so a nonce
 is never used twice under one key, while the item key (and every share link

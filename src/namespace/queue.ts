@@ -240,6 +240,39 @@ export const newItem = (
 };
 
 /**
+ * A text with its contents replaced, as `input` brings them, keeping its ID,
+ * dates, expiry and share link. A plain text named by its start is named by
+ * the new start; one named by hand keeps its name. An encrypted item takes
+ * a new body and metadata under the same wrapped key (its client sealed the
+ * contents under a new revision). Files and burn-after-reading items stay as
+ * sent.
+ */
+export const replacedItem = (
+  item: StoredItem,
+  input: SaveInput,
+  updatedAt: string,
+): StoredItem | { error: string } => {
+  if (item.burn) return { error: "An item that deletes when opened cannot be edited." };
+  if (item.kind === "sealed") {
+    if (input.kind !== "sealed" || !SEALED_METADATA_PATTERN.test(input.metadata)) {
+      return { error: "Missing or invalid X-Sealed-Metadata header." };
+    }
+    if (input.metadata.split(".")[0] !== item.metadata.split(".")[0]) {
+      return { error: "The item's key cannot change." };
+    }
+  } else if (item.kind !== "text" || input.kind !== "text") {
+    return { error: "Only texts can be edited." };
+  }
+  const replaced = newItem(item.id, input, false, item.createdAt, item.expiresAt);
+  if (item.kind === "text" && replaced.kind === "text") {
+    const start = "text" in item ? item.text : (item.preview ?? "");
+    const byHand = item.name !== undefined && item.name !== defaultTextName(start);
+    if (byHand) replaced.name = item.name;
+  }
+  return { ...replaced, updatedAt };
+};
+
+/**
  * An item under a new name. A plain item takes `name`: a file or image gets
  * it as its file name (an image keeps the extension of its real type), a text
  * as its name, and an empty name gives a text back its default, the start of

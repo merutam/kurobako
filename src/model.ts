@@ -4,7 +4,7 @@
 type CommonItem = {
   id: string;
   createdAt: string;
-  /** Last metadata change, such as a rename. Absent until an item changes. */
+  /** Last content or metadata change. Absent until an item changes. */
   updatedAt?: string;
   expiresAt: string | null;
   size: number;

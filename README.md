@@ -25,6 +25,7 @@ curl -OJ $BOX/ns/1/d               # saved under its own name
 curl -d 'hello' $BOX/ns/new        # send a text
 curl -T photo.jpg $BOX/ns/         # send a file
 curl -H burn:1 -d 'once' $BOX/ns/new   # deleted when first read
+curl -H 'If-Match: "<updatedAt-or-createdAt>"' -d 'changed' $BOX/ns/1/e
 curl -d 'new name' $BOX/ns/1/n     # rename
 curl -X DELETE $BOX/ns/1           # delete
 curl $BOX/ns/1/s                   # a link to share it
@@ -43,11 +44,12 @@ curl -O $BOX/k.mjs
 node k.mjs "$BOX/e#secret name"                # the items, one per line
 node k.mjs "$BOX/e#secret name/1"              # an item's contents
 node k.mjs -d 'hello' "$BOX/e#secret name/new"
+node k.mjs -d 'changed' "$BOX/e#secret name/1/e" # edit if unchanged meanwhile
 node k.mjs -O "$BOX/e#secret name"             # export every item here (overwrites)
 node k.mjs "$BOX/e#secret name/live"           # a line per change, until stopped
 ```
 
-`/live` stays connected and prints `new <id> <name>`, `moved`, `renamed`,
+`/live` stays connected and prints `new <id> <name>`, `moved`, `changed`,
 `gone <id>`, `locked` or `unlocked` as they happen, for scripts; it works on
 plain namespaces too, and reconnects by itself (Node 22+ or Bun):
 
@@ -91,7 +93,7 @@ Encrypted items stay encrypted in it, so a backup needs no secret:
 
 ```sh
 curl -OJ $BOX/ns/zip                       # ns-2026-10-06.zip (or /tar)
-curl -OJ "$BOX/ns/zip?since=2026-10-01"    # only what was sent or renamed since
+curl -OJ "$BOX/ns/zip?since=2026-10-01"    # only what was sent or changed since
 curl -T ns-2026-10-06.zip $BOX/ns/import   # put back (into any plain namespace)
 node k.mjs -O "$BOX/e#secret name"         # every item, decrypted, into this folder
 ```
@@ -112,9 +114,10 @@ With `ADMIN_KEY` set, `/k/a/zip` and `/k/a/tar` back up every namespace, and
 curl -H "Authorization: Bearer $ADMIN_KEY" -o backup.tar $BOX/k/a/tar
 ```
 
-Import merges: it never deletes or replaces existing contents. Incremental
-backups omit deletions; restore a full snapshot into an empty instance for an
-exact copy. Items that burn after reading are left out.
+Import merges: a newer revision replaces a text with the same ID; files stay
+immutable, and nothing is deleted. Incremental backups omit deletions; restore
+a full snapshot into an empty instance for an exact copy. Items that burn after
+reading are left out.
 
 A backup also comes in parts, each a whole backup of its own items, for
 anything with a request size limit (Cloudflare takes 100 MB per request):
@@ -137,7 +140,7 @@ done
 ## A locked namespace
 
 A namespace can be read by anyone and written only by you: lock it while
-it is empty, and only its write key sends, renames or deletes there.
+it is empty, and only its write key sends, edits, renames or deletes there.
 
 ```sh
 curl -X POST $BOX/news/lock          # {"locked": true, "writeKey": "…"}, shown once
@@ -355,4 +358,4 @@ bun pm version minor # new version, in package.json and public/k.mjs
 
 ## License
 
-[AGPL-3.0-or-later](LICENSE). `public/vendor/uqr.js` is MIT.
+[AGPL-3.0-or-later](LICENSE). `public/vendor/*` have they own licenses.

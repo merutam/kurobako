@@ -62,6 +62,7 @@ export type NamespaceApi = Async<
     | "peek"
     | "locate"
     | "rename"
+    | "replace"
     | "remove"
     | "accessLog"
     | "cleanUpIfEmpty"

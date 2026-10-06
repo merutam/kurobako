@@ -12,6 +12,32 @@ import {
   HIDDEN_TITLE,
   SITE,
 } from "./common.js";
+import hljs from "./vendor/highlight.js";
+
+export const extensionOf = (title) => /\.([A-Za-z0-9_+-]+)$/.exec(title)?.[1]?.toLowerCase() ?? "";
+export const languageOf = (title) => {
+  const extension = extensionOf(title);
+  return extension && hljs.getLanguage(extension) ? extension : null;
+};
+
+/** Text as source. A known extension picks its grammar; without one, highlight.js guesses. */
+export const highlightedText = (text, title) => {
+  const code = el("code");
+  const extension = extensionOf(title);
+  const language = languageOf(title);
+  if (language) {
+    code.innerHTML = hljs.highlight(text, { language }).value;
+    code.className = `hljs language-${language}`;
+  } else if (!extension) {
+    const highlighted = hljs.highlightAuto(text);
+    code.innerHTML = highlighted.value;
+    code.className = `hljs${highlighted.language ? ` language-${highlighted.language}` : ""}`;
+  } else {
+    code.textContent = text;
+    code.className = "hljs";
+  }
+  return el("pre", {}, code);
+};
 
 /**
  * A plain item, as the pages show it: { kind: "text" | "file", title,

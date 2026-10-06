@@ -33,6 +33,8 @@ import {
   describeOpened,
   describePlain,
   downloadBlob,
+  extensionOf,
+  highlightedText,
   itemSummary,
   streamAddress,
   videoPlayer,
@@ -47,6 +49,7 @@ import {
   splitFragment,
 } from "./k.mjs";
 import { createStatus } from "./status.js";
+import hljs from "./vendor/highlight.js";
 import { renderSVG } from "./vendor/uqr.js";
 
 const itemsList = element("#items");
@@ -129,6 +132,7 @@ const updateExpiries = () => {
 };
 
 const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
+const versionOf = (item) => item.updatedAt ?? item.createdAt;
 
 /*
  * A mode hides how items are stored. Every item is described as
@@ -138,6 +142,12 @@ const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
  */
 const plainMode = (namespace) => {
   const basePath = `${SITE}/${encodeURIComponent(namespace)}`;
+  const rename = (item, name) =>
+    request(`${basePath}/${encodeURIComponent(item.id)}/n`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain; charset=utf-8", ...writeHeaders() },
+      body: name,
+    });
   return {
     basePath,
     title: `/${namespace}`,
@@ -176,13 +186,21 @@ const plainMode = (namespace) => {
         },
         body: file,
       }),
-    /** An empty name gives a text back its default, the start of its text. */
-    rename: (item, name) =>
-      request(`${basePath}/${encodeURIComponent(item.id)}/n`, {
+    editText: async (item, text, { title }) => {
+      const response = await request(`${basePath}/${encodeURIComponent(item.id)}/e`, {
         method: "POST",
-        headers: { "Content-Type": "text/plain; charset=utf-8", ...writeHeaders() },
-        body: name,
-      }),
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "If-Match": JSON.stringify(versionOf(item)),
+          ...writeHeaders(),
+        },
+        body: text,
+      });
+      const edited = await response.json();
+      return title === null ? edited : (await rename(edited, title)).json();
+    },
+    /** An empty name gives a text back its default, the start of its text. */
+    rename,
   };
 };
 
@@ -275,6 +293,30 @@ const sealedMode = async ({ secretName, readToken }) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       // The same rules as the server's for plain files: images by their bytes.
       return send(bytes, fileMetadata(bytes, file.name), burn);
+    },
+    editText: async (item, text, { original, title }) => {
+      const opened = await openItem(item);
+      if (!opened) throw new Error("This item could not be decrypted.");
+      if (opened.metadata.kind !== "text") throw new Error("Only texts can be edited.");
+      const bytes = new TextEncoder().encode(text);
+      const changedTitle =
+        title ??
+        (opened.metadata.title === defaultTextName(original)
+          ? defaultTextName(text)
+          : opened.metadata.title);
+      const replacement = await opened.withContents(bytes, { title: changedTitle });
+      return (
+        await request(`${basePath}/${encodeURIComponent(item.id)}/e`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "If-Match": JSON.stringify(versionOf(item)),
+            "X-Sealed-Metadata": replacement.header,
+            ...writeHeaders(),
+          },
+          body: replacement.body,
+        })
+      ).json();
     },
     /**
      * The new name goes into the item's metadata, sealed again with its own
@@ -448,6 +490,57 @@ const noteSpan = (text) => {
 
 /** Whether a name is being edited; live updates wait until it is done. */
 let renaming = false;
+/** Whether text contents are being edited; live updates wait until it is done. */
+let editing = false;
+
+const PREFERRED_EXTENSIONS = {
+  bash: "sh",
+  csharp: "cs",
+  javascript: "js",
+  kotlin: "kt",
+  markdown: "md",
+  objectivec: "m",
+  perl: "pl",
+  plaintext: "txt",
+  python: "py",
+  ruby: "rb",
+  rust: "rs",
+  typescript: "ts",
+  vbnet: "vb",
+  xml: "html",
+  yaml: "yml",
+};
+
+const languageOptions = (selected) => {
+  const options = [el("option", { value: "", textContent: "Auto · no extension" })];
+  for (const language of hljs.listLanguages()) {
+    const details = hljs.getLanguage(language);
+    const extension = PREFERRED_EXTENSIONS[language] ?? language;
+    options.push(
+      el("option", {
+        value: extension,
+        textContent: `${details?.name ?? language} · .${extension}`,
+      }),
+    );
+  }
+  if (selected && !options.some((option) => option.value === selected)) {
+    const details = hljs.getLanguage(selected);
+    options.splice(
+      1,
+      0,
+      el("option", {
+        value: selected,
+        textContent: `${details?.name ?? selected} · .${selected}`,
+      }),
+    );
+  }
+  return options;
+};
+
+const withExtension = (title, extension) => {
+  const base = title.replace(/\.[A-Za-z0-9_+-]+$/, "");
+  return extension ? `${base}.${extension}` : base;
+};
 
 /** Renames in place: Enter or leaving the field saves, Escape cancels. */
 const renameItem = (entry, title) => {
@@ -508,6 +601,78 @@ const iconButton = (name, label, onClick, className) => {
   return control;
 };
 
+/** Opens a text editor in its preview. Save is conditional on the version shown. */
+const editItem = async (entry, preview) => {
+  if (editing) return;
+  editing = true;
+  let original;
+  try {
+    original = await textOf(entry);
+  } catch (error) {
+    editing = false;
+    status.error(error.message);
+    return;
+  }
+
+  const form = el("form", { className: "item-editor" });
+  const textarea = el("textarea", {
+    value: original,
+    required: true,
+    ariaLabel: "Text contents",
+  });
+  const initialExtension = extensionOf(entry.info.title);
+  const language = el(
+    "select",
+    { ariaLabel: "Syntax language" },
+    ...languageOptions(initialExtension),
+  );
+  language.value = initialExtension;
+  const size = el("span", { className: "hint" });
+  const showSize = () => {
+    const bytes = new Blob([textarea.value]).size;
+    size.textContent = `${formatBytes(bytes)} / ${formatBytes(config.maxTextBytes)}`;
+    size.classList.toggle("error-text", bytes > config.maxTextBytes);
+  };
+  textarea.addEventListener("input", showSize);
+  showSize();
+
+  const cancel = button("Cancel", () => {
+    editing = false;
+    rows.delete(entry.item.id);
+    itemOpeners.delete(entry.item.id);
+    renderedSignature = "";
+    void renderItems(serverItems, { force: true });
+  });
+  const save = el("button", { type: "submit", className: "primary", textContent: "Save" });
+  const controls = el("div", { className: "editor-controls" }, language, size, cancel, save);
+  form.append(textarea, controls);
+  preview.replaceChildren(form);
+  textarea.focus();
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = textarea.value;
+    if (new Blob([text]).size > config.maxTextBytes) {
+      status.error(`Text too large. Max ${formatBytes(config.maxTextBytes)}.`);
+      return;
+    }
+    const title =
+      language.value === initialExtension ? null : withExtension(entry.info.title, language.value);
+    setBusy(form, true);
+    status.progress("Saving…");
+    try {
+      await mode.editText(entry.item, text, { original, title });
+      editing = false;
+      status.success("Saved.");
+      renderedSignature = "";
+      await loadItems();
+    } catch (error) {
+      status.error(error.message);
+      setBusy(form, false);
+    }
+  });
+};
+
 /**
  * One row per item: its position (1 is the newest, as in $BOX/ns/1), what it
  * is, its name, size and age, and its actions as icons. Clicking the row
@@ -541,6 +706,8 @@ const renderItem = (entry, position) => {
     `${formatBytes(info.size ?? item.size)} · `,
     age,
   );
+  let preview = null;
+  let loadPreview = async () => {};
 
   // Opening a burn-after-reading item reads it: only its own button does that.
   const expandable = !unopenedBurn;
@@ -552,7 +719,7 @@ const renderItem = (entry, position) => {
     toggle.setAttribute("aria-controls", bodyId);
     const body = el("div", { className: "item-body", id: bodyId });
     const previewable = info.kind === "text" || info.isImage || info.isVideo;
-    const preview = el("div");
+    preview = el("div");
 
     let loaded = false;
     const load = async () => {
@@ -560,7 +727,7 @@ const renderItem = (entry, position) => {
       loaded = true;
       try {
         if (info.kind === "text") {
-          preview.replaceChildren(el("pre", { textContent: await textOf(entry) }));
+          preview.replaceChildren(highlightedText(await textOf(entry), info.title));
         } else {
           // Plain images and videos load straight from the server (a video
           // in parts, as it plays); an encrypted video plays in parts too,
@@ -580,6 +747,7 @@ const renderItem = (entry, position) => {
         status.error(error.message);
       }
     };
+    loadPreview = load;
 
     const setOpen = (open) => {
       body.hidden = !open;
@@ -638,6 +806,27 @@ const renderItem = (entry, position) => {
   if (unopenedBurn) {
     actions.append(button("Open once", () => openOnce(entry), undefined, "burn"));
   } else {
+    if (!entry.opened && info.kind === "text" && canWrite()) {
+      actions.append(
+        iconButton(
+          "edit",
+          "Edit",
+          () =>
+            void (async () => {
+              if (editing) return;
+              await loadPreview();
+              if (expandMode === "one") {
+                for (const id of expandedItems) itemOpeners.get(id)?.(false);
+                expandedItems.clear();
+              }
+              expandedItems.add(item.id);
+              closedItems.delete(item.id);
+              itemOpeners.get(item.id)?.(true);
+              await editItem(entry, preview);
+            })(),
+        ),
+      );
+    }
     if (info.kind === "text" || (info.isImage && canCopyImages())) {
       actions.append(iconButton("copy", "Copy", () => copyItem(entry)));
     }
@@ -688,7 +877,7 @@ const renderItems = async (items, { force = false } = {}) => {
   serverItems = items;
   itemsShown = true;
   // Rebuilding the list would drop the name being edited; it catches up after.
-  if (renaming) return;
+  if (renaming || editing) return;
   const serverIds = new Set(items.map((item) => item.id));
   const openedOnly = [...opened.values()].filter((entry) => !serverIds.has(entry.item.id));
   itemCount.textContent = `${items.length}/${config.maxItems}`;
@@ -747,7 +936,7 @@ const renderItems = async (items, { force = false } = {}) => {
 };
 
 /**
- * After a send, delete or rename, the live connection brings the new queue to
+ * After a send, edit, delete or rename, the live connection brings the new queue to
  * every open page, this one included; only without it is the queue fetched.
  */
 const isLive = () => socket?.readyState === WebSocket.OPEN;
@@ -1038,7 +1227,7 @@ const showAccess = () => {
     lockLink.setAttribute("aria-label", "Read-only link");
     lockHint.textContent = locked
       ? "Locked: the read-only link below opens it for reading only; the name still writes."
-      : "Locking keeps it readable with a read-only link, while only the name can send, rename or delete.";
+      : "Locking keeps it readable with a read-only link, while only the name can send, edit, rename or delete.";
     return;
   }
   lockLink.setAttribute("aria-label", "Link that writes here");
@@ -1048,10 +1237,10 @@ const showAccess = () => {
       "Locked: anyone can read it, and this device writes. So does the link below: keep it to yourself.";
   } else if (locked) {
     lockHint.textContent =
-      "Read-only: only those with its write key can send, rename or delete here.";
+      "Read-only: only those with its write key can send, edit, rename or delete here.";
   } else {
     lockHint.textContent =
-      "Locking keeps it readable by anyone, while only those with its key can send, rename or delete. Only an empty namespace can be locked.";
+      "Locking keeps it readable by anyone, while only those with its key can send, edit, rename or delete. Only an empty namespace can be locked.";
   }
 };
 
@@ -1084,7 +1273,8 @@ lockButton.addEventListener("click", async () => {
 });
 
 unlockButton.addEventListener("click", async () => {
-  if (!window.confirm("Unlock? Anyone with the name could then send, rename and delete.")) return;
+  if (!window.confirm("Unlock? Anyone with the name could then send, edit, rename and delete."))
+    return;
   try {
     await request(`${mode.basePath}/lock`, { method: "DELETE", headers: writeHeaders() });
     if (mode.writeKey === undefined) storage.remove(writeKeyName());

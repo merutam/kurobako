@@ -89,6 +89,7 @@
       "!/theme.js",
       "!/styles.css",
       "!/tokens.css",
+      "!/vendor/highlight.js",
       "!/vendor/uqr.js",
       "!/favicon.ico",
       "!/apple-touch-icon.png",
