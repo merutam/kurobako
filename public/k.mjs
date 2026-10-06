@@ -282,7 +282,7 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 // --- Command line ------------------------------------------------------------
 
 /** This file's version, the same as the server it comes from (package.json). */
-export const VERSION = "0.6.10";
+export const VERSION = "0.6.11";
 // Everything below only runs when this file is executed directly. It reads
 // like curl: the same options and the same paths as the plain API, with
 // e#<name> in place of the namespace.
