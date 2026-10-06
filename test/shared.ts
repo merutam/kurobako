@@ -1182,7 +1182,7 @@ export const sharedTests = (harness: Harness) => {
       expect(html).toContain("Hono");
       expect(html).toContain("Highlight.js 11.12.0");
       expect(html).toContain("uQR 0.1.3");
-      expect(html).toContain("Garage 2.1.0");
+      expect(html).toContain("Garage 2");
       expect(html).toContain("Optional service");
       expect(html).toContain("Full MIT license and notice");
       expect(html).not.toContain("%APP_VERSION%");

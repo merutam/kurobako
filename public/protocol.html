@@ -34,40 +34,79 @@
   <h2>Server and limits</h2>
   <p>
     <code>GET /.well-known/kurobako</code> describes the server as JSON:
-    <code>base</code>, the path the site lives under (<code>""</code> at the
-    domain's root, or e.g. <code>"/k"</code>; every path on this page goes
-    after it), <code>version</code> (the server's own),
-    <code>protocol</code> (this page's version, 4: a client of another
-    cannot open its encrypted items), <code>protocolUrl</code> (this
-    page), <code>clientUrl</code> (<code>k.mjs</code>), and its limits:
-    <code>maxFileBytes</code>, <code>maxTextBytes</code>,
-    <code>inlineTextBytes</code> (longer texts are listed with a preview),
-    <code>maxItems</code> (older items fall off the queue),
-    <code>itemTtlSeconds</code> (<code>0</code>: no expiry),
-    <code>sendsPerMinute</code> per client address (an IPv6 address
-    counts by its /64 network),
-    <code>maxStorageBytes</code> (every item together; <code>null</code>: no
-    limit), <code>namespace</code> (the <code>pattern</code>,
-    <code>maxLength</code> and <code>reserved</code> names of plain
-    namespaces), <code>sealed.maxNameLength</code> and <code>live</code>
-    (the WebSocket's <code>ping</code> and <code>pong</code> messages,
-    <code>pingSeconds</code> between pings, and
-    <code>hiddenCloseSeconds</code>, how long a hidden page keeps its
-    connection). A send beyond the limit
-    gets <code>429</code>, so wait for the minute to pass; one that would
-    fill the storage gets <code>507</code>. A client that asks for more than
-    <code>missesPerMinute</code> namespaces, items or share links that are not
-    there in a minute (a 404, or an empty queue) gets <code>429</code> for
-    every read of a namespace or share link until the minute is over.
-    Depending on <code>automatedNetworks</code>, sends from hosting, cloud
-    and VPN networks or Tor are counted by network block
-    (<code>"limit"</code>) or refused with <code>403</code>
-    (<code>"block"</code>). Every error is JSON:
-    <code>{"error": "…"}</code>. With <code>"private": true</code>, every
-    request but this one and the protocol needs
-    <code>Authorization: Bearer &lt;key&gt;</code>, or gets <code>401</code>;
-    share links open without it unless the instance keeps them private too.
   </p>
+  <ul>
+    <li>
+      <code>base</code>: the path the site lives under, <code>""</code> at
+      the domain's root or e.g. <code>"/k"</code>. Every path on this page
+      goes after it.
+    </li>
+    <li>
+      <code>version</code>, the server's own, and <code>protocol</code>, this
+      page's version (4): a client of another cannot open its encrypted
+      items.
+    </li>
+    <li><code>protocolUrl</code> (this page) and <code>clientUrl</code> (<code>k.mjs</code>).</li>
+    <li>
+      Sizes: <code>maxFileBytes</code>, <code>maxTextBytes</code>, and
+      <code>inlineTextBytes</code>, past which texts are listed with a
+      preview.
+    </li>
+    <li>
+      The queue: <code>maxItems</code> (older items fall off) and
+      <code>itemTtlSeconds</code> (<code>0</code>: no expiry).
+    </li>
+    <li>
+      <code>sendsPerMinute</code> per client address (an IPv6 address counts
+      by its /64 network), <code>missesPerMinute</code> and
+      <code>automatedNetworks</code> (see below).
+    </li>
+    <li>
+      <code>maxStorageBytes</code>: every item together, <code>null</code>
+      for no limit.
+    </li>
+    <li>
+      <code>namespace</code>: the <code>pattern</code>,
+      <code>maxLength</code> and <code>reserved</code> names of plain
+      namespaces; <code>sealed.maxNameLength</code> for encrypted ones.
+    </li>
+    <li>
+      <code>live</code>: the WebSocket's <code>ping</code> and
+      <code>pong</code>, <code>pingSeconds</code> between pings, and
+      <code>hiddenCloseSeconds</code>, how long a hidden page keeps its
+      connection.
+    </li>
+    <li><code>private</code>: whether the instance asks for a key (below).</li>
+  </ul>
+  <p>
+    Every error is JSON, <code>{"error": "…"}</code>, and these are the
+    limits' answers:
+  </p>
+  <ul>
+    <li>
+      A send past <code>sendsPerMinute</code> gets <code>429</code>: wait for
+      the minute to pass. One that would fill the storage gets
+      <code>507</code>.
+    </li>
+    <li>
+      A client asking for more than <code>missesPerMinute</code> namespaces,
+      items or share links that are not there (a 404, or an empty queue) gets
+      <code>429</code> for every read of a namespace or share link until the
+      minute is over.
+    </li>
+    <li>
+      Depending on <code>automatedNetworks</code>, sends from hosting, cloud
+      and VPN networks or Tor are counted by network block
+      (<code>"limit"</code>) or refused with <code>403</code>
+      (<code>"block"</code>).
+    </li>
+    <li>
+      With <code>"private": true</code>, every request but this one and the
+      protocol needs <code>Authorization: Bearer &lt;key&gt;</code>, or gets
+      <code>401</code>; share links open without it unless the instance keeps
+      them private too.
+    </li>
+  </ul>
 
   <h2>Every namespace</h2>
   <p>

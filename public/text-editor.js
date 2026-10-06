@@ -83,6 +83,9 @@ export const createTextEditor = (
   { title = () => "", autoDetect = () => true, fullscreenRoot, onError = () => {} } = {},
 ) => {
   const highlight = el("pre", { className: "text-editor-highlight", ariaHidden: true });
+  /** Line numbers, shown in full screen only, where lines do not wrap. */
+  const gutter = el("div", { className: "text-editor-gutter", ariaHidden: true });
+  let numbered = 0;
   /** The language guessed for a text whose name has no extension; null until guessed. */
   let detected = null;
   let detectTimer = null;
@@ -116,6 +119,26 @@ export const createTextEditor = (
     highlight.replaceChildren(code);
     highlight.scrollTop = textarea.scrollTop;
     highlight.scrollLeft = textarea.scrollLeft;
+    numberLines();
+  };
+
+  /** Numbers the lines, in full screen: redrawn only when their count changes. */
+  const numberLines = () => {
+    if (document.fullscreenElement !== root) return;
+    let lines = 1;
+    for (
+      let at = textarea.value.indexOf("\n");
+      at !== -1;
+      at = textarea.value.indexOf("\n", at + 1)
+    ) {
+      lines += 1;
+    }
+    if (lines !== numbered) {
+      numbered = lines;
+      gutter.textContent = `${Array.from({ length: lines }, (_, index) => index + 1).join("\n")}\n`;
+      editor.style.setProperty("--gutter-digits", String(String(lines).length));
+    }
+    gutter.scrollTop = textarea.scrollTop;
   };
 
   /** Guesses the language from a bounded sample, then colors with it. */
@@ -161,7 +184,7 @@ export const createTextEditor = (
     },
     icon("expand"),
   );
-  const editor = el("div", { className: "text-editor" }, highlight, textarea, expand);
+  const editor = el("div", { className: "text-editor" }, gutter, highlight, textarea, expand);
   const root = fullscreenRoot ?? editor;
   root.classList.add("text-editor-fullscreen");
 
@@ -179,6 +202,8 @@ export const createTextEditor = (
     expand.setAttribute("aria-label", expanded ? "Exit full screen" : "Edit in full screen");
     expand.title = expanded ? "Exit full screen" : "Edit in full screen";
     expand.setAttribute("aria-pressed", String(expanded));
+    numbered = 0;
+    numberLines();
   });
 
   textarea.spellcheck = false;
@@ -186,6 +211,14 @@ export const createTextEditor = (
   textarea.addEventListener("scroll", () => {
     highlight.scrollTop = textarea.scrollTop;
     highlight.scrollLeft = textarea.scrollLeft;
+    gutter.scrollTop = textarea.scrollTop;
+  });
+  // Ctrl+Enter (Cmd+Enter on a Mac) sends, or saves, without reaching for the mouse.
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      textarea.form?.requestSubmit();
+    }
   });
   refresh({ immediate: true });
   return { editor, refresh };
