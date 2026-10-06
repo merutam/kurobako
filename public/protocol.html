@@ -574,10 +574,11 @@
     instead. Exporting a namespace does not delete extra local files. Reading
     a burn-after-reading item deletes it; listing reads nothing. Plain links
     work too, sent as they are. JSON prints the same for both, and an error is
-    a message on standard error with exit status 1. An extracted encrypted
-    backup or one of its <code>.sealed</code> files opens locally as
-    <code>path#secret name</code>, with its <code>manifest.json</code> present.
-    The backup also accepts the read paths <code>/ls</code>, <code>/1</code>,
-    <code>/item-id</code> and <code>/1.json</code> after that secret name.
+    a message on standard error with exit status 1. An extracted plain backup
+    accepts <code>path/ls</code>, <code>/1</code>, <code>/item-id</code> and
+    <code>/1.json</code>; a full backup is selected as
+    <code>path/plain/namespace/ls</code>. An encrypted backup or one of its
+    <code>.sealed</code> files uses <code>path#secret name</code> and the same
+    read paths. Keep its <code>manifest.json</code> present.
   </p>
 </main>

@@ -87,11 +87,12 @@ node k.mjs -O "$BOX/e#secret name"         # every item, decrypted, into this fo
 
 Like curl, `k.mjs -O` overwrites a local file of the same name; add
 `--no-clobber` to refuse. It exports but does not synchronize a folder. An
-extracted encrypted backup can be opened offline with
-`node k.mjs -O './backup#secret name'`. Its read paths work offline too:
-`./backup#secret name/ls`, `/1`, `/item-id` and `/1.json`. A `.sealed` file can
-also be printed directly with the same `#secret name`. `KUROBAKO_SECRET` may
-carry the name instead. Keep `manifest.json` beside the extracted files.
+extracted plain backup accepts `./backup`, `./backup/ls`, `/1`, `/item-id` and
+`/1.json`; in a full backup, select one as `./backup/plain/<namespace>/ls`.
+Encrypted backups use `./backup#secret name/ls`, and `-O` on the bare link
+exports their decrypted items. A `.sealed` file can also be printed directly
+with the same `#secret name`. `KUROBAKO_SECRET` may carry the name instead.
+Keep `manifest.json` beside the extracted files.
 
 With `ADMIN_KEY` set, `/a/zip` and `/a/tar` back up every namespace, and
 `/a/import` restores them:

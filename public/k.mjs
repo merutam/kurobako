@@ -298,6 +298,8 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs <site>/e#<name>/1.json           its details and a share link
   node k.mjs -OJ <site>/e#<name>/1/d          saved under its own name
   node k.mjs -O <site>/e#<name>               exports every item here (overwrites)
+  node k.mjs './backup/ls'                    lists an extracted plain backup, offline
+  node k.mjs './backup/plain/<ns>/1'          opens one namespace in a full backup
   node k.mjs -O './backup#<name>'             exports an extracted encrypted backup
   node k.mjs './backup#<name>/ls'             lists that backup as JSON, offline
   node k.mjs './backup#<name>/1'              decrypts its newest item, offline
@@ -826,9 +828,7 @@ const ownName = (entry) => {
 };
 
 const contentsOf = async (entry) =>
-  entry.opened.open(
-    entry.loadSealed ? await entry.loadSealed() : await fetchBytes(entry.contentUrl),
-  );
+  entry.opened.open(entry.loadBody ? await entry.loadBody() : await fetchBytes(entry.contentUrl));
 
 /** An entry's text or preview. Reading one consumes nothing. */
 const entryText = async (entry, options = {}) => {
@@ -856,6 +856,23 @@ const deliverEntry = (entry, options, urlName = ownName(entry)) =>
     urlName,
     load: () => contentsOf(entry),
   });
+
+/** A plain item shaped like an opened encrypted one, for common output code. */
+const plainEntry = (item, index, source) => ({
+  number: index + 1,
+  item,
+  ...(typeof source === "string" ? { contentUrl: source } : { loadBody: source }),
+  opened: {
+    metadata: {
+      kind: item.kind === "text" ? "text" : "file",
+      title: item.name ?? item.filename ?? "",
+      filename: item.filename,
+      mime: item.mime,
+      size: item.size,
+    },
+    open: async (bytes) => bytes,
+  },
+});
 
 /** Decimal units, like the site's limits (100 MB, 64 kB). */
 export const formatBytes = (bytes) => {
@@ -970,44 +987,93 @@ const saveAll = async (entries, options) => {
   }
 };
 
+/** The read-only paths shared by extracted plain and encrypted backups. */
+const localNamespaceRequest = async (entries, fullPath, options) => {
+  const { path, query, first, second, extra } = parseNamespacePath(fullPath);
+  if (path === "") {
+    if (options.output !== null) {
+      throw new Error("Use -O to export a local backup directory, not -o.");
+    }
+    if (options.remoteName) await saveAll(entries, options);
+    else console.log(itemsTable(entries.map(tableJson)));
+    return;
+  }
+  if (path === "ls") {
+    const listingOptions = {
+      summary: new URLSearchParams(query).has("summary"),
+      // The server's inline limit is not recorded in a backup. Locally the
+      // whole text is available; ?summary still requests a short preview.
+      inlineLimit: Infinity,
+    };
+    printJson(await entriesJson(entries, listingOptions));
+    return;
+  }
+  // As online, <item>.json means details unless an item has that exact ID or
+  // filename. A backup cannot recreate the server-owned share URL.
+  if (first.endsWith(".json") && second === undefined) {
+    const same = lookUpIn(entries, first);
+    const exact = same && (same.item.id === first || same.opened?.metadata.filename === first);
+    if (!exact) {
+      const entry = requireEntryIn(entries, first.slice(0, -".json".length));
+      printJson({ ...(await entryJson(entry)), position: entry.number });
+      return;
+    }
+  }
+  if (!first || extra.length || (second !== undefined && !["c", "d", "s"].includes(second))) {
+    throw new Error(`Unknown local backup path "${path}". See: node k.mjs`);
+  }
+  if (second === "s") {
+    throw new Error("A share link needs the server; it is not stored in the backup.");
+  }
+  await deliverEntry(requireEntryIn(entries, first), options, second ?? first);
+};
+
 /**
- * Opens an extracted backup directory, its manifest, or one of its .sealed
- * files. As in a remote encrypted link, the fragment is #<secret>/<path>;
- * KUROBAKO_SECRET may supply an omitted secret. False means the argument is
- * not a local path.
+ * Opens an extracted backup, an item in it, or a read path below it. Encrypted
+ * ones take #<secret>/<path>; KUROBAKO_SECRET may supply the secret. False
+ * means the argument is not a local path.
  */
 const localRequest = async (text, options) => {
   const hash = text.indexOf("#");
-  const rawPath = hash < 0 ? text : text.slice(0, hash);
+  const beforeFragment = hash < 0 ? text : text.slice(0, hash);
+  const [rawPath, pathQuery = ""] = hash < 0 ? beforeFragment.split("?", 2) : [beforeFragment, ""];
   const { access, readFile, stat } = await import("node:fs/promises");
   const { dirname, isAbsolute, join, relative, resolve, sep } = await import("node:path");
+  const requested = resolve(rawPath);
+  const markedLocal = /^\.\.?[\\/]/.test(rawPath);
+  const canClimbToRoot = isAbsolute(rawPath) || markedLocal;
+  let target = requested;
   let targetStat;
+  let filePath = "";
+  let pathExists = true;
   try {
-    targetStat = await stat(rawPath);
+    targetStat = await stat(target);
   } catch (error) {
-    if (error.code === "ENOENT" || error.code === "ENOTDIR") {
-      if (/^\.\.?[\\/]/.test(rawPath)) {
-        throw new Error(`Local path not found: ${rawPath}`);
+    if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+    pathExists = false;
+    // A virtual suffix such as backup/ls does not exist on disk. Walk only to
+    // an explicitly named ancestor; a hostname must not turn into the cwd.
+    const cwd = resolve(".");
+    let candidate = dirname(requested);
+    while (candidate !== dirname(candidate)) {
+      if (!canClimbToRoot && candidate === cwd) break;
+      try {
+        targetStat = await stat(candidate);
+        target = candidate;
+        filePath = relative(target, requested).split(sep).join("/");
+        break;
+      } catch (cause) {
+        if (cause.code !== "ENOENT" && cause.code !== "ENOTDIR") throw cause;
       }
+      candidate = dirname(candidate);
+    }
+    if (!targetStat) {
+      if (markedLocal) throw new Error(`Local path not found: ${rawPath}`);
       return false;
     }
-    throw error;
-  }
-  if (options.method !== "GET" || options.data !== null || options.upload !== null) {
-    throw new Error("A local encrypted backup can only be read.");
   }
 
   const fragment = hash < 0 ? null : splitFragment(text.slice(hash + 1));
-  const secret = fragment?.name || normalizeSecretName(process.env.KUROBAKO_SECRET ?? "");
-  const fullPath = fragment?.path ?? "";
-  const problem = secretNameProblem(secret);
-  if (problem) {
-    throw new Error(
-      "Give the backup's secret name after the path, as './backup#secret name', or in KUROBAKO_SECRET.",
-    );
-  }
-
-  const target = resolve(rawPath);
   let search = targetStat.isDirectory() ? target : dirname(target);
   let manifestPath = null;
   while (true) {
@@ -1022,7 +1088,13 @@ const localRequest = async (text, options) => {
     search = parent;
   }
   if (!manifestPath) {
-    throw new Error("A local encrypted item needs the manifest.json from its extracted backup.");
+    // A missing virtual path without a manifest was a hostname after all.
+    if (!pathExists && markedLocal) throw new Error(`Local path not found: ${rawPath}`);
+    if (filePath && !markedLocal) return false;
+    throw new Error("A local backup item needs the manifest.json from its extracted backup.");
+  }
+  if (options.method !== "GET" || options.data !== null || options.upload !== null) {
+    throw new Error("A local backup can only be read.");
   }
   const root = dirname(manifestPath);
   let manifest;
@@ -1035,13 +1107,6 @@ const localRequest = async (text, options) => {
     throw new Error(`${manifestPath} is not a Kurobako backup manifest.`);
   }
 
-  const space = await openSealedSpace(secret);
-  const namespace = manifest.namespaces.find(
-    (candidate) => candidate?.space === "sealed" && candidate.name === space.id,
-  );
-  if (!namespace || !Array.isArray(namespace.items)) {
-    throw new Error("This backup has no encrypted namespace for that secret name.");
-  }
   const localFile = (item) => {
     if (typeof item?.path !== "string") return null;
     const file = resolve(root, item.path);
@@ -1056,80 +1121,103 @@ const localRequest = async (text, options) => {
     return path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path);
   };
   const oneFile = targetStat.isFile() && target !== manifestPath;
-  const selected = namespace.items.filter((item) => {
-    if (
-      item?.kind !== "sealed" ||
-      typeof item.metadata !== "string" ||
-      typeof item.size !== "number"
-    ) {
-      return false;
-    }
-    const file = localFile(item);
-    return file && (oneFile ? file === target : !targetStat.isDirectory() || under(target, file));
-  });
-  if (!selected.length && oneFile) {
-    throw new Error("That file is not in the backup manifest.");
-  }
-  const entries = await Promise.all(
-    [...selected].reverse().map(async (item, index) => ({
-      number: index + 1,
-      item,
-      opened: await space.openItem(item.metadata, item.size),
-      loadSealed: async () => new Uint8Array(await readFile(localFile(item))),
-    })),
-  );
-  if (oneFile) {
-    if (fullPath) throw new Error("A local .sealed file does not take a namespace path.");
-    const [entry] = entries;
-    await deliverEntry(entry, options);
-    return true;
-  }
+  const envSecret = normalizeSecretName(process.env.KUROBAKO_SECRET ?? "");
 
-  // The read-only paths mirror an online encrypted namespace. A trailing
-  // slash is harmless locally, which is convenient when the source is a
-  // directory on disk.
-  const { path, query, first, second, extra } = parseNamespacePath(fullPath);
-
-  if (path === "") {
-    if (options.output !== null) {
-      throw new Error("Use -O to export a local backup directory, not -o.");
+  if (fragment || envSecret) {
+    const secret = fragment?.name || envSecret;
+    const problem = secretNameProblem(secret);
+    if (problem) {
+      throw new Error(
+        "Give the backup's secret name after the path, as './backup#secret name', or in KUROBAKO_SECRET.",
+      );
     }
-    if (options.remoteName) await saveAll(entries, options);
-    else console.log(itemsTable(entries.map(tableJson)));
-    return true;
-  }
-  if (path === "ls") {
-    const listingOptions = {
-      summary: new URLSearchParams(query).has("summary"),
-      // The server's inline limit is not recorded in a backup. Locally the
-      // whole text is available; ?summary still requests a short preview.
-      inlineLimit: Infinity,
-    };
-    printJson(await entriesJson(entries, listingOptions));
-    return true;
-  }
-  // As online, <item>.json means details unless an item has that exact ID or
-  // filename. A backup cannot recreate the server-owned share URL.
-  if (first.endsWith(".json") && second === undefined) {
-    const same = lookUpIn(entries, first);
-    const exact = same && (same.item.id === first || same.opened?.metadata.filename === first);
-    if (!exact) {
-      const entry = requireEntryIn(entries, first.slice(0, -".json".length));
-      printJson({
-        ...(await entryJson(entry)),
-        position: entry.number,
-      });
+    const space = await openSealedSpace(secret);
+    const namespace = manifest.namespaces.find(
+      (candidate) => candidate?.space === "sealed" && candidate.name === space.id,
+    );
+    if (!namespace || !Array.isArray(namespace.items)) {
+      throw new Error("This backup has no encrypted namespace for that secret name.");
+    }
+    const selected = namespace.items.filter((item) => {
+      if (
+        item?.kind !== "sealed" ||
+        typeof item.metadata !== "string" ||
+        typeof item.size !== "number"
+      ) {
+        return false;
+      }
+      const file = localFile(item);
+      return file && (oneFile ? file === target : !targetStat.isDirectory() || under(target, file));
+    });
+    if (!selected.length && oneFile) throw new Error("That file is not in the backup manifest.");
+    const entries = await Promise.all(
+      [...selected].reverse().map(async (item, index) => ({
+        number: index + 1,
+        item,
+        opened: await space.openItem(item.metadata, item.size),
+        loadBody: async () => new Uint8Array(await readFile(localFile(item))),
+      })),
+    );
+    const fullPath = fragment?.path ?? `${filePath}${pathQuery ? `?${pathQuery}` : ""}`;
+    if (oneFile) {
+      if (fullPath) throw new Error("A local .sealed file does not take a namespace path.");
+      await deliverEntry(entries[0], options);
       return true;
     }
+    await localNamespaceRequest(entries, fullPath, options);
+    return true;
   }
-  if (!first || extra.length || (second !== undefined && !["c", "d", "s"].includes(second))) {
-    throw new Error(`Unknown local backup path "${path}". See: node k.mjs`);
+
+  const namespaces = manifest.namespaces.filter(
+    (candidate) =>
+      candidate?.space === "plain" &&
+      typeof candidate.name === "string" &&
+      Array.isArray(candidate.items),
+  );
+  if (!namespaces.length) {
+    throw new Error(
+      "This backup has only encrypted namespaces; give its secret name after the path.",
+    );
   }
-  if (second === "s") {
-    throw new Error("A share link needs the server; it is not stored in the backup.");
+  const choices = namespaces.map((namespace) => {
+    const directory = resolve(root, "plain", namespace.name);
+    if (!under(root, directory)) {
+      throw new Error(`Unsafe namespace in backup manifest: ${namespace.name}`);
+    }
+    return { namespace, directory };
+  });
+  const matching = choices.filter(({ directory }) => under(directory, requested));
+  if (matching.length > 1) throw new Error("Ambiguous namespace path in backup manifest.");
+  if (!matching.length && choices.length > 1) {
+    throw new Error(
+      "This backup has several plain namespaces; choose one as '<backup>/plain/<namespace>/ls'.",
+    );
   }
-  const entry = requireEntryIn(entries, first);
-  await deliverEntry(entry, options, second ?? first);
+  const choice = matching[0] ?? choices[0];
+  const selected = choice.namespace.items.filter(
+    (item) =>
+      ["text", "image", "file"].includes(item?.kind) &&
+      typeof item.size === "number" &&
+      Boolean(localFile(item)),
+  );
+  if (oneFile) {
+    const item = selected.find((candidate) => localFile(candidate) === target);
+    if (!item) throw new Error("That file is not in the backup manifest.");
+    await deliverEntry(
+      plainEntry(item, 0, async () => new Uint8Array(await readFile(localFile(item)))),
+      options,
+    );
+    return true;
+  }
+  const entries = [...selected]
+    .reverse()
+    .map((item, index) =>
+      plainEntry(item, index, async () => new Uint8Array(await readFile(localFile(item)))),
+    );
+  const path = matching.length
+    ? relative(choice.directory, requested).split(sep).join("/")
+    : filePath;
+  await localNamespaceRequest(entries, `${path}${pathQuery ? `?${pathQuery}` : ""}`, options);
   return true;
 };
 
@@ -1346,23 +1434,6 @@ const isNamespace = async (url) => {
   );
 };
 
-/** A plain item in the shape of an opened encrypted one, for saveAll. */
-const plainEntry = (base, item, index) => ({
-  number: index + 1,
-  item,
-  contentUrl: `${base}/${item.id}`,
-  opened: {
-    metadata: {
-      kind: item.kind === "text" ? "text" : "file",
-      title: item.name ?? item.filename ?? "",
-      filename: item.filename,
-      mime: item.mime,
-      size: item.size,
-    },
-    open: async (bytes) => bytes,
-  },
-});
-
 /** Plain links go to the server as they are, like curl would send them. */
 const plainRequest = async ({ url }, options) => {
   // The bare namespace is a page; here it lists the items, like e#<name>, or
@@ -1372,7 +1443,7 @@ const plainRequest = async ({ url }, options) => {
     if (options.remoteName) {
       const items = await (await call(`${base}/ls`)).json();
       return saveAll(
-        items.map((item, index) => plainEntry(base, item, index)),
+        items.map((item, index) => plainEntry(item, index, `${base}/${item.id}`)),
         options,
       );
     }

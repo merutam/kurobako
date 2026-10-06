@@ -1336,6 +1336,40 @@ describe("backups", () => {
     expect(readdirSync(workDir)).toContain(archiveName);
     expect(existsSync(join(workDir, "tar"))).toBe(false);
 
+    // Once extracted, a plain backup has the same read paths offline. A full
+    // backup with several namespaces requires its plain/<namespace> path.
+    const local = "plain-extracted";
+    const extracted = join(workDir, local);
+    const offline = await unpack(await from(`/${ns}/tar`));
+    mkdirSync(extracted);
+    writeFileSync(join(extracted, "manifest.json"), JSON.stringify(offline.manifest));
+    for (const [path, body] of offline.files) {
+      const output = join(extracted, path);
+      mkdirSync(dirname(output), { recursive: true });
+      writeFileSync(output, body);
+    }
+    expect(await k(local)).toContain("first note");
+    const offlineList = JSON.parse(await k(`${local}/ls`)) as Item[];
+    expect(offlineList.map((item) => item.name ?? item.filename)).toEqual([
+      "the long one",
+      "photo.png",
+      "first note",
+    ]);
+    expect(await k(`${local}/3`)).toBe("first note");
+    expect(await k(`${local}/plain/${ns}/3/`)).toBe("first note");
+    expect(JSON.parse(await k(`${local}/3.json`))).toMatchObject({
+      kind: "text",
+      name: "first note",
+      text: "first note",
+      position: 3,
+    });
+    expect(await k(join(local, `plain/${ns}/first note.txt`))).toBe("first note");
+
+    offline.manifest.namespaces.push({ space: "plain", name: fresh(), items: [] });
+    writeFileSync(join(extracted, "manifest.json"), JSON.stringify(offline.manifest));
+    await expect(k(`${local}/ls`)).rejects.toThrow(/several plain namespaces/);
+    expect(JSON.parse(await k(`${local}/plain/${ns}/ls`))).toHaveLength(3);
+
     // Into another namespace on another server: the same items, IDs and order.
     const backup = (await unpack(await from(`/${ns}/zip`))).bytes;
     const copy = fresh();
