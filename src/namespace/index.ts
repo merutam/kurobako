@@ -28,6 +28,15 @@ import {
 
 export type { ItemRef, Rename, SaveInput };
 
+/**
+ * Whether a write may go: "open" (the namespace is not locked), "ok" (locked,
+ * and the key is its write key), "missing" or "wrong" (locked, and it is not).
+ */
+export type WriteCheck = "open" | "ok" | "missing" | "wrong";
+
+/** What a lock did: "locked", or why not: a plain namespace locks only empty. */
+export type LockResult = "locked" | "not-empty" | "wrong";
+
 /** What a send did: a new item, or the same contents already there, moved to the top. */
 export type Saved = { item: StoredItem; existing: boolean };
 
@@ -122,12 +131,76 @@ export class NamespaceCore {
       : null;
   }
 
+  private metaValue(key: string): string | null {
+    return (
+      this.sql.exec<{ value: string }>("SELECT value FROM meta WHERE key = ?", key)[0]?.value ??
+      null
+    );
+  }
+
   private remember(ref: NamespaceRef): void {
     this.sql.exec(
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('space', ?), ('name', ?)",
       ref.space,
       ref.name,
     );
+  }
+
+  // --- Write access -----------------------------------------------------
+
+  /**
+   * The SHA-256 (hex) of the key that writes here once locked; null while
+   * anyone may. The key itself is never stored.
+   */
+  private writeVerifier(): string | null {
+    return this.exists() ? this.metaValue("write") : null;
+  }
+
+  async isLocked(): Promise<boolean> {
+    return this.writeVerifier() !== null;
+  }
+
+  /** Whether a write with the key whose SHA-256 is `verifier` may go. */
+  async checkWrite(verifier: string | null): Promise<WriteCheck> {
+    const expected = this.writeVerifier();
+    if (expected === null) return "open";
+    if (verifier === null) return "missing";
+    return verifier === expected ? "ok" : "wrong";
+  }
+
+  /**
+   * Locks the namespace: from now on only the key whose SHA-256 is
+   * `verifier` writes here, while anyone may still read. A locked namespace
+   * takes a new key only from its current one (`current`). With
+   * `onlyEmpty`, an open namespace with items is refused: whoever knows a
+   * plain name could otherwise take a namespace others use.
+   */
+  async lock(
+    ref: NamespaceRef,
+    verifier: string,
+    current: string | null,
+    onlyEmpty: boolean,
+  ): Promise<LockResult> {
+    const expected = this.writeVerifier();
+    if (expected !== null && current !== expected) return "wrong";
+    if (expected === null && onlyEmpty && this.exists() && this.queue.all().length) {
+      return "not-empty";
+    }
+    // A namespace locked before its first item exists from now on (and is
+    // cleaned up like any empty one if nothing comes).
+    this.remember(ref);
+    this.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('write', ?)", verifier);
+    await this.changed();
+    return "locked";
+  }
+
+  /** Opens a locked namespace to every writer again, given its key. */
+  async unlock(verifier: string | null): Promise<boolean> {
+    const expected = this.writeVerifier();
+    if (expected === null || verifier !== expected) return false;
+    this.sql.exec("DELETE FROM meta WHERE key = 'write'");
+    await this.changed();
+    return true;
   }
 
   // --- Upkeep -----------------------------------------------------------
@@ -474,11 +547,12 @@ export class NamespaceCore {
 
   // --- Live updates -----------------------------------------------------
 
-  /** The message every viewer gets: { type: "items", items }. */
+  /** The message every viewer gets: { type: "items", items, locked }. */
   private snapshot(items: StoredItem[]): string {
     return JSON.stringify({
       type: "items",
       items: items.map((item) => summaryItem(item)),
+      locked: this.writeVerifier() !== null,
     });
   }
 

@@ -17,7 +17,7 @@
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
   <div class="columns">
-    <section class="stack" aria-labelledby="send-title">
+    <section id="send-section" class="stack" aria-labelledby="send-title">
       <h2 id="send-title">Send</h2>
 
       <p class="send-options">
@@ -72,6 +72,27 @@
       <input id="page-url" type="text" readonly aria-label="Link to this page" />
       <button data-icon="copy" id="copy-link" type="button">Copy link</button>
     </div>
+  </section>
+
+  <section id="lock-section" class="page-section stack" aria-labelledby="lock-title" hidden>
+    <h2 id="lock-title">Lock</h2>
+    <p id="lock-hint" class="hint"></p>
+    <div id="lock-link-row" class="copy-link" hidden>
+      <input id="lock-link" type="text" readonly aria-label="Link that writes here" />
+      <button data-icon="copy" id="copy-lock-link" type="button">Copy link</button>
+    </div>
+    <form id="key-form" hidden>
+      <label for="key-input">Write key</label>
+      <div class="copy-link">
+        <input id="key-input" type="text" autocomplete="off" spellcheck="false" required />
+        <button data-icon="login" type="submit">Use key</button>
+      </div>
+    </form>
+    <p class="actions">
+      <button data-icon="lock" id="lock-button" type="button" hidden>Lock</button>
+      <button data-icon="unlock" id="unlock-button" type="button" hidden>Unlock</button>
+      <button data-icon="logout" id="forget-key" type="button" hidden>Forget the key here</button>
+    </p>
   </section>
 
   <section class="page-section stack" aria-labelledby="backup-title">

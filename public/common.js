@@ -51,6 +51,13 @@ export const storage = {
       // The choice still applies to this page view.
     }
   },
+  remove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Nothing was kept, then.
+    }
+  },
 };
 
 /** The public config the server embeds in each page (no request needed). */

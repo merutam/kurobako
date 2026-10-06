@@ -48,7 +48,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
   "Cross-Origin-Resource-Policy": "same-origin",
   "Content-Security-Policy":
-    "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 
 export const createApp = (

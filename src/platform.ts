@@ -18,6 +18,9 @@ export interface Sql {
 }
 
 /** File contents: R2 on Cloudflare, any S3-compatible store elsewhere. */
+/** Some of an object's bytes: `length` of them from `offset`. */
+export type ByteRange = { offset: number; length: number };
+
 export interface BlobStore {
   /** Fails, storing nothing, if the body is not exactly `size` bytes. */
   put(
@@ -26,7 +29,14 @@ export interface BlobStore {
     size: number,
     contentType: string,
   ): Promise<void>;
-  get(key: string): Promise<{ body: ReadableStream<Uint8Array>; size: number } | null>;
+  /**
+   * The object, or with `range` only those bytes of it; `size` is always the
+   * whole object's.
+   */
+  get(
+    key: string,
+    range?: ByteRange,
+  ): Promise<{ body: ReadableStream<Uint8Array>; size: number } | null>;
   delete(keys: string[]): Promise<void>;
 }
 
@@ -56,6 +66,10 @@ export type NamespaceApi = Async<
     | "accessLog"
     | "cleanUpIfEmpty"
     | "restore"
+    | "isLocked"
+    | "checkWrite"
+    | "lock"
+    | "unlock"
   >
 >;
 export type HubApi = Async<

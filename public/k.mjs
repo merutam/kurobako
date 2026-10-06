@@ -316,6 +316,7 @@ Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J,
 --no-clobber (do not overwrite)
 (and -s, -S, -L, -f, -p, ignored).
 A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
+A locked namespace's write key goes in KUROBAKO_WRITE_KEY; -X POST <link>/lock locks one.
 As with curl, -d @file drops line breaks; --data-binary @file keeps them.
 -h or --help shows this.
 Plain links (<site>/<namespace>/...) work too, sent as they are; JSON prints
@@ -493,12 +494,16 @@ const parseNamespacePath = (fullPath) => {
 /**
  * fetch, failing with which site could not be reached and why. A private
  * instance's key, in KUROBAKO_KEY, goes with every request unless the command
- * sends its own Authorization header.
+ * sends its own Authorization header; a locked namespace's write key, in
+ * KUROBAKO_WRITE_KEY, unless it sends its own Write-Key.
  */
 const reach = async (url, init = {}) => {
   const key = globalThis.process?.env?.KUROBAKO_KEY;
+  const writeKey = globalThis.process?.env?.KUROBAKO_WRITE_KEY;
   const headers = new Headers(init.headers);
   if (key && !headers.has("authorization")) headers.set("authorization", `Bearer ${key}`);
+  // A locked namespace's write key: harmless where nothing is locked.
+  if (writeKey && !headers.has("write-key")) headers.set("write-key", writeKey);
   try {
     return await fetch(url, { ...init, headers });
   } catch (error) {
@@ -655,30 +660,63 @@ const deliver = async ({ options, isText, ownName, urlName, load }) => {
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 /** A file name that is safe to write anywhere: no directories, odd characters or reserved names. */
+/** MP4 brands (an ISO media file's first "ftyp") that hold video. */
+const MP4_BRANDS = [
+  "isom",
+  "iso2",
+  "iso4",
+  "iso5",
+  "iso6",
+  "mp41",
+  "mp42",
+  "avc1",
+  "M4V ",
+  "mmp4",
+  "dash",
+];
+
 /**
- * The image a file is, from its first bytes, as the server tells for plain
- * files: { mime, extension }, or null for anything else.
+ * What a file is, from its first bytes, as the server tells for plain files:
+ * { kind: "image" | "video", extension, mime }, or null for anything else.
  */
-export const detectImage = (bytes) => {
+export const detectMedia = (bytes) => {
   const ascii = (start, length) => String.fromCharCode(...bytes.subarray(start, start + length));
+  const image = (extension, mime) => ({ kind: "image", extension, mime });
+  const video = (extension, mime) => ({ kind: "video", extension, mime });
   const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (bytes.length >= 8 && PNG.every((byte, index) => bytes[index] === byte)) {
-    return { mime: "image/png", extension: "png" };
+    return image("png", "image/png");
   }
   if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return { mime: "image/jpeg", extension: "jpg" };
+    return image("jpg", "image/jpeg");
   }
   if (bytes.length >= 6 && (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a")) {
-    return { mime: "image/gif", extension: "gif" };
+    return image("gif", "image/gif");
   }
   if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
-    return { mime: "image/webp", extension: "webp" };
+    return image("webp", "image/webp");
   }
   if (bytes.length >= 12 && ascii(4, 4) === "ftyp") {
     const brand = ascii(8, 4);
-    if (brand === "avif" || brand === "avis") return { mime: "image/avif", extension: "avif" };
+    if (brand === "avif" || brand === "avis") return image("avif", "image/avif");
     if (["heic", "heix", "hevc", "hevx", "mif1", "msf1"].includes(brand)) {
-      return { mime: "image/heic", extension: "heic" };
+      return image("heic", "image/heic");
+    }
+    if (brand === "qt  ") return video("mov", "video/quicktime");
+    if (MP4_BRANDS.includes(brand)) return video("mp4", "video/mp4");
+  }
+  // Matroska and WebM: an EBML header, whose DocType (element 0x4282, a
+  // one-byte size, then the name) tells which.
+  const EBML = [0x1a, 0x45, 0xdf, 0xa3];
+  if (bytes.length >= 4 && EBML.every((byte, index) => bytes[index] === byte)) {
+    for (let index = 4; index + 2 < Math.min(bytes.length, 64); index += 1) {
+      if (bytes[index] !== 0x42 || bytes[index + 1] !== 0x82) continue;
+      const size = bytes[index + 2];
+      if (!(size & 0x80)) break;
+      const docType = ascii(index + 3, size & 0x7f);
+      if (docType === "webm") return video("webm", "video/webm");
+      if (docType === "matroska") return video("mkv", "video/x-matroska");
+      break;
     }
   }
   return null;
@@ -686,26 +724,26 @@ export const detectImage = (bytes) => {
 
 /**
  * A file's metadata, by the rules the server applies to plain files: an
- * image is told by its bytes and named with its own extension; anything else
- * is application/octet-stream under its own (safe) name.
+ * image or a video is told by its bytes and named with its own extension;
+ * anything else is application/octet-stream under its own (safe) name.
  */
 export const fileMetadata = (bytes, name) => {
-  const image = detectImage(bytes);
+  const media = detectMedia(bytes);
   // A file sent without a name is called "file", as on the server.
-  const filename = image
+  const filename = media
     ? `${safeName(
         String(name || "file")
           .split(/[\\/]/)
           .pop()
           .replace(/\.[^.]+$/, ""),
-        "image",
-      )}.${image.extension}`
+        media.kind,
+      )}.${media.extension}`
     : safeName(name, "file");
   return {
     kind: "file",
     title: filename,
     filename,
-    mime: image?.mime ?? "application/octet-stream",
+    mime: media?.mime ?? "application/octet-stream",
     size: bytes.byteLength,
   };
 };

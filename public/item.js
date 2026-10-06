@@ -4,6 +4,7 @@
 // The page behind a share link, /i/<token>: one item, and nothing that leads
 // back to its namespace. Encrypted items carry their own key after the #.
 import { button, compactText, copyText, el, element, formatExpiry, request } from "./common.js";
+import { icon } from "./icons.js";
 import {
   canCopyImages,
   copyImage,
@@ -11,6 +12,7 @@ import {
   describePlain,
   downloadBlob,
   itemSummary,
+  videoPlayer,
 } from "./items.js";
 import { openSharedItem } from "./k.mjs";
 import { createStatus } from "./status.js";
@@ -56,6 +58,8 @@ const showContent = (info, content) => {
     title.textContent = compactText(content.text).slice(0, 120);
   } else if (info.isImage) {
     body.replaceChildren(el("img", { alt: info.title, src: URL.createObjectURL(content.blob) }));
+  } else if (info.isVideo) {
+    body.replaceChildren(videoPlayer(URL.createObjectURL(content.blob)));
   } else {
     body.replaceChildren();
   }
@@ -144,8 +148,10 @@ try {
     );
   } else if (item.kind === "file" && !item.burn) {
     // A plain file: link to it rather than fetching it all just for a button.
+    // A video plays straight from the server, in parts as it goes.
+    body.replaceChildren(...(info.isVideo ? [videoPlayer(`${here}/c`)] : []));
     actions.replaceChildren(
-      el("a", { className: "button", href: `${here}/d`, textContent: "Download" }),
+      el("a", { className: "button", href: `${here}/d` }, icon("download"), "Download"),
     );
   } else {
     showContent(info, await loadContent(item, info));

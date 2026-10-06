@@ -11,8 +11,8 @@ export const r2Store = (bucket: R2Bucket): BlobStore => ({
       httpMetadata: { contentType },
     });
   },
-  async get(key) {
-    const object = await bucket.get(key);
+  async get(key, range) {
+    const object = await bucket.get(key, range ? { range } : {});
     return object ? { body: object.body, size: object.size } : null;
   },
   async delete(keys) {

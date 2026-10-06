@@ -4,7 +4,7 @@
 // Receiving items: small texts stay in SQLite; files and larger texts stream
 // to the blob store.
 import { createHash } from "node:crypto";
-import { detectImage, IMAGE_SIGNATURE_BYTES, safeFileName, safeImageName } from "../image";
+import { detectMedia, SIGNATURE_BYTES, safeFileName, safeMediaName } from "../image";
 import {
   type NamespaceRef,
   publicItem,
@@ -67,7 +67,7 @@ export const decodeFilename = (value: string | undefined): string | null => {
 };
 
 /** `Burn: 1` on a send: the item is deleted by its first read. Short to type: `-H burn:1`. */
-const burnRequested = (c: AppContext) =>
+export const burnRequested = (c: AppContext) =>
   BURN_HEADER_VALUES.has((c.req.header("burn") ?? "").trim().toLowerCase());
 
 /**
@@ -123,7 +123,7 @@ const streamedBody = async (c: AppContext, limit: number): Promise<Upload | Resp
     return jsonError(c, 411, "A Content-Length header is required.");
   }
   if (size > limit) return jsonError(c, 413, `The limit is ${limit} bytes.`);
-  const { head, body } = await peek(c.req.raw.body, IMAGE_SIGNATURE_BYTES);
+  const { head, body } = await peek(c.req.raw.body, SIGNATURE_BYTES);
   return { body, size, head };
 };
 
@@ -181,23 +181,25 @@ const readBody = async (c: AppContext, limit: number) => {
 
 /** The type comes from the bytes themselves, never from what the client claims. */
 export const describePlainFile = (upload: Upload, filename: string | null): ObjectInput => {
-  const detected = detectImage(upload.head);
+  const detected = detectMedia(upload.head);
   // A send without a name gets a default one, which never renames an item.
   const named = filename !== null;
-  // Only recognized images are shown inline; everything else is a download.
-  return detected
-    ? {
-        kind: "image",
-        mime: detected.mime,
-        filename: safeImageName(filename ?? "file", detected.extension),
-        named,
-      }
-    : {
-        kind: "file",
-        mime: "application/octet-stream",
-        filename: safeFileName(filename ?? "file"),
-        named,
-      };
+  // Recognized images are shown inline, and videos keep their type so pages
+  // can play them (still a "file" in the queue); anything else is a download.
+  if (detected) {
+    return {
+      kind: detected.kind === "image" ? "image" : "file",
+      mime: detected.mime,
+      filename: safeMediaName(filename ?? "file", detected.extension, detected.kind),
+      named,
+    };
+  }
+  return {
+    kind: "file",
+    mime: "application/octet-stream",
+    filename: safeFileName(filename ?? "file"),
+    named,
+  };
 };
 
 /** A send's answer: 201 for a new item, 200 for contents already there, now on top. */

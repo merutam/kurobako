@@ -123,6 +123,21 @@ for part in kurobako-*-part*.zip; do
 done
 ```
 
+## A locked namespace
+
+A namespace can be read by anyone and written only by you: lock it while
+it is empty, and only its write key sends, renames or deletes there.
+
+```sh
+curl -X POST $BOX/news/lock          # {"locked": true, "writeKey": "…"}, shown once
+curl -H "Write-Key: …" -d 'v1.2 is out' $BOX/news/new
+curl $BOX/news/ls                    # anyone reads
+```
+
+The page does it with **Lock**, keeps the key on the device and gives a
+link that writes (`$BOX/news#w=<key>`); `k.mjs` takes the key in
+`KUROBAKO_WRITE_KEY`.
+
 ## A private instance
 
 Kurobako forgets by design. For one that keeps things, just for you:

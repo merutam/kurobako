@@ -19,7 +19,7 @@ import { dirname, join } from "node:path";
 import { formatBytes as pageFormatBytes } from "../public/common.js";
 import {
   TEXT_PREVIEW_CHARS as CLI_TEXT_PREVIEW_CHARS,
-  detectImage as cliDetectImage,
+  detectMedia as cliDetectMedia,
   defaultTextName as clientDefaultName,
   formatBytes as cliFormatBytes,
   fileMetadata,
@@ -33,7 +33,7 @@ import { readArchive, writeArchive } from "../src/archive";
 import { startRouter } from "../src/bun/router";
 import { startServer } from "../src/bun/server";
 import { type AppConfig, loadConfig } from "../src/config";
-import { detectImage, safeFileName, safeImageName } from "../src/image";
+import { detectMedia, safeFileName, safeMediaName } from "../src/image";
 import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/model";
 import { isAutomatedNetwork, networkKey } from "../src/networks";
 import { ICON_FILES, STATIC_FILES } from "../src/pages";
@@ -54,9 +54,11 @@ const memoryStore = () => {
       if (bytes.byteLength !== size) throw new Error("Length mismatch.");
       objects.set(key, bytes);
     },
-    async get(key) {
+    async get(key, range) {
       const bytes = objects.get(key);
-      return bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null;
+      if (!bytes) return null;
+      const part = range ? bytes.subarray(range.offset, range.offset + range.length) : bytes;
+      return { body: new Blob([part]).stream(), size: bytes.byteLength };
     },
     async delete(keys) {
       for (const key of keys) objects.delete(key);
@@ -557,6 +559,44 @@ describe("bun server", () => {
     const open = readdirSync(directory).filter((file) => file.endsWith(".sqlite-shm"));
     expect(open.length).toBeLessThanOrEqual(2);
   });
+
+  test("k.mjs locks a namespace and writes with KUROBAKO_WRITE_KEY", async () => {
+    const script = join(import.meta.dir, "..", "public", "k.mjs");
+    const k = async (args: string[], env: Record<string, string> = {}) => {
+      const child = Bun.spawn(["bun", script, ...args], {
+        env: { ...process.env, ...env },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [out, error, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      return { out, error, code };
+    };
+    // A server of its own: the sends of the tests before have used up this address's.
+    const own = await startServer({
+      config: { ...config, sendsPerMinute: 1_000 },
+      dataDir: mkdtempSync(join(tmpdir(), "kurobako-lock-")),
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+    const ns = `${own.server.url.origin}/${fresh()}`;
+    const locked = await k(["-X", "POST", `${ns}/lock`]);
+    expect(locked.code, locked.error).toBe(0);
+    const { writeKey } = JSON.parse(locked.out) as { writeKey: string };
+    const refused = await k(["-d", "hello", `${ns}/new`]);
+    expect(refused.code).toBe(1);
+    expect(refused.error, refused.error).toContain("read-only");
+    const env = { KUROBAKO_WRITE_KEY: writeKey };
+    expect((await k(["-d", "hello", `${ns}/new`], env)).code).toBe(0);
+    // Reading needs no key.
+    expect((await k([`${ns}/1`])).out).toBe("hello");
+    await own.stop();
+  });
 });
 
 /**
@@ -745,15 +785,68 @@ describe("rules kept in two places", () => {
       head(0, 0, 0, 0x1c, ...ascii("ftypavif")),
       head(0, 0, 0, 0x1c, ...ascii("ftypheic")),
       head(0, 0, 0, 0x1c, ...ascii("ftypisom")),
+      head(0, 0, 0, 0x1c, ...ascii("ftypmp42")),
+      head(0, 0, 0, 0x14, ...ascii("ftypqt  ")),
+      head(0, 0, 0, 0x1c, ...ascii("ftypM4A ")),
+      // Matroska and WebM: the EBML header, its DocType inside.
+      head(
+        0x1a,
+        0x45,
+        0xdf,
+        0xa3,
+        0x9f,
+        0x42,
+        0x86,
+        0x81,
+        0x01,
+        0x42,
+        0x82,
+        0x88,
+        ...ascii("matroska"),
+      ),
+      head(
+        0x1a,
+        0x45,
+        0xdf,
+        0xa3,
+        0x9f,
+        0x42,
+        0x86,
+        0x81,
+        0x01,
+        0x42,
+        0x82,
+        0x84,
+        ...ascii("webm"),
+      ),
+      head(0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x82, 0x84, ...ascii("nope")),
       head(...ascii("%PDF-1.7")),
       new Uint8Array([0x89, 0x50]),
     ];
+    const kinds = samples.map((bytes) => detectMedia(bytes)?.extension ?? null);
+    expect(kinds).toEqual([
+      "png",
+      "jpg",
+      "gif",
+      "webp",
+      "avif",
+      "heic",
+      "mp4",
+      "mp4",
+      "mov",
+      null,
+      "mkv",
+      "webm",
+      null,
+      null,
+      null,
+    ]);
     for (const bytes of samples) {
-      const server = detectImage(bytes);
-      expect(cliDetectImage(bytes)).toEqual(server);
+      const server = detectMedia(bytes);
+      expect(cliDetectMedia(bytes)).toEqual(server);
       for (const name of ["photo.jpeg", "Report 2024.pdf", "", "-rf", "a/b/c.tar.gz", "noext"]) {
         const expected = server
-          ? safeImageName(name || "file", server.extension)
+          ? safeMediaName(name || "file", server.extension, server.kind)
           : safeFileName(name || "file");
         expect(fileMetadata(bytes, name)).toMatchObject({
           filename: expected,

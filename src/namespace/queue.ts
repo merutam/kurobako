@@ -3,7 +3,7 @@
 
 // A namespace's items: the table that holds them, newest first, and the rules
 // for making and renaming one.
-import { safeFileName, safeImageName } from "../image";
+import { safeFileName, safeMediaName } from "../image";
 import {
   defaultTextName,
   nameOf,
@@ -269,9 +269,10 @@ export const renamedItem = (item: StoredItem, change: Rename): StoredItem | { er
   if (!name) return { error: "A file needs a name." };
   return {
     ...item,
+    // Images and videos keep the extension of what they are.
     filename:
-      item.kind === "image"
-        ? safeImageName(name, item.filename.split(".").pop() ?? "img")
+      item.kind === "image" || item.mime.startsWith("video/")
+        ? safeMediaName(name, item.filename.split(".").pop() ?? "bin")
         : safeFileName(name),
   };
 };

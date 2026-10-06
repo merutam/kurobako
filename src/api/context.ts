@@ -13,7 +13,7 @@ import {
   RESERVED_NAMESPACES,
   SEALED_NAME_MAX_LENGTH,
 } from "../model";
-import { LIVE } from "../namespace";
+import { LIVE, type WriteCheck } from "../namespace";
 import { isAutomatedNetwork, networkKey } from "../networks";
 import { escapeHtml, staticFiles, type WebAssets } from "../pages";
 import type { Platform } from "../platform";
@@ -61,11 +61,26 @@ export const readLimited = async (c: AppContext, limit: number): Promise<Uint8Ar
 
 export const jsonError = (
   c: AppContext,
-  status: 400 | 401 | 403 | 404 | 411 | 413 | 415 | 426 | 429 | 500 | 503 | 507,
+  status: 400 | 401 | 403 | 404 | 409 | 411 | 413 | 415 | 426 | 429 | 500 | 503 | 507,
   error: string,
 ) => c.json({ error }, status);
 
 export const TOO_MANY_SENDS = "Too many sends from this address. Try again in a minute.";
+
+/** The header that carries a locked namespace's write key. */
+export const WRITE_KEY_HEADER = "write-key";
+
+/** SHA-256 in hex: what a namespace keeps of its write key. */
+export const sha256Hex = async (text: string) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+
+/** The write key a request carries, as its SHA-256; null without one. */
+export const writeVerifier = async (c: AppContext) => {
+  const key = c.req.header(WRITE_KEY_HEADER)?.trim();
+  return key ? sha256Hex(key) : null;
+};
 
 export const createContext = (
   config: AppConfig,
@@ -182,6 +197,30 @@ export const createContext = (
   };
 
   /**
+   * Why this write to a namespace cannot go, as the answer to give; null
+   * when it can. A locked namespace takes writes only with its key, and no
+   * burn-after-reading items: its readers are many, and the first would
+   * delete one for everyone. A wrong key counts as a miss, so keys cannot
+   * be guessed at speed.
+   */
+  const refuseWrite = async (c: AppContext, ref: NamespaceRef, { burn = false } = {}) => {
+    const check = (await namespace(c, ref).checkWrite(await writeVerifier(c))) as WriteCheck;
+    if (check === "open") return null;
+    c.header("Locked", "1");
+    if (check === "missing") {
+      return jsonError(c, 401, "This namespace is read-only: writing needs its key (Write-Key).");
+    }
+    if (check === "wrong") {
+      c.set("miss", true);
+      return jsonError(c, 403, "Wrong write key for this namespace.");
+    }
+    if (burn) {
+      return jsonError(c, 400, "A locked namespace has no items that delete when opened.");
+    }
+    return null;
+  };
+
+  /**
    * Whether `bytes` more fit under MAX_STORAGE_BYTES; when they do not, the
    * answer to send. Without a limit, nothing is asked of the hub.
    */
@@ -215,6 +254,7 @@ export const createContext = (
     countVisitor,
     pageView,
     refuseSend,
+    refuseWrite,
     limitKey,
     storageFull,
   };
