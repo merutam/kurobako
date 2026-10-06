@@ -44,6 +44,17 @@ node k.mjs "$BOX/e#secret name"                # the items, one per line
 node k.mjs "$BOX/e#secret name/1"              # an item's contents
 node k.mjs -d 'hello' "$BOX/e#secret name/new"
 node k.mjs -O "$BOX/e#secret name"             # export every item here (overwrites)
+node k.mjs "$BOX/e#secret name/live"           # a line per change, until stopped
+```
+
+`/live` stays connected and prints `new <id> <name>`, `moved`, `renamed`,
+`gone <id>`, `locked` or `unlocked` as they happen, for scripts; it works on
+plain namespaces too, and reconnects by itself (Node 22+ or Bun):
+
+```sh
+node k.mjs "$BOX/e#secret name/live" | while read -r event id name; do
+  [ "$event" = new ] && node k.mjs -OJ "$BOX/e#secret name/$id/d"
+done
 ```
 
 With [Nix](https://nixos.org/), `nix run github:merutam/kurobako#k -- <options> <link>`
