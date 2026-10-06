@@ -314,6 +314,7 @@ describe("bun server", () => {
       filename: "picture.png",
     });
     expect((await run([`${link}/1`])).out).toEqual(png);
+    expect((await run([`${link}/1/`])).out).toEqual(png);
     await k("-o", "copy.png", `${link}/1`);
     expect(new Uint8Array(readFileSync(join(workDir, "copy.png")))).toEqual(png);
     expect((await run(["-OJ", `${link}/1/d`])).error).toContain(
@@ -1427,7 +1428,8 @@ describe("backups", () => {
     // The server never had the name: nothing readable in the backup.
     expect(new TextDecoder().decode(files.get(item?.path ?? ""))).not.toContain("sealed note");
 
-    // Once extracted, k.mjs opens either the whole backup or one .sealed file locally.
+    // Once extracted, k.mjs mirrors the namespace's read paths offline, and
+    // also opens either the whole backup or one .sealed file directly.
     const extracted = join(workDir, "sealed-extracted");
     mkdirSync(extracted);
     writeFileSync(join(extracted, "manifest.json"), JSON.stringify(manifest));
@@ -1439,6 +1441,18 @@ describe("backups", () => {
     const sealedFile = join(extracted, defined(item?.path, "the sealed item path"));
     const secret = encodeURIComponent(name);
     expect(await k(`${sealedFile}#${secret}`)).toBe("sealed note");
+    expect(JSON.parse(await k(`${extracted}#${secret}/ls`))).toMatchObject([
+      { id: item?.id, kind: "text", name: "sealed note", text: "sealed note" },
+    ]);
+    expect(await k(`${extracted}#${secret}/1`)).toBe("sealed note");
+    expect(await k(`${extracted}#${secret}/1/`)).toBe("sealed note");
+    expect(await k(`${extracted}#${secret}/${item?.id}`)).toBe("sealed note");
+    expect(JSON.parse(await k(`${extracted}#${secret}/1.json`))).toMatchObject({
+      id: item?.id,
+      kind: "text",
+      text: "sealed note",
+      position: 1,
+    });
     await k("-O", `${extracted}#${secret}`);
     expect(readFileSync(join(workDir, "sealed note.txt"), "utf8")).toBe("sealed note");
 
