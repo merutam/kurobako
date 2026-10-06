@@ -1289,6 +1289,7 @@ describe("under a base path", () => {
       clientUrl: string;
     };
     expect((await at(protocolUrl)).headers.get("content-type")).toContain("text/html");
+    expect((await at("/k/k/licenses")).headers.get("content-type")).toContain("text/html");
     expect(await (await at(clientUrl)).text()).toContain("export const VERSION");
     expect((await at("/notes/ls")).status).toBe(404);
     expect((await at("/common.js")).status).toBe(404);
@@ -1448,7 +1449,14 @@ describe("a private instance", () => {
 
     // What anyone may still see.
     expect(await (await at("/.well-known/kurobako")).json()).toMatchObject({ private: true });
-    for (const path of ["/k/login", "/k/protocol", "/k/healthz", "/k.mjs", "/common.js"]) {
+    for (const path of [
+      "/k/login",
+      "/k/protocol",
+      "/k/licenses",
+      "/k/healthz",
+      "/k.mjs",
+      "/common.js",
+    ]) {
       expect((await at(path)).status).toBe(200);
     }
   });

@@ -14,6 +14,8 @@ import { type NamespaceRef, objectName, plainName, SHARE_TOKEN_PATTERN, sealedNa
 export const WELL_KNOWN_PATH = "/.well-known/kurobako";
 /** The encryption protocol's page, inside the site. */
 export const PROTOCOL_PATH = "/k/protocol";
+/** The project and bundled third-party licenses, inside the site. */
+export const LICENSES_PATH = "/k/licenses";
 /**
  * The protocol's version, in /.well-known/kurobako: a client of another one
  * cannot open this server's encrypted items (k.mjs has it too, as PROTOCOL).
