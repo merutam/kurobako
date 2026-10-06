@@ -67,6 +67,12 @@ a:hover {
   white-space: nowrap;
 }
 
+/* A link to another site, marked as such. */
+.external-link svg {
+  margin-left: 0.2em;
+  vertical-align: -0.1em;
+}
+
 /* --- Type ----------------------------------------------------------------- */
 
 h1,

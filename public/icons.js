@@ -64,6 +64,8 @@ const ICONS = {
     ["path", { d: "M7.5 8h6M11.5 8v2.5M13.5 8v2" }],
   ],
   logout: [["path", { d: "M6.5 2.5h-3v11h3M10 5l3 3-3 3M13 8H6" }]],
+  /** A link that leaves the site. */
+  external: [["path", { d: "M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4" }]],
 };
 
 /** A new <svg> of the icon `name`, `size` pixels wide and high. */

@@ -4,6 +4,8 @@
 -->
 <head>
   <title>Protocol · Kurobako</title>
+  <!-- No script of its own: common.js marks the links to other sites. -->
+  <script type="module" src="/common.js"></script>
 </head>
 <main class="prose">
   <h1>Protocol</h1>
@@ -26,7 +28,7 @@
     <code>/e/&lt;id&gt;</code>. Both answer the same requests; what differs
     is what goes in and comes out. Binary values in text form are base64url
     without padding
-    (<a href="https://www.rfc-editor.org/rfc/rfc4648#section-5">RFC 4648 §5</a>).
+    (<a class="external-link" href="https://www.rfc-editor.org/rfc/rfc4648#section-5" target="_blank" rel="noopener">RFC 4648 §5</a>).
   </p>
 
   <h2>Server and limits</h2>
@@ -276,7 +278,7 @@
     <li>
       <strong>Namespace key</strong>: bytes 16-31, an AES-128 key that only
       wraps item keys, with AES-KW
-      (<a href="https://www.rfc-editor.org/rfc/rfc3394">RFC 3394</a>).
+      (<a class="external-link" href="https://www.rfc-editor.org/rfc/rfc3394" target="_blank" rel="noopener">RFC 3394</a>).
     </li>
   </ol>
 
