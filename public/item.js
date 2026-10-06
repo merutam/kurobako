@@ -63,30 +63,42 @@ const showContent = (info, content) => {
   actions.replaceChildren();
   if (content.text !== undefined) {
     actions.append(
-      button("Copy", async () => {
-        try {
-          await copyText(content.text);
-          status.success("Copied.");
-        } catch (error) {
-          status.error(error.message);
-        }
-      }),
+      button(
+        "Copy",
+        async () => {
+          try {
+            await copyText(content.text);
+            status.success("Copied.");
+          } catch (error) {
+            status.error(error.message);
+          }
+        },
+        undefined,
+        "copy",
+      ),
     );
   }
   if (info.isImage && canCopyImages()) {
     actions.append(
-      button("Copy", async () => {
-        try {
-          await copyImage(content.blob);
-          status.success("Copied.");
-        } catch (error) {
-          status.error(error.message);
-        }
-      }),
+      button(
+        "Copy",
+        async () => {
+          try {
+            await copyImage(content.blob);
+            status.success("Copied.");
+          } catch (error) {
+            status.error(error.message);
+          }
+        },
+        undefined,
+        "copy",
+      ),
     );
   }
   if (content.blob) {
-    actions.append(button("Download", () => downloadBlob(content.blob, info.filename)));
+    actions.append(
+      button("Download", () => downloadBlob(content.blob, info.filename), undefined, "download"),
+    );
   }
 };
 
@@ -114,16 +126,21 @@ try {
     // Never on page load: link previews and accidental visits must not burn it.
     body.replaceChildren();
     actions.replaceChildren(
-      button("Open once", async () => {
-        try {
-          const content = await loadContent(item, info);
-          describeMeta(item, info, true);
-          showContent(info, content);
-          status.success("Opened and deleted from the server.");
-        } catch (error) {
-          status.error(error.message === "Item not found." ? GONE : error.message);
-        }
-      }),
+      button(
+        "Open once",
+        async () => {
+          try {
+            const content = await loadContent(item, info);
+            describeMeta(item, info, true);
+            showContent(info, content);
+            status.success("Opened and deleted from the server.");
+          } catch (error) {
+            status.error(error.message === "Item not found." ? GONE : error.message);
+          }
+        },
+        undefined,
+        "burn",
+      ),
     );
   } else if (item.kind === "file" && !item.burn) {
     // A plain file: link to it rather than fetching it all just for a button.

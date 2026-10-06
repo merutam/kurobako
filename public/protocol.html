@@ -43,7 +43,13 @@
     <code>sendsPerMinute</code> per client address (an IPv6 address
     counts by its /64 network),
     <code>maxStorageBytes</code> (every item together; <code>null</code>: no
-    limit) and <code>sealed.maxNameLength</code>. A send beyond the limit
+    limit), <code>namespace</code> (the <code>pattern</code>,
+    <code>maxLength</code> and <code>reserved</code> names of plain
+    namespaces), <code>sealed.maxNameLength</code> and <code>live</code>
+    (the WebSocket's <code>ping</code> and <code>pong</code> messages,
+    <code>pingSeconds</code> between pings, and
+    <code>hiddenCloseSeconds</code>, how long a hidden page keeps its
+    connection). A send beyond the limit
     gets <code>429</code>, so wait for the minute to pass; one that would
     fill the storage gets <code>507</code>. A client that asks for more than
     <code>missesPerMinute</code> namespaces, items or share links that are not
@@ -54,8 +60,9 @@
     (<code>"limit"</code>) or refused with <code>403</code>
     (<code>"block"</code>). Every error is JSON:
     <code>{"error": "…"}</code>. With <code>"private": true</code>, every
-    request but this one, the protocol and (usually) share links needs
-    <code>Authorization: Bearer &lt;key&gt;</code>, or gets <code>401</code>.
+    request but this one and the protocol needs
+    <code>Authorization: Bearer &lt;key&gt;</code>, or gets <code>401</code>;
+    share links open without it unless the instance keeps them private too.
   </p>
 
   <h2>Every namespace</h2>
@@ -105,7 +112,8 @@
           <td>
             a WebSocket: the queue (as <code>?summary</code>) on connecting
             and after every change, as <code>{"type": "items", "items": […]}</code>;
-            send <code>ping</code> and get <code>pong</code>
+            send <code>live.ping</code> (<code>ping</code>) and get
+            <code>live.pong</code> (<code>pong</code>)
           </td>
         </tr>
         <tr>
@@ -268,9 +276,7 @@
     <li>
       <strong>Namespace key</strong>: bytes 16-31, an AES-128 key that only
       wraps item keys, with AES-KW
-      (<a href="https://www.rfc-editor.org/rfc/rfc3394">RFC 3394</a>). A
-      namespace is as safe as its name is hard to guess, since each guess
-      can be checked against the ID.
+      (<a href="https://www.rfc-editor.org/rfc/rfc3394">RFC 3394</a>).
     </li>
   </ol>
 
@@ -284,6 +290,7 @@
     second on a fast GPU; without that data, every guess has to go
     through the site itself. With 1,000 such GPUs:
   </p>
+  <div class="table-scroll">
   <table class="data-table">
     <thead>
       <tr>
@@ -315,6 +322,7 @@
       </tr>
     </tbody>
   </table>
+  </div>
   <p>
     The home page counts a typed name at 2.5 bits a character at most,
     since names people pick follow patterns: words, dates, names.
@@ -417,7 +425,7 @@
         </tr>
         <tr>
           <th scope="row">Wrapped item key</th>
-          <td>AES-KW, no IV; base64url: <code data-vector="wrapped">awcZZJGr9nxAEYgEHy03_o-tHC1R7cmf</code></td>
+          <td>AES-KW, with RFC 3394's default IV; base64url: <code data-vector="wrapped">awcZZJGr9nxAEYgEHy03_o-tHC1R7cmf</code></td>
         </tr>
         <tr>
           <th scope="row">Sealed metadata</th>
@@ -446,6 +454,7 @@
     A <code>shareUrl</code> or <code>/s</code> link needs <code>#</code>
     and the item key added.
   </p>
+  <div class="table-scroll">
   <table class="data-table">
     <thead>
       <tr>
@@ -471,6 +480,7 @@
       </tr>
     </tbody>
   </table>
+  </div>
 
   <h2>Share links</h2>
   <p>
@@ -495,7 +505,7 @@
 
   <h2>Command line</h2>
   <p>
-    <a href="/k.mjs"><code>/k.mjs</code></a> is the code this site runs
+    <a href="/k.mjs"><code>k.mjs</code></a> is the code this site runs
     and a command-line client that speaks curl (Node 20 or newer, or Bun;
     no dependencies): the same options and paths as the plain API, with
     <code>&lt;link&gt;</code> being
@@ -574,11 +584,14 @@
     instead. Exporting a namespace does not delete extra local files. Reading
     a burn-after-reading item deletes it; listing reads nothing. Plain links
     work too, sent as they are. JSON prints the same for both, and an error is
-    a message on standard error with exit status 1. An extracted plain backup
-    accepts <code>path/ls</code>, <code>/1</code>, <code>/item-id</code> and
-    <code>/1.json</code>; a full backup is selected as
-    <code>path/plain/namespace/ls</code>. An encrypted backup or one of its
-    <code>.sealed</code> files uses <code>path#secret name</code> and the same
-    read paths. Keep its <code>manifest.json</code> present.
+    a message on standard error with exit status 1. A backup extracted to
+    a folder reads like a namespace: <code>&lt;path&gt;/ls</code>,
+    <code>&lt;path&gt;/1</code>, <code>&lt;path&gt;/&lt;id&gt;</code> and
+    <code>&lt;path&gt;/1.json</code> for a plain one, and
+    <code>&lt;path&gt;/plain/&lt;name&gt;/ls</code> and so on for one
+    namespace of a whole instance's backup. An encrypted backup, or one of
+    its <code>.sealed</code> files, takes
+    <code>&lt;path&gt;#&lt;secret name&gt;</code> and the same paths. Its
+    <code>manifest.json</code> must be there.
   </p>
 </main>

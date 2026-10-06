@@ -6,6 +6,8 @@
 // and the restore of a backup. (theme.js, a classic script that runs before
 // the page is drawn, keeps to itself.)
 
+import { icon } from "./icons.js";
+
 export const element = (selector) => {
   const found = document.querySelector(selector);
   if (!found) throw new Error("Something went wrong. Reload the page.");
@@ -87,6 +89,15 @@ export const formatDuration = (seconds) => {
   return `${value} ${unit}${value === 1 ? "" : "s"}`;
 };
 
+/** How long ago, in a few characters: "now", "5 min", "3 h", "2 d". */
+export const formatAge = (date) => {
+  const minutes = Math.floor((Date.now() - Date.parse(date)) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h`;
+  return `${Math.floor(minutes / (24 * 60))} d`;
+};
+
 export const formatExpiry = (expiresAt) => {
   const remainingMs = Date.parse(expiresAt) - Date.now();
   if (remainingMs <= 0) return "expired";
@@ -123,14 +134,24 @@ export const compactText = (text) => text.replace(/\s+/g, " ").trim() || "(blank
 /** Burn-after-reading texts never show a preview: that would be a read. */
 export const HIDDEN_TITLE = "Hidden until opened";
 
-export const button = (label, onClick, className) => {
+/** A button; `iconName` (see icons.js) puts that icon before its label. */
+export const button = (label, onClick, className, iconName) => {
   const control = document.createElement("button");
   control.type = "button";
   control.textContent = label;
+  if (iconName) control.prepend(icon(iconName));
   if (className) control.className = className;
   control.addEventListener("click", onClick);
   return control;
 };
+
+// Buttons in the pages' markup ask for their icon with data-icon="send".
+// (Tests import this module too, with no page around it.)
+if (typeof document !== "undefined") {
+  for (const control of document.querySelectorAll("[data-icon]")) {
+    control.prepend(icon(control.dataset.icon));
+  }
+}
 
 /**
  * Puts text on the clipboard: through the Clipboard API on HTTPS pages (and

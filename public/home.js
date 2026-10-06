@@ -89,7 +89,7 @@ const updateMode = () => {
   pageTitle.textContent = prefix.textContent;
   input.maxLength = sealed ? config.sealed.maxNameLength : config.namespace.maxLength;
   hint.textContent = sealed
-    ? `Any text without "/", max ${config.sealed.maxNameLength} characters. Longer is safer: use Random name.`
+    ? `Max ${config.sealed.maxNameLength} characters. Longer is safer: use Random name.`
     : `a-z, 0-9, _ and -. Max ${config.namespace.maxLength} characters.`;
   status.clear();
   showStrength();
