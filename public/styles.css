@@ -12,7 +12,7 @@
 }
 
 /* A namespace page known, before its first paint, to be a reader's (see
-   access.js): no send forms to show and then hide. namespace.js takes over. */
+   access.js): no send forms to show and then hide. namespaces/access.js takes over. */
 :where(:root:not([data-write-key]) main[data-locked], :root[data-read-link])
 :is(#send-section, #restore-form) {
   display: none;
@@ -267,21 +267,75 @@ input[type="search"]:focus {
 .namespace-input {
   display: flex;
   align-items: center;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  font-family: var(--font-mono);
+}
+.namespace-input:focus-within {
+  border-color: var(--focus);
+  outline: 1px solid var(--focus);
+}
+.namespace-input input[type="text"],
+.namespace-input input[type="text"]:focus {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+}
+.e2ee-control {
+  display: flex;
+  align-items: center;
+  flex: none;
   gap: var(--space-1);
-  font-family: var(--font-mono);
+  margin-left: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border-subtle);
 }
-.namespace-input input {
-  font-family: var(--font-mono);
+.e2ee-control input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
 }
-/* Wide enough for "/e#", so toggling Encrypted never resizes the field. */
 .namespace-input span {
   flex: none;
-  width: 3ch;
-  text-align: right;
   white-space: nowrap;
 }
+#namespace-prefix {
+  color: var(--text-subtle);
+}
+#e2ee-dialog {
+  width: min(32rem, calc(100% - 2 * var(--page-gutter)));
+  max-height: calc(100dvh - 2 * var(--page-gutter));
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-large);
+  background: var(--surface);
+  color: var(--text);
+}
+#e2ee-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+.e2ee-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0;
+}
+#stats-section {
+  margin-top: var(--space-5);
+}
 
-/* Where a file is dropped or, clicked, picked (see fileField). */
+/* The native input and label stay together; <k-file-field> adds drop behavior. */
+k-file-field {
+  display: block;
+}
 .dropzone {
   display: block;
   margin-bottom: var(--space-2);
@@ -368,6 +422,20 @@ button.primary:hover {
 }
 button.destructive {
   color: var(--destructive);
+}
+.e2ee-control button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
+  text-decoration: underline dotted;
+}
+.e2ee-control button:hover {
+  background: none;
+  color: var(--link-hover);
 }
 
 .section-heading {
@@ -1097,37 +1165,6 @@ button.media-preview img {
   }
 }
 
-/* Settings sit side by side when they fit, leaving room for more options later. */
-.namespace-settings {
-  margin-bottom: var(--space-6);
-}
-.settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-  gap: var(--space-3) var(--space-5);
-}
-.setting-row {
-  max-width: var(--prose-width);
-}
-.setting-row .actions {
-  margin: 0;
-}
-.setting-row .hint {
-  margin: var(--space-1) 0 0;
-}
-.setting-row label.setting-check {
-  min-height: var(--control-height);
-  margin: 0;
-}
-.setting-check span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.setting-check:has(input:disabled) {
-  cursor: default;
-  opacity: 0.6;
-}
 /* How items open, beside the list actions. */
 .section-heading select {
   width: auto;
@@ -1149,6 +1186,7 @@ button.media-preview img {
   left: -9999px;
 }
 
+:where(#stats-section) a[data-icon] svg,
 .intro a[data-icon] svg,
 .links a[data-icon] svg {
   margin-right: 0.25em;
@@ -1182,10 +1220,6 @@ button.media-preview img {
   display: flex;
   gap: var(--space-2);
   max-width: 40rem;
-}
-.setting-row .copy-link,
-.setting-row form {
-  margin-top: var(--space-2);
 }
 /* Looks like a field, not a link: clicking copies instead of navigating. */
 .copy-link input {
@@ -1407,5 +1441,43 @@ button.media-preview img {
 }
 /* A QR code and the link it encodes belong together. */
 .stack > .qr-code + .copy-link {
+  margin-top: var(--space-2);
+}
+
+/* --- Settings ------------------------------------------------------------- */
+
+/* Settings belong only to the namespace page. */
+.namespace-settings {
+  margin-bottom: var(--space-6);
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--space-3) var(--space-5);
+}
+.setting-row {
+  max-width: var(--prose-width);
+}
+.setting-row .actions {
+  margin: 0;
+}
+.setting-row .hint {
+  margin: var(--space-1) 0 0;
+}
+.setting-row label.setting-check {
+  min-height: var(--control-height);
+  margin: 0;
+}
+.setting-check span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.setting-check:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+.setting-row .copy-link,
+.setting-row form {
   margin-top: var(--space-2);
 }

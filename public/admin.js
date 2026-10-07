@@ -10,13 +10,13 @@ import {
   formatBytes,
   formatDuration,
   iconLink,
-  ignoreStrayDrops,
   numberFormatter,
   request,
   restoreForm,
   SITE,
   storage,
 } from "./common.js";
+import { ignoreStrayDrops } from "./components.js";
 import { icon } from "./icons.js";
 import { createStatus } from "./status.js";
 
@@ -265,7 +265,6 @@ backupTar.addEventListener("click", () => location.assign(adminUrl("tar")));
 restoreForm({
   form: element("#restore-form"),
   input: element("#restore-file"),
-  zone: element("#restore-zone"),
   status,
   send: (file) => api("import", { method: "POST", body: file }),
   done: load,

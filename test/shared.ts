@@ -1115,12 +1115,28 @@ export const sharedTests = (harness: Harness) => {
   describe("site", () => {
     test("assembles pages: versioned scripts, footer and the embedded config", async () => {
       const html = await (await call(`/${fresh()}`)).text();
-      const version = html.match(/\/namespace\.js\?v=([0-9a-f]+)/)?.[1];
+      const version = html.match(/\/namespaces\/index\.js\?v=([0-9a-f]+)/)?.[1];
       expect(version).toBeDefined();
       expect(html).not.toContain("%APP_VERSION%");
       expect(html).not.toContain("%CONFIG%");
       expect(html).toContain(`(build ${version})`);
-      expect(await (await call("/")).text()).toContain('data-icon="json" href="/stats.json"');
+      expect(html.match(/<k-file-field>/g)).toHaveLength(2);
+      const home = await (await call("/")).text();
+      expect(home).toContain('<span id="namespace-prefix" aria-hidden="true">/e#</span>');
+      expect(home).toContain('aria-label="Enable end-to-end encryption"');
+      expect(home).toContain('id="e2ee-help"');
+      expect(home).toContain('id="e2ee-dialog"');
+      expect(home).toContain('id="stats-section" class="stack page-section"');
+      expect(home).not.toContain('id="toggle-stats"');
+      expect(home).not.toContain("data-stat=");
+      expect(home).not.toContain('id="misses-per-minute"');
+      expect(home).not.toContain('id="max-storage"');
+      expect(home).toContain(`<td id="max-items">${config.maxItems.toLocaleString("en-US")}</td>`);
+      expect(home).toContain(
+        `<td id="sends-per-minute">${config.sendsPerMinute.toLocaleString("en-US")}</td>`,
+      );
+      expect(home).not.toContain("%MAX_FILE_SIZE%");
+      expect(home).toContain('data-icon="json" href="/stats.json">Full statistics</a>');
 
       const embedded = html.match(
         /<script type="application\/json" id="config">(.*?)<\/script>/s,

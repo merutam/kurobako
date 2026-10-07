@@ -5,8 +5,7 @@
 // flow, so it can go away by itself without moving anything: a success
 // leaves after a few seconds (not while pointed at or focused), progress
 // stays until the next message, and an error until dismissed, so it is
-// never missed. A status inside a form sits in the flow, by its fields, and
-// stays until replaced.
+// never missed.
 const SUCCESS_SECONDS = 4;
 
 export const createStatus = (element) => {
