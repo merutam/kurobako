@@ -379,6 +379,12 @@ button.destructive {
   justify-content: flex-end;
   gap: var(--space-2);
 }
+.media-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-height);
+}
 
 /* --- Header and footer ---------------------------------------------------- */
 
@@ -1090,17 +1096,7 @@ button.media-preview img {
   opacity: 0.6;
 }
 /* How items open, beside the list actions. */
-.list-options {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-height);
-  margin: 0;
-}
-.list-options label {
-  margin: 0;
-}
-.list-options select {
+.section-heading select {
   width: auto;
   height: var(--control-height);
   padding: 0 var(--space-2);

@@ -68,7 +68,7 @@ const textInput = element("#text");
 const textLanguage = element("#text-language");
 const fileInput = element("#file");
 const refreshButton = element("#refresh");
-const openMediaButton = element("#open-media");
+const openMediaLink = element("#open-media");
 const textLimit = element("#text-limit");
 const fileLimitLabel = element("#file-limit");
 const backupZip = element("#backup-zip");
@@ -436,7 +436,12 @@ const mediaAddress = async (entry, { preview = false } = {}) => {
 };
 
 const mediaFeed = createMediaFeed(mediaAddress);
-openMediaButton.addEventListener("click", () => mediaFeed.open());
+openMediaLink.addEventListener("click", (event) => {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
+    return;
+  event.preventDefault();
+  mediaFeed.open();
+});
 
 const downloadItem = async (entry) => {
   try {
@@ -948,7 +953,12 @@ const renderItems = async (items, { force = false } = {}) => {
       (entry.info.isImage || entry.info.isVideo) && (!entry.item.burn || Boolean(entry.opened)),
   );
   mediaFeed.update(mediaEntries);
-  openMediaButton.hidden = mediaEntries.length === 0;
+  openMediaLink.hidden = mediaEntries.length === 0;
+  if (mediaEntries.length) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("media", mediaEntries[0].item.id);
+    openMediaLink.href = url.href;
+  }
 
   // Rows of unchanged items stay as they are (only their position moves),
   // so a busy queue neither reloads previews nor opens and closes them.

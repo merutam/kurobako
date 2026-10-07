@@ -97,16 +97,13 @@
     <div class="section-heading">
       <h2 id="queue-title">Items <small id="item-count"></small> <small id="live-status" class="live-status"></small> <small id="viewers" title="Pages open on this namespace right now, this one included"></small></h2>
       <span class="actions">
-        <button data-icon="image" id="open-media" type="button" hidden>Media</button>
+        <a class="media-link" data-icon="image" id="open-media" href="?media" hidden>Media</a>
         <button data-icon="refresh" id="refresh" type="button">Refresh</button>
-        <span class="list-options">
-          <label for="expand-mode">Show contents</label>
-          <select id="expand-mode">
-            <option value="one">One at a time</option>
-            <option value="several">Several at once</option>
-            <option value="all">All</option>
-          </select>
-        </span>
+        <select id="expand-mode" aria-label="Show contents">
+          <option value="one">One at a time</option>
+          <option value="several">Several at once</option>
+          <option value="all">All</option>
+        </select>
       </span>
     </div>
     <ol id="items" class="items"></ol>
