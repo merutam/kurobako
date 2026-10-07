@@ -276,6 +276,9 @@
       <code>&lt;item&gt;</code> may also be a name, exact or the start of
       one, ignoring case; the newest match wins
       (<code>/notes/report</code> finds <code>Report 2024.pdf</code>).
+      The server's default name collapses whitespace and takes up to 80
+      Unicode code points. If longer, it cuts at the last space within that
+      limit and removes trailing punctuation. Short names keep their punctuation.
     </li>
     <li>
       <strong>No copies</strong>: sending contents already in the queue
@@ -472,6 +475,9 @@
           </tr>
         </tbody>
       </table>
+      The sender chooses a text's title. The browser and <code>k.mjs</code>
+      use the same default-title convention as the plain server; decryption
+      does not depend on how the title was chosen.
       Either adds <code>"rev": n</code> once its contents were replaced
       (0, left out, until then). An item with a <code>filename</code> is a
       file; any other, a text. Its size is told by the body's, as the queue
