@@ -43,7 +43,6 @@
       </div>
       <div id="lock-section" class="setting-row" hidden>
         <p id="lock-actions" class="actions">
-          <button data-icon="lock" id="lock-button" type="button" hidden>Lock</button>
           <button data-icon="unlock" id="unlock-button" type="button" hidden>Unlock</button>
           <button data-icon="logout" id="forget-key" type="button" hidden>Forget the key here</button>
         </p>
@@ -68,16 +67,16 @@
 
     <form id="text-form">
       <fieldset>
-        <legend id="text-legend">Text</legend>
-        <textarea id="text" name="text" rows="8" aria-labelledby="text-legend" aria-describedby="text-limit" required></textarea>
-        <p class="text-editor-options">
-          <label for="text-language">Highlight</label>
+        <textarea id="text" name="text" rows="8" aria-label="Text" aria-describedby="text-limit" required></textarea>
+        <div class="editor-toolbar">
           <select id="text-language" aria-label="Syntax highlighting">
             <option value="">Plain text</option>
           </select>
-        </p>
-        <p id="text-limit" class="hint"></p>
-        <button data-icon="send" type="submit" class="primary">Send</button>
+          <p id="text-limit" class="hint"></p>
+        </div>
+        <div class="form-footer">
+          <button data-icon="send" type="submit" class="primary">Send</button>
+        </div>
       </fieldset>
     </form>
 
@@ -86,8 +85,10 @@
         <legend id="file-legend">File</legend>
         <input id="file" class="visually-hidden" name="file" type="file" multiple aria-labelledby="file-legend" aria-describedby="file-limit" required />
         <label id="file-zone" class="dropzone" for="file">Drop files here, or click to pick them</label>
-        <p id="file-limit" class="hint"></p>
-        <button data-icon="send" type="submit" class="primary">Send</button>
+        <div class="form-footer">
+          <p id="file-limit" class="hint"></p>
+          <button data-icon="send" type="submit" class="primary">Send</button>
+        </div>
       </fieldset>
     </form>
   </section>

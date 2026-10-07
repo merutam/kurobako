@@ -515,7 +515,7 @@ Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J,
 --no-clobber (do not overwrite)
 (and -s, -S, -L, -f, -p, ignored).
 A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
-A locked namespace's write key goes in KUROBAKO_WRITE_KEY; -X POST <link>/lock locks one.
+A locked namespace's write key goes in KUROBAKO_WRITE_KEY. Creating or changing locks is temporarily disabled; -X DELETE <link>/lock still unlocks an existing lock.
 <link>/live stays on and prints a line per change (new, moved, changed, gone,
 locked, unlocked), the encrypted ones decrypted: for scripts.
 An encrypted namespace writes with the key its name gives; locked, it answers

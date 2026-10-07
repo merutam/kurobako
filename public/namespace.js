@@ -95,7 +95,6 @@ const lockLinkRow = element("#lock-link-row");
 const lockLink = element("#lock-link");
 const keyForm = element("#key-form");
 const keyInput = element("#key-input");
-const lockButton = element("#lock-button");
 const unlockButton = element("#unlock-button");
 const forgetKeyButton = element("#forget-key");
 
@@ -662,16 +661,14 @@ const editItem = async (entry, preview) => {
     void renderItems(serverItems, { force: true });
   });
   const save = el("button", { type: "submit", className: "primary", textContent: "Save" });
-  const controls = el(
+  const toolbar = el("div", { className: "editor-toolbar" }, language, size, editor.position);
+  const footer = el(
     "div",
-    { className: "editor-controls" },
-    language,
-    size,
-    editor.position,
-    cancel,
-    save,
+    { className: "form-footer" },
+    preview.nextElementSibling,
+    el("span", { className: "actions" }, cancel, save),
   );
-  form.append(editor.editor, controls);
+  form.append(editor.editor, toolbar, footer);
   preview.replaceChildren(form);
   textarea.focus();
 
@@ -1279,21 +1276,19 @@ const showAccess = () => {
 
   const key = writeKey();
   const sealed = mode.writeKey !== undefined;
-  // Opened by a read-only link: nothing here to lock or unlock.
-  lockSection.hidden = sealed && !key;
-  lockButton.hidden = locked;
+  // Only existing locks have controls while creating locks is paused.
+  lockSection.hidden = !locked || (sealed && !key);
   unlockButton.hidden = !locked || !key;
   // An encrypted namespace's key is its name: nothing to forget or type in.
   forgetKeyButton.hidden = sealed || !locked || !key;
-  lockActions.hidden = lockButton.hidden && unlockButton.hidden && forgetKeyButton.hidden;
+  lockActions.hidden = unlockButton.hidden && forgetKeyButton.hidden;
   keyForm.hidden = sealed || !locked || Boolean(key);
   lockLinkRow.hidden = !locked || !key;
   if (sealed) {
     lockLink.value = mode.readOnlyUrl;
     lockLink.setAttribute("aria-label", "Read-only link");
-    lockHint.textContent = locked
-      ? "Locked: the read-only link below opens it for reading only; the name still writes."
-      : "Locking keeps it readable with a read-only link, while only the name can send, edit, rename or delete.";
+    lockHint.textContent =
+      "Locked: the read-only link below opens it for reading only; the name still writes.";
     return;
   }
   lockLink.setAttribute("aria-label", "Link that writes here");
@@ -1304,9 +1299,6 @@ const showAccess = () => {
   } else if (locked) {
     lockHint.textContent =
       "Read-only: only those with its write key can send, edit, rename or delete here.";
-  } else {
-    lockHint.textContent =
-      "Locking keeps it readable by anyone, while only those with its key can send, edit, rename or delete. Only an empty namespace can be locked.";
   }
 };
 
@@ -1317,26 +1309,6 @@ const setLocked = (value) => {
   showAccess();
   void renderItems(serverItems, { force: true });
 };
-
-lockButton.addEventListener("click", async () => {
-  try {
-    const response = await request(`${mode.basePath}/lock`, {
-      method: "POST",
-      headers: writeHeaders(),
-    });
-    const { writeKey: key } = await response.json();
-    if (key) {
-      storage.set(writeKeyName(), key);
-      status.success("Locked. This device keeps its key; copy the link below to write elsewhere.");
-    } else {
-      status.success("Locked. Copy the read-only link below to share it for reading.");
-    }
-    setLocked(true);
-    showAccess();
-  } catch (error) {
-    status.error(error.message);
-  }
-});
 
 unlockButton.addEventListener("click", async () => {
   if (!window.confirm("Unlock? Anyone with the name could then send, edit, rename and delete."))
@@ -1387,14 +1359,19 @@ const showPage = () => {
       : `Any file · max ${formatBytes(fileLimit())}`;
   pageTitle.textContent = mode.title;
   modeLabel.textContent = mode.label ? `${mode.label} · ` : "";
-  const link = (href, text) =>
-    Object.assign(document.createElement("a"), { href, textContent: text });
+  const link = (href, text, symbol) => {
+    const anchor = Object.assign(document.createElement("a"), { href, textContent: text });
+    anchor.prepend(icon(symbol, 14));
+    return anchor;
+  };
   pageLinks.replaceChildren(
     " · ",
-    link(`${mode.basePath}/log`, "Access log"),
+    // An encrypted name or read token lives only in the fragment. Keep it
+    // client-side on the log page so its Back link can return here.
+    link(`${mode.basePath}/log${mode.label ? window.location.hash : ""}`, "Access log", "users"),
     " · ",
     // In encrypted mode this shows exactly what the server holds: ciphertext.
-    link(`${mode.basePath}/ls`, "See JSON"),
+    link(`${mode.basePath}/ls`, "See JSON", "json"),
   );
   document.title = `${mode.title} · Kurobako`;
   // Drawn locally: an encrypted link must never be sent to the server.
@@ -1407,7 +1384,7 @@ const showPage = () => {
   showAccess();
 };
 
-/** Under the text: its characters and its size against the limit, red past it. */
+/** Under the text: its size against the limit, red past it. */
 const encoder = new TextEncoder();
 let textSizeTimer = null;
 const showTextSize = () => {
@@ -1415,22 +1392,9 @@ const showTextSize = () => {
   textSizeTimer = null;
   const text = textInput.value;
   const bytes = encoder.encode(text).byteLength;
-  let characters = 0;
-  for (const _ of text) characters += 1;
   const paused = text.length > MAX_HIGHLIGHT_CHARACTERS;
-  // Short, for a phone: an icon for the characters, the words on hover and
-  // for screen readers.
-  const count = numberFormatter.format(characters);
-  textLimit.replaceChildren(
-    icon("text", 14),
-    ` ${count}`,
-    el("span", {
-      className: "visually-hidden",
-      textContent: ` character${characters === 1 ? "" : "s"}`,
-    }),
-    ` · ${formatBytes(bytes)} / ${formatBytes(config.maxTextBytes)}${paused ? " · no colors" : ""}`,
-  );
-  textLimit.title = `${count} character${characters === 1 ? "" : "s"}, ${formatBytes(bytes)} of ${formatBytes(config.maxTextBytes)}${paused ? "; too long to color" : ""}`;
+  textLimit.textContent = `${formatBytes(bytes)} / ${formatBytes(config.maxTextBytes)}${paused ? " · no colors" : ""}`;
+  textLimit.title = `${formatBytes(bytes)} of ${formatBytes(config.maxTextBytes)}${paused ? "; too long to color" : ""}`;
   textLimit.classList.toggle("over", bytes > config.maxTextBytes);
 };
 // Counting and UTF-8 encoding a long text on every key would lag typing.

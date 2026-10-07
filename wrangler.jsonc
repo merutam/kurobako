@@ -87,6 +87,7 @@
       "!/sw.js",
       "!/admin.js",
       "!/login.js",
+      "!/log.js",
       "!/k.mjs",
       "!/status.js",
       "!/theme.js",

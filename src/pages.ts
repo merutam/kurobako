@@ -50,6 +50,7 @@ export const STATIC_FILES = [
   "sw.js",
   "admin.js",
   "login.js",
+  "log.js",
   "k.mjs",
   "status.js",
   "theme.js",
@@ -171,11 +172,13 @@ export const renderLogPage = (
     layout,
     `<head>
   <title>${escapeHtml(title)} access log · Kurobako</title>
+  ${backHref ? "" : '<script src="/log.js" defer></script>'}
 </head>
 <main>
+  <p${backHref ? "" : ' id="log-back-row" hidden'}><a${backHref ? "" : ' id="log-back"'} href="${escapeHtml(backHref ?? "#")}">← Back to namespace</a></p>
   <h1>Access log · ${escapeHtml(title)}</h1>
   <p class="intro">
-    ${entries.length} IP${entries.length === 1 ? "" : "s"}${backHref ? ` · <a href="${escapeHtml(backHref)}">Back</a>` : ""}
+    ${entries.length} IP${entries.length === 1 ? "" : "s"}
     · <a href="${escapeHtml(jsonHref)}">See JSON</a>
   </p>
   ${

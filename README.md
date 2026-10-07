@@ -137,24 +137,13 @@ for part in kurobako-*-part*.zip; do
 done
 ```
 
-## A locked namespace
+## Locked namespaces
 
-A namespace can be read by anyone and written only by you: lock it while
-it is empty, and only its write key sends, edits, renames or deletes there.
-
-```sh
-curl -X POST $BOX/news/lock          # {"locked": true, "writeKey": "…"}, shown once
-curl -H "Write-Key: …" -d 'v1.2 is out' $BOX/news/new
-curl $BOX/news/ls                    # anyone reads
-```
-
-The page does it with **Lock**, keeps the key on the device and gives a
-link that writes (`$BOX/news#w=<key>`); `k.mjs` takes the key in
-`KUROBAKO_WRITE_KEY`.
-
-An encrypted namespace locks the same way, at any time, and needs no key:
-its name gives one. Locked, it has a read-only link, `$BOX/e#/<token>`,
-which opens and decrypts everything there and writes nothing.
+Creating locks and changing lock keys are temporarily disabled. Existing
+locked namespaces still require their write key for changes and can be
+unlocked; `k.mjs` takes a plain namespace's key in `KUROBAKO_WRITE_KEY`.
+An encrypted namespace derives its write key from its secret name. Locking
+will return after the server can verify ownership before accepting a lock.
 
 ## A private instance
 

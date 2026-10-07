@@ -52,83 +52,27 @@ export const sharedTests = (harness: Harness) => {
       .replace(/=+$/, "");
 
   describe("locked namespaces", () => {
-    test("a locked namespace: anyone reads, only its key writes", async () => {
-      const ns = fresh("lock");
-      const locking = await call(`/${ns}/lock`, { method: "POST" });
-      expect(locking.status).toBe(200);
-      expect(locking.headers.get("locked")).toBe("1");
-      const { writeKey } = (await locking.json()) as { writeKey: string };
-      expect(writeKey).toMatch(/^[A-Za-z0-9_-]{22}$/);
-      const writer = { "write-key": writeKey };
-
-      // Writing: with the key only; never burn-after-reading.
-      const anonymous = await sendText(ns, "not mine");
-      expect(anonymous.status).toBe(401);
-      expect(anonymous.headers.get("locked")).toBe("1");
-      expect((await sendText(ns, "guess", { "write-key": "nope" })).status).toBe(403);
-      expect((await sendText(ns, "notes", writer)).status).toBe(201);
-      expect((await sendText(ns, "once", { ...writer, burn: "1" })).status).toBe(400);
-      expect((await call(`/${ns}/f.png`, { method: "PUT", body: png })).status).toBe(401);
-      expect(
-        (await call(`/${ns}/f.png`, { method: "PUT", body: png, headers: writer })).status,
-      ).toBe(201);
-
-      // Its page comes as a reader's, so that no send form shows and then hides.
-      expect(await (await call(`/${ns}`)).text()).toMatch(/^\s*<main data-locked>/m);
-
-      // Reading: anyone, and the queue says it is locked.
-      const listed = await call(`/${ns}/ls`);
-      expect(listed.headers.get("locked")).toBe("1");
-      expect(await listed.json()).toHaveLength(2);
-      expect(await (await call(`/${ns}/2`)).text()).toBe("notes");
-      // A reader gets no share link (making one is writing); the writer does.
-      expect(await json(`/${ns}/2.json`)).not.toHaveProperty("shareUrl");
-      expect((await call(`/${ns}/2/s`)).status).toBe(401);
-      expect(await json(`/${ns}/2.json`, { headers: writer })).toHaveProperty("shareUrl");
-
-      // Renaming and deleting are writes too.
-      const rename = { method: "POST", body: "renamed" };
-      expect((await call(`/${ns}/2/n`, rename)).status).toBe(401);
-      expect((await call(`/${ns}/2/n`, { ...rename, headers: writer })).status).toBe(200);
-      expect((await call(`/${ns}/1`, { method: "DELETE" })).status).toBe(401);
-      expect((await call(`/${ns}/1`, { method: "DELETE", headers: writer })).status).toBe(200);
-
-      // A new key from the current one; the old one stops working.
-      expect((await call(`/${ns}/lock`, { method: "POST" })).status).toBe(401);
-      const changed = (await json(`/${ns}/lock`, { method: "POST", headers: writer })) as {
-        writeKey: string;
-      };
-      expect(changed.writeKey).not.toBe(writeKey);
-      expect((await sendText(ns, "old key", writer)).status).toBe(403);
-
-      // Unlocked, anyone writes again.
-      expect((await call(`/${ns}/lock`, { method: "DELETE", headers: writer })).status).toBe(403);
-      const unlocking = await call(`/${ns}/lock`, {
-        method: "DELETE",
-        headers: { "write-key": changed.writeKey },
-      });
-      expect(unlocking.status).toBe(200);
-      expect((await sendText(ns, "open again")).status).toBe(201);
-      expect((await call(`/${ns}/ls`)).headers.get("locked")).toBeNull();
+    test("temporarily refuses new locks and key rotation in both spaces", async () => {
+      const plain = fresh("lock");
+      const sealed = freshSealedId();
+      const attempts: Record<string, string>[] = [{}, { "write-key": "arbitrary" }];
+      for (const path of [`/${plain}`, `/e/${sealed}`]) {
+        for (const headers of attempts) {
+          const response = await call(`${path}/lock`, { method: "POST", headers });
+          expect(response.status).toBe(503);
+          expect(await response.json()).toEqual({
+            error: "Creating or changing locks is temporarily disabled.",
+          });
+        }
+        expect((await call(`${path}/ls`)).headers.get("locked")).toBeNull();
+      }
     });
 
-    test("a plain namespace in use cannot be taken by locking it", async () => {
+    test("refusing a lock does not prevent ordinary writes", async () => {
       const ns = fresh("lock");
       await sendText(ns, "someone's");
-      expect((await call(`/${ns}/lock`, { method: "POST" })).status).toBe(409);
+      expect((await call(`/${ns}/lock`, { method: "POST" })).status).toBe(503);
       expect((await sendText(ns, "still open")).status).toBe(201);
-    });
-
-    test("an encrypted namespace locks with the key its client brings", async () => {
-      const id = freshSealedId();
-      expect((await call(`/e/${id}/lock`, { method: "POST" })).status).toBe(400);
-      const locked = await call(`/e/${id}/lock`, {
-        method: "POST",
-        headers: { "write-key": "derived" },
-      });
-      expect(await locked.json()).toEqual({ locked: true });
-      expect((await call(`/e/${id}/new`, { method: "POST", body: "x" })).status).toBe(401);
-      expect((await call(`/e/${id}/ls`)).headers.get("locked")).toBe("1");
     });
   });
 
@@ -800,6 +744,8 @@ export const sharedTests = (harness: Harness) => {
       expect(alphaLog).toContain("203.0.113.42");
       expect(alphaLog).toContain("Itabirito, Minas Gerais, BR");
       expect(alphaLog).not.toContain("198.51.100.20");
+      expect(alphaLog).toContain(`href="/${alpha}">← Back to namespace</a>`);
+      expect(alphaLog).not.toContain('id="log-back-row" hidden');
       expect((await call("/log.json")).status).toBe(404);
     });
 
@@ -886,7 +832,7 @@ export const sharedTests = (harness: Harness) => {
       ).rejects.toThrow();
     });
 
-    test("serve the page, refuse bad IDs and log without a way back", async () => {
+    test("serve the page, refuse bad IDs and keep the encrypted log's back link client-side", async () => {
       expect(await (await call("/e")).text()).toContain("<html");
       expect((await call("/e/kk/ls")).status).toBe(404);
       const id = freshSealedId();
@@ -898,7 +844,9 @@ export const sharedTests = (harness: Harness) => {
       const log = await (await call(`/e/${id}/log`)).text();
       expect(log).toContain("203.0.113.7");
       expect(log).toContain("encrypted namespace");
-      expect(log).not.toContain(">Back<");
+      expect(log).toContain('id="log-back-row" hidden');
+      expect(log).toContain('src="/log.js?');
+      expect(log).not.toContain(`href="/e/${id}"`);
     });
   });
 

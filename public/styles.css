@@ -187,6 +187,15 @@ p {
 .actions {
   margin: 0;
 }
+.actions > .primary {
+  margin-left: auto;
+}
+:where(#namespace-form) .actions {
+  justify-content: flex-end;
+}
+:where(#namespace-form) .actions > .primary {
+  margin-left: 0;
+}
 
 /* --- Forms ---------------------------------------------------------------- */
 
@@ -895,33 +904,39 @@ a.icon-button:hover {
 .item-editor {
   margin: var(--space-1) 0 0;
 }
-.item-editor textarea {
-  min-height: 16rem;
-}
-.editor-controls {
+.editor-toolbar,
+.form-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
-.editor-controls select {
+.editor-toolbar select {
+  min-width: 0;
+  flex: 0 1 auto;
   width: auto;
   max-width: 16rem;
 }
-.editor-controls .hint {
-  margin: 0 auto 0 0;
-  white-space: nowrap;
+.editor-toolbar .hint,
+.form-footer .hint {
+  margin: 0;
+}
+.form-footer {
+  justify-content: flex-end;
+}
+.form-footer > :first-child:not(:last-child) {
+  margin-right: auto;
+}
+.form-footer .item-meta {
+  margin-top: 0;
 }
 .text-editor {
   position: relative;
-  height: 13rem;
-  min-height: 10rem;
+  height: min(45dvh, 30rem);
+  min-height: 18rem;
   overflow: hidden;
   resize: vertical;
-}
-.item-editor .text-editor {
-  height: 20rem;
-  min-height: 16rem;
 }
 .text-editor > textarea,
 .text-editor > pre.text-editor-highlight {
@@ -977,14 +992,27 @@ a.icon-button:hover {
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
+.text-editor > textarea::selection {
+  background: color-mix(in srgb, var(--focus) 40%, transparent);
+}
+.text-editor-selection {
+  position: absolute;
+  inset: 0 0 0 calc(var(--line-number-width, 3ch) + 2 * var(--space-2));
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+}
+.text-editor-selected-empty-line {
+  position: absolute;
+  width: 1ch;
+  background: color-mix(in srgb, var(--focus) 40%, transparent);
+}
 .text-editor > textarea,
 .text-editor > pre.text-editor-highlight {
   border-left: 0;
   border-radius: 0 var(--radius) var(--radius) 0;
-}
-/* The send form's size line: an icon for the characters, in the text's line. */
-#text-limit svg {
-  vertical-align: -0.15em;
 }
 /* The caret's line and column, below the text with the form's details. */
 .text-editor-position {
@@ -1005,29 +1033,41 @@ a.icon-button:hover {
 .text-editor.composing > pre.text-editor-highlight {
   visibility: hidden;
 }
-.text-editor-options {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-2) 0 0;
-}
-.text-editor-options label {
-  margin: 0;
-}
-.text-editor-options select {
-  min-width: 0;
-  flex: 0 1 auto;
-  width: auto;
-  max-width: 16rem;
-}
-#text-form .text-editor {
-  height: min(65dvh, 42rem);
-  min-height: 24rem;
+.text-resize-handle {
+  display: none;
 }
 @media (max-width: 799px) {
-  #text-form .text-editor {
-    height: 22rem;
-    min-height: 16rem;
+  .text-editor {
+    height: 16rem;
+    min-height: 12rem;
+    resize: none;
+  }
+  .text-editor > :is(textarea, pre.text-editor-highlight, pre.text-editor-lines) {
+    padding-bottom: 44px;
+  }
+  .text-resize-handle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-subtle);
+    cursor: ns-resize;
+    touch-action: none;
+    user-select: none;
+  }
+  .text-resize-handle:hover,
+  .text-resize-handle:active {
+    background: transparent;
+    color: var(--text);
   }
 }
 .error-text {
@@ -1054,13 +1094,6 @@ button.media-preview img {
   .icon-button {
     width: 44px;
     height: 44px;
-  }
-  .editor-controls {
-    flex-wrap: wrap;
-  }
-  .editor-controls select {
-    width: 100%;
-    max-width: none;
   }
 }
 
@@ -1120,6 +1153,10 @@ button.media-preview img {
   color: var(--success-text);
 }
 #viewers svg {
+  vertical-align: -0.15em;
+}
+#page-links a svg {
+  margin-right: 0.25em;
   vertical-align: -0.15em;
 }
 .live-status.offline {

@@ -644,14 +644,8 @@
         <tr>
           <td><code>POST &lt;ns&gt;/lock</code></td>
           <td>
-            locks it. A plain namespace locks only while empty, so nobody
-            takes one others use, and gets <code>{"locked": true,
-            "writeKey": "…"}</code>: a key the server makes (22 characters),
-            given once, unless <code>Write-Key</code> brings one. An
-            encrypted namespace brings the key its client derives. Already
-            locked, the same request with the current key gives a plain
-            namespace a new one. <code>409</code> for a plain namespace with
-            items
+            temporarily disabled for both kinds of namespace, including
+            changing an existing lock's key (<code>503</code>)
           </td>
         </tr>
         <tr>

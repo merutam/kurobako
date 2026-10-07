@@ -646,11 +646,6 @@ describe("bun server", () => {
         expect(await live.next()).toMatch(/^changed [a-z]{6} renamed now$/);
         await k("-X", "DELETE", `${link}/1`);
         expect(await live.next()).toMatch(/^gone [a-z]{6}$/);
-        // An encrypted namespace locks at any time (a plain one only empty).
-        if (link.includes("/e#")) {
-          await k("-X", "POST", `${link}/lock`);
-          expect(await live.next()).toBe("locked");
-        }
         live.child.kill();
       }
 
@@ -671,7 +666,7 @@ describe("bun server", () => {
     }
   }, 30_000);
 
-  test("k.mjs locks a namespace and writes with KUROBAKO_WRITE_KEY", async () => {
+  test("k.mjs reports that creating locks is temporarily disabled", async () => {
     const script = join(import.meta.dir, "..", "public", "k.mjs");
     const k = async (args: string[], env: Record<string, string> = {}) => {
       const child = Bun.spawn(["bun", script, ...args], {
@@ -696,31 +691,19 @@ describe("bun server", () => {
       logRequests: false,
     });
     const ns = `${own.server.url.origin}/${fresh()}`;
-    const locked = await k(["-X", "POST", `${ns}/lock`]);
-    expect(locked.code, locked.error).toBe(0);
-    const { writeKey } = JSON.parse(locked.out) as { writeKey: string };
-    const refused = await k(["-d", "hello", `${ns}/new`]);
-    expect(refused.code).toBe(1);
-    expect(refused.error, refused.error).toContain("read-only");
-    const env = { KUROBAKO_WRITE_KEY: writeKey };
-    expect((await k(["-d", "hello", `${ns}/new`], env)).code).toBe(0);
-    // Reading needs no key.
+    const plainLock = await k(["-X", "POST", `${ns}/lock`]);
+    expect(plainLock.code).toBe(1);
+    expect(plainLock.error).toContain("Creating or changing locks is temporarily disabled.");
+    expect((await k(["-d", "hello", `${ns}/new`])).code).toBe(0);
     expect((await k([`${ns}/1`])).out).toBe("hello");
 
-    // An encrypted namespace locks with the key its name gives, and hands
-    // out a read-only link: it reads, and cannot write.
     const sealed = `${own.server.url.origin}/e#${encodeURIComponent(`wall ${crypto.randomUUID()}`)}`;
     expect((await k(["-d", "first", `${sealed}/new`])).code).toBe(0);
-    const { readOnlyLink } = JSON.parse((await k(["-X", "POST", `${sealed}/lock`])).out) as {
-      readOnlyLink: string;
-    };
-    expect(readOnlyLink).toMatch(/\/e#\/[A-Za-z0-9_-]{43}$/);
-    expect((await k([`${readOnlyLink}/1`])).out).toBe("first");
-    const readerWrites = await k(["-d", "nope", `${readOnlyLink}/new`]);
-    expect(readerWrites.code).toBe(1);
-    expect(readerWrites.error).toContain("read-only");
+    const sealedLock = await k(["-X", "POST", `${sealed}/lock`]);
+    expect(sealedLock.code).toBe(1);
+    expect(sealedLock.error).toContain("Creating or changing locks is temporarily disabled.");
     expect((await k(["-d", "second", `${sealed}/new`])).code).toBe(0);
-    expect((await k([`${readOnlyLink}/1`])).out).toBe("second");
+    expect((await k([`${sealed}/1`])).out).toBe("second");
     await own.stop();
   });
 });
