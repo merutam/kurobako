@@ -3,6 +3,9 @@
 
 // The server knows an encrypted namespace only by ID. The fragment that
 // opened the log is never sent to it; use that fragment to link back locally.
+import { decorateIcons } from "./icons.js";
+
+decorateIcons();
 const back = document.querySelector("#log-back");
 if (back && window.location.hash) {
   const namespacePage = window.location.pathname.replace(/\/[^/]+\/log\/?$/, "");

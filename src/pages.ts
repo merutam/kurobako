@@ -172,14 +172,14 @@ export const renderLogPage = (
     layout,
     `<head>
   <title>${escapeHtml(title)} access log · Kurobako</title>
-  ${backHref ? "" : '<script src="/log.js" defer></script>'}
+  <script type="module" src="/log.js"></script>
 </head>
 <main>
   <p${backHref ? "" : ' id="log-back-row" hidden'}><a${backHref ? "" : ' id="log-back"'} href="${escapeHtml(backHref ?? "#")}">← Back to namespace</a></p>
   <h1>Access log · ${escapeHtml(title)}</h1>
   <p class="intro">
     ${entries.length} IP${entries.length === 1 ? "" : "s"}
-    · <a href="${escapeHtml(jsonHref)}">See JSON</a>
+    · <a data-icon="json" href="${escapeHtml(jsonHref)}">See JSON</a>
   </p>
   ${
     entries.length

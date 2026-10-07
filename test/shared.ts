@@ -745,6 +745,8 @@ export const sharedTests = (harness: Harness) => {
       expect(alphaLog).toContain("Itabirito, Minas Gerais, BR");
       expect(alphaLog).not.toContain("198.51.100.20");
       expect(alphaLog).toContain(`href="/${alpha}">← Back to namespace</a>`);
+      expect(alphaLog).toContain('data-icon="json"');
+      expect(alphaLog).toContain('type="module" src="/log.js?');
       expect(alphaLog).not.toContain('id="log-back-row" hidden');
       expect((await call("/log.json")).status).toBe(404);
     });
@@ -1118,6 +1120,7 @@ export const sharedTests = (harness: Harness) => {
       expect(html).not.toContain("%APP_VERSION%");
       expect(html).not.toContain("%CONFIG%");
       expect(html).toContain(`(build ${version})`);
+      expect(await (await call("/")).text()).toContain('data-icon="json" href="/stats.json"');
 
       const embedded = html.match(
         /<script type="application\/json" id="config">(.*?)<\/script>/s,
