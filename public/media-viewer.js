@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The namespace's full-screen image/video gallery: keyboard and swipe
+// The namespace's modal image/video gallery: keyboard and swipe
 // navigation, bounded neighbor prefetch, and cleanup of temporary Blob URLs.
 // Its videos take taps (play, pause, double-tap to seek) and J and L (seek):
 // gestures live here only, where the screen is the gallery's.
 import { el, element } from "./common.js";
-import { gestureVideo, seekVideo } from "./items.js";
+import { gestureVideo, imageFrame, seekVideo } from "./items.js";
 
 export const createMediaViewer = (sourceOf) => {
   const dialog = element("#media-viewer");
@@ -26,12 +26,14 @@ export const createMediaViewer = (sourceOf) => {
     for (const node of new Set([preloader, medium].filter(Boolean))) {
       // A video comes in its player (see gestureVideo).
       const video = node.localName === "video" ? node : node.querySelector?.("video");
+      // An image comes in its frame, with its one custom control.
+      const image = node.localName === "img" ? node : node.querySelector?.("img");
       if (video) {
         video.pause();
         video.removeAttribute("src");
         video.load();
       } else {
-        node.removeAttribute("src");
+        (image ?? node).removeAttribute("src");
       }
     }
     source.revoke?.();
@@ -111,7 +113,10 @@ export const createMediaViewer = (sourceOf) => {
     count.textContent = entries.length ? `${index + 1} / ${entries.length}` : "";
   };
 
-  const show = async (nextIndex) => {
+  const focusMedium = () =>
+    content.querySelector("video, .image-fullscreen-button")?.focus({ preventScroll: true });
+
+  const show = async (nextIndex, { focus = false } = {}) => {
     if (!entries.length) {
       dialog.close();
       return;
@@ -128,8 +133,14 @@ export const createMediaViewer = (sourceOf) => {
       const cached = await preloadNeighbors();
       if (requested !== load || !dialog.open) return;
       if (cached.preloader.localName === "img") cached.preloader.alt = entry.info.title;
-      cached.medium ??= gestureVideo(cached.source.src);
+      cached.medium =
+        cached.preloader.localName === "img"
+          ? cached.medium?.classList?.contains("image-frame")
+            ? cached.medium
+            : imageFrame(cached.preloader)
+          : (cached.medium ?? gestureVideo(cached.source.src));
       content.replaceChildren(cached.medium);
+      if (focus) focusMedium();
     } catch (error) {
       if (requested === load) {
         content.replaceChildren(
@@ -139,8 +150,8 @@ export const createMediaViewer = (sourceOf) => {
     }
   };
 
-  const move = (offset) => {
-    if (entries.length > 1) void show(index + offset);
+  const move = (offset, focus = false) => {
+    if (entries.length > 1) void show(index + offset, { focus });
   };
 
   const open = (nextEntry) => {
@@ -166,37 +177,27 @@ export const createMediaViewer = (sourceOf) => {
     }
   };
 
-  // The whole gallery in full screen, its gestures and bar included (a
-  // video's own full screen button shows the bare video, without them).
-  // A modal dialog cannot itself be in full screen: its frame, all it shows, is.
-  const frame = element("#media-viewer-frame");
-  const fullscreen = element("#media-viewer-fullscreen");
-  fullscreen.addEventListener("click", async () => {
-    try {
-      if (document.fullscreenElement === frame) await document.exitFullscreen();
-      else await frame.requestFullscreen();
-    } catch {
-      // Refused (an iframe, an old browser): the gallery fills the window anyway.
-    }
-  });
+  // Firefox and some desktop window managers return focus to the page body
+  // after native full screen. Put it back on the medium so the dialog receives
+  // arrow keys again without requiring a click.
+  let mediumWasFullscreen = false;
   document.addEventListener("fullscreenchange", () => {
-    // A video put in full screen by its own button (where the browser still
-    // offers it): the whole gallery takes its place, gestures and all.
-    const shown = document.fullscreenElement;
-    if (shown?.localName === "video" && frame.contains(shown)) {
-      void document
-        .exitFullscreen()
-        .then(() => frame.requestFullscreen())
-        .catch(() => {});
-      return;
+    const fullscreen = document.fullscreenElement;
+    if (fullscreen && content.contains(fullscreen)) {
+      mediumWasFullscreen = true;
+    } else if (!fullscreen && mediumWasFullscreen) {
+      mediumWasFullscreen = false;
+      if (dialog.open) focusMedium();
     }
-    const on = document.fullscreenElement === frame;
-    fullscreen.setAttribute("aria-pressed", String(on));
-    fullscreen.title = on ? "Exit full screen" : "Full screen";
-    fullscreen.setAttribute("aria-label", fullscreen.title);
   });
 
-  dialog.addEventListener("keydown", (event) => {
+  // Keyboard navigation belongs to the open modal, even during the instant
+  // in which replacing one medium has left focus on the page body.
+  document.addEventListener("keydown", (event) => {
+    if (!dialog.open) return;
+    // The full-screen medium owns input until the browser returns to the
+    // gallery. This avoids changing a hidden item underneath it.
+    if (document.fullscreenElement) return;
     const video = content.querySelector("video");
     if (video && (event.key === "j" || event.key === "l") && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
@@ -205,20 +206,19 @@ export const createMediaViewer = (sourceOf) => {
     }
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      move(-1);
+      move(-1, true);
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      move(1);
+      move(1, true);
     } else if (event.key === "Home" && entries.length > 1) {
       event.preventDefault();
-      void show(0);
+      void show(0, { focus: true });
     } else if (event.key === "End" && entries.length > 1) {
       event.preventDefault();
-      void show(entries.length - 1);
+      void show(entries.length - 1, { focus: true });
     }
   });
   dialog.addEventListener("close", () => {
-    if (document.fullscreenElement === frame) void document.exitFullscreen().catch(() => {});
     load += 1;
     content.querySelector("video")?.pause();
     content.replaceChildren();
@@ -230,7 +230,7 @@ export const createMediaViewer = (sourceOf) => {
   // A deliberate horizontal drag changes media; vertical touch remains native.
   let pointer = null;
   stage.addEventListener("pointerdown", (event) => {
-    if (!event.isPrimary || event.target.closest("button")) return;
+    if (document.fullscreenElement || !event.isPrimary || event.target.closest("button")) return;
     pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
     // Capturing the pointer over a video would keep its taps (play, seek) and
     // controls from their pointerup. The stage still sees that event during

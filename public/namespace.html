@@ -18,20 +18,17 @@
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
   <dialog id="media-viewer" class="media-viewer" aria-labelledby="media-viewer-title">
-    <div id="media-viewer-frame" class="media-viewer-frame">
-      <div class="media-viewer-bar">
-        <p>
-          <strong id="media-viewer-title"></strong>
-          <span id="media-viewer-count" class="hint"></span>
-        </p>
-        <form method="dialog">
-          <button id="media-viewer-fullscreen" class="icon-button" data-icon="expand" type="button" aria-label="Full screen" title="Full screen" aria-pressed="false"></button>
-          <button class="icon-button" data-icon="dismiss" type="submit" aria-label="Close" title="Close"></button>
-        </form>
-      </div>
-      <div id="media-viewer-stage" class="media-viewer-stage">
-        <div id="media-viewer-content" class="media-viewer-content" aria-live="polite"></div>
-      </div>
+    <div class="media-viewer-bar">
+      <p>
+        <strong id="media-viewer-title"></strong>
+        <span id="media-viewer-count" class="hint"></span>
+      </p>
+      <form method="dialog">
+        <button class="icon-button" data-icon="dismiss" type="submit" aria-label="Close the viewer" title="Close the viewer"></button>
+      </form>
+    </div>
+    <div id="media-viewer-stage" class="media-viewer-stage">
+      <div id="media-viewer-content" class="media-viewer-content" aria-live="polite"></div>
     </div>
   </dialog>
 

@@ -35,6 +35,7 @@ import {
   downloadBlob,
   extensionOf,
   highlightedText,
+  imageFrame,
   itemSummary,
   streamAddress,
   videoPlayer,
@@ -599,6 +600,8 @@ const mainTextEditor = createTextEditor(textInput, {
   onError: (message) => status.error(message),
 });
 textInputParent.insertBefore(mainTextEditor.editor, textInputNext);
+// The caret's line and column, with the language, below the text.
+textLanguage.parentElement.append(mainTextEditor.position);
 textLanguage.addEventListener("change", () => mainTextEditor.refresh({ immediate: true }));
 
 /** Opens a text editor in its preview. Save is conditional on the version shown. */
@@ -656,7 +659,15 @@ const editItem = async (entry, preview) => {
     void renderItems(serverItems, { force: true });
   });
   const save = el("button", { type: "submit", className: "primary", textContent: "Save" });
-  const controls = el("div", { className: "editor-controls" }, language, size, cancel, save);
+  const controls = el(
+    "div",
+    { className: "editor-controls" },
+    language,
+    size,
+    editor.position,
+    cancel,
+    save,
+  );
   form.append(editor.editor, controls);
   preview.replaceChildren(form);
   textarea.focus();
@@ -761,7 +772,7 @@ const renderItem = (entry, position) => {
               image,
             );
             open.addEventListener("click", () => mediaViewer.open(entry));
-            preview.replaceChildren(open);
+            preview.replaceChildren(imageFrame(open, image));
           }
         }
       } catch (error) {
@@ -1389,7 +1400,19 @@ const showTextSize = () => {
   let characters = 0;
   for (const _ of text) characters += 1;
   const paused = text.length > MAX_HIGHLIGHT_CHARACTERS;
-  textLimit.textContent = `${numberFormatter.format(characters)} character${characters === 1 ? "" : "s"} · ${formatBytes(bytes)} of ${formatBytes(config.maxTextBytes)}${paused ? " · highlighting paused" : ""}`;
+  // Short, for a phone: an icon for the characters, the words on hover and
+  // for screen readers.
+  const count = numberFormatter.format(characters);
+  textLimit.replaceChildren(
+    icon("text", 14),
+    ` ${count}`,
+    el("span", {
+      className: "visually-hidden",
+      textContent: ` character${characters === 1 ? "" : "s"}`,
+    }),
+    ` · ${formatBytes(bytes)} / ${formatBytes(config.maxTextBytes)}${paused ? " · no colors" : ""}`,
+  );
+  textLimit.title = `${count} character${characters === 1 ? "" : "s"}, ${formatBytes(bytes)} of ${formatBytes(config.maxTextBytes)}${paused ? "; too long to color" : ""}`;
   textLimit.classList.toggle("over", bytes > config.maxTextBytes);
 };
 // Counting and UTF-8 encoding a long text on every key would lag typing.

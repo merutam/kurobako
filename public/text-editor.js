@@ -184,7 +184,10 @@ export const createTextEditor = (
     },
     icon("expand"),
   );
-  /** Where the caret is: "Ln 12, Col 5", and how much is selected. */
+  /**
+   * Where the caret is: "12:5", and how much is selected, "12:5 (27)". The
+   * caller puts it below the text, with the form's other details.
+   */
   const position = el("span", { className: "text-editor-position", ariaHidden: true });
   let positionFrame = null;
   const showPosition = () => {
@@ -197,21 +200,15 @@ export const createTextEditor = (
     }
     const column = caret - value.lastIndexOf("\n", caret - 1);
     const selected = end - start;
-    position.textContent = `Ln ${line}, Col ${column}${selected ? ` · ${selected} selected` : ""}`;
+    // Short, as editors write it (line:column), with the words on hover.
+    position.textContent = `${line}:${column}${selected ? ` (${selected})` : ""}`;
+    position.title = `Line ${line}, column ${column}${selected ? `, ${selected} selected` : ""}`;
   };
   const updatePosition = () => {
     if (positionFrame === null) positionFrame = requestAnimationFrame(showPosition);
   };
 
-  const editor = el(
-    "div",
-    { className: "text-editor" },
-    gutter,
-    highlight,
-    textarea,
-    expand,
-    position,
-  );
+  const editor = el("div", { className: "text-editor" }, gutter, highlight, textarea, expand);
   const root = fullscreenRoot ?? editor;
   root.classList.add("text-editor-fullscreen");
 
@@ -240,6 +237,15 @@ export const createTextEditor = (
     highlight.scrollLeft = textarea.scrollLeft;
     gutter.scrollTop = textarea.scrollTop;
   });
+  // A phone's keyboard composes a word before it is typed, and some browsers
+  // tell the page only once it is done: meanwhile the textarea shows its own
+  // letters (the colored copy cannot follow), then colors come back.
+  textarea.addEventListener("compositionstart", () => editor.classList.add("composing"));
+  textarea.addEventListener("compositionupdate", () => refresh());
+  textarea.addEventListener("compositionend", () => {
+    editor.classList.remove("composing");
+    refresh({ immediate: true });
+  });
   // The caret moves by typing, clicking, the arrow keys and selecting.
   for (const type of ["input", "click", "keyup", "select", "focus"]) {
     textarea.addEventListener(type, updatePosition);
@@ -256,5 +262,5 @@ export const createTextEditor = (
   });
   refresh({ immediate: true });
   showPosition();
-  return { editor, refresh };
+  return { editor, refresh, position };
 };
