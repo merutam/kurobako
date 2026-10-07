@@ -10,7 +10,7 @@
 <main class="prose">
   <h1>Protocol</h1>
   <p class="intro">
-    This page is the complete protocol of a Kurobako server, version 4, for
+    This page is the complete protocol of a Kurobako server, version 5, for
     plain and encrypted namespaces. With what is below, and nothing else, a client can
     read, write, edit, rename, delete, download and share items.
     <a href="/k.mjs"><code>k.mjs</code></a> is one such client; nothing in
@@ -43,7 +43,7 @@
     </li>
     <li>
       <code>version</code>, the server's own, and <code>protocol</code>, this
-      page's version (4): a client of another cannot open its encrypted
+      page's version (5): a client of another cannot open its encrypted
       items.
     </li>
     <li><code>protocolUrl</code> (this page) and <code>clientUrl</code> (<code>k.mjs</code>).</li>
@@ -403,6 +403,12 @@
 
   <h3>Sealing</h3>
   <p>
+    Protocol version 5 keeps the <code>v4</code> namespace and item-key
+    derivation labels. It changes replacement body-key derivation by adding
+    <code>bodyId</code>; existing replacements without that field are not
+    valid version 5 items.
+  </p>
+  <p>
     <em>Seal(key, label, plaintext)</em> = a random 12-byte IV, then the
     AES-GCM ciphertext with its 16-byte authentication tag at the end
     (exactly what Web Crypto's <code>encrypt</code> returns), with the label,
@@ -419,11 +425,13 @@
   <ul>
     <li>
       <strong>Body key</strong>: HKDF-SHA256(item key, an empty salt, info
-      <code>kurobako/v4/body/&lt;rev&gt;</code>), 16 bytes, where
-      <code>rev</code> is the contents' revision (0 when sent; see the
-      metadata). Each new revision has its own key, so no nonce is ever used
-      twice under one key, while the item key, and every share link that
-      carries it, stays the same.
+      <code>kurobako/v4/body/0</code>) for the original contents. For a
+      replacement, info is <code>kurobako/v4/body/&lt;rev&gt;/&lt;bodyId&gt;</code>,
+      where <code>bodyId</code> is a fresh, random 16-byte value encoded as
+      unpadded base64url. The 16-byte result is the AES-GCM key. The item
+      key is random per item; the body ID is random per replacement attempt,
+      including attempts from the same revision. Thus concurrent edits do
+      not reuse a key/nonce pair, even when one gets <code>412</code>.
     </li>
     <li>
       The contents are cut into pieces of 65,536 bytes, the last one shorter
@@ -478,8 +486,12 @@
       The sender chooses a text's title. The browser and <code>k.mjs</code>
       use the same default-title convention as the plain server; decryption
       does not depend on how the title was chosen.
-      Either adds <code>"rev": n</code> once its contents were replaced
-      (0, left out, until then). An item with a <code>filename</code> is a
+      A replacement adds <code>"rev": n</code> and
+      <code>"bodyId": "…"</code>. The ID is 16 random bytes in canonical,
+      unpadded base64url (22 characters), freshly generated for every
+      attempt. Both fields are absent for the original contents; a nonzero
+      revision without a valid body ID must be rejected. Renaming preserves
+      both fields. An item with a <code>filename</code> is a
       file; any other, a text. Its size is told by the body's, as the queue
       lists it (see the segments above).
     </li>
@@ -564,6 +576,26 @@
           <td>one segment, nonce <code>000000000000000000000001</code>; base64url: <code data-vector="body">danN8DU-C7Azi4CdPMpfr4kySstY</code></td>
         </tr>
         <tr>
+          <th scope="row">Replacement body ID</th>
+          <td>fixed test value <code data-vector="replacement-body-id">AQEBAQEBAQEBAQEBAQEBAQ</code> (16 bytes of <code>01</code>; random in use)</td>
+        </tr>
+        <tr>
+          <th scope="row">Replacement metadata JSON</th>
+          <td><code data-vector="replacement-metadata">{"title":"edited","rev":1,"bodyId":"AQEBAQEBAQEBAQEBAQEBAQ"}</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Sealed replacement metadata</th>
+          <td>same item key, fixed IV and label as above; base64url: <code data-vector="sealed-replacement-metadata">ICEiIyQlJicoKSor7_bxzuVEJyjMI_2Jy53RppMgQylYW6c2WgB-8yC7EL98hvCyccIMazVTjTcescnztHMmLhiCcfTX_yliE-_HqTphneocoAyD_PtP1Q</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Replacement body key (<code>rev</code> 1)</th>
+          <td><code data-vector="replacement-body-key">c3cb2f91635ae5ba9bafa23fdf730b89</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Replacement body for <code>edited</code></th>
+          <td>one segment with the same nonce as above, but a distinct key; base64url: <code data-vector="replacement-body">1I8cJBZPMUG9Zsxo3Zmlfzk0TVlpBA</code></td>
+        </tr>
+        <tr>
           <th scope="row">A body of two segments</th>
           <td>
             70,000 bytes of contents, byte <em>i</em> being <em>i</em> mod 251:
@@ -608,7 +640,7 @@
         <td>
           replaces an encrypted text, with the sealed body and
           <code>X-Sealed-Metadata</code> under the same wrapped item key and
-          <code>rev + 1</code>. It uses the same quoted <code>If-Match</code>
+          <code>rev + 1</code> and a fresh <code>bodyId</code>. It uses the same quoted <code>If-Match</code>
           version and returns <code>412</code> if stale
         </td>
       </tr>
@@ -616,7 +648,10 @@
         <td><code>POST /e/&lt;id&gt;/&lt;item&gt;/n</code></td>
         <td>
           renames it: <code>X-Sealed-Metadata</code> with the same wrapped
-          key and the metadata sealed again with the item key
+          key and the metadata sealed again with the item key. It must also
+          send the item's quoted <code>If-Match</code> version; a stale rename
+          gets <code>412</code>, so it cannot detach the metadata from an
+          edited body
         </td>
       </tr>
     </tbody>

@@ -1,10 +1,10 @@
-# After protocol v4
+# After protocol v5
 
-Protocol v4 is built and described on the protocol page
+Protocol v5 is built and described on the protocol page
 (`public/protocol.html`): one derivation for every key, locked namespaces
 and read-only links, contents sealed in segments with a revision, the routes
 (the first path segment is the protocol's, the server's own things live under
-`/k`) and `"protocol": 4` in `/.well-known/kurobako`. The browser plays and
+`/k`) and `"protocol": 5` in `/.well-known/kurobako`. The browser plays and
 downloads encrypted contents in parts through a Service Worker
 (`public/sw.js`, at `/k/stream/<token>`, never seen by the server).
 
@@ -27,10 +27,10 @@ share link: `POST <ns>/<item>/e` with the new text, a write like any other.
 The client sends the `updatedAt` it saw (or `createdAt` before the first
 change) as a quoted `If-Match`; if the item changed since, it gets `412`.
 
-An encrypted text is sealed again under `rev + 1`: a new body key, so a nonce
-is never used twice under one key, while the item key (and every share link
-carrying it) stays the same. The request carries the new body and the
-metadata sealed again with the new `rev`, under the same wrapped key.
+An encrypted text is sealed again under `rev + 1` with a new random `bodyId`
+in the authenticated metadata. That ID makes the body key unique even for
+concurrent attempts from the same revision; the item key and share links
+stay the same. The request carries the new body and resealed metadata.
 
 Files and burn-after-reading items stay as sent. A backup restores a newer
 `updatedAt`'s contents over older ones.

@@ -216,7 +216,11 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
       }
       return request(`${basePath}/${encodeURIComponent(item.id)}/n`, {
         method: "POST",
-        headers: { "X-Sealed-Metadata": await opened.withMetadata(changes), ...writeHeaders() },
+        headers: {
+          "X-Sealed-Metadata": await opened.withMetadata(changes),
+          "If-Match": JSON.stringify(versionOf(item)),
+          ...writeHeaders(),
+        },
       });
     },
   };

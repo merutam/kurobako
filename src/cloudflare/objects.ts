@@ -63,8 +63,13 @@ export class NamespaceObject extends DurableObject<Env> {
   locate(ref: ItemRef, visit?: AccessEvent) {
     return this.core.locate(ref, visit);
   }
-  rename(ref: ItemRef, change: { name: string } | { metadata: string }, visit?: AccessEvent) {
-    return this.core.rename(ref, change, visit);
+  rename(
+    ref: ItemRef,
+    change: { name: string } | { metadata: string },
+    expected: string | null,
+    visit?: AccessEvent,
+  ) {
+    return this.core.rename(ref, change, expected, visit);
   }
   replace(ref: ItemRef, input: SaveInput, expected: string, visit?: AccessEvent) {
     return this.core.replace(ref, input, expected, visit);

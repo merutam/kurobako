@@ -80,23 +80,40 @@ const importWrappingKey = (raw) =>
 /**
  * Metadata as it is sealed: only what cannot be told otherwise. A file has
  * `filename` and, unless it is application/octet-stream, `mime`; a text has
- * `title`, left out when empty. `rev`, the contents' revision (each edit
- * seals them under a new body key), is left out while 0. The size is told
- * by the body's (see contentSize).
+ * `title`, left out when empty. `rev` is left out while 0; each replacement
+ * also gets a random `bodyId` so concurrent edits never share a body key.
+ * The size is told by the body (see contentSize).
  */
-const packMetadata = ({ kind, title, filename, mime, rev }) => ({
+const packMetadata = ({ kind, title, filename, mime, rev, bodyId }) => ({
   ...(kind === "file"
     ? { filename, ...(mime && mime !== OCTET_STREAM ? { mime } : {}) }
     : title
       ? { title }
       : {}),
   ...(rev ? { rev } : {}),
+  ...(bodyId ? { bodyId } : {}),
 });
 
-/** Metadata as clients use it: { kind, title, filename?, mime?, size, rev }. */
+const validBodyId = (bodyId) => {
+  if (typeof bodyId !== "string" || !/^[A-Za-z0-9_-]{22}$/.test(bodyId)) return false;
+  const bytes = fromBase64Url(bodyId);
+  return bytes.byteLength === 16 && toBase64Url(bytes) === bodyId;
+};
+
+/** Metadata as clients use it: { kind, title, filename?, mime?, size, rev, bodyId? }. */
 const unpackMetadata = (packed, bodySize) => {
+  if (!packed || typeof packed !== "object" || Array.isArray(packed)) {
+    throw new Error("Invalid encrypted item metadata.");
+  }
   const size = contentSize(bodySize ?? 0);
-  const rev = Number.isSafeInteger(packed.rev) && packed.rev > 0 ? packed.rev : 0;
+  const rev = packed.rev ?? 0;
+  if (
+    !Number.isSafeInteger(rev) ||
+    rev < 0 ||
+    (rev === 0 ? packed.bodyId !== undefined : !validBodyId(packed.bodyId))
+  ) {
+    throw new Error("Invalid encrypted item metadata.");
+  }
   return typeof packed.filename === "string"
     ? {
         kind: "file",
@@ -105,8 +122,15 @@ const unpackMetadata = (packed, bodySize) => {
         mime: packed.mime ?? OCTET_STREAM,
         size,
         rev,
+        ...(rev ? { bodyId: packed.bodyId } : {}),
       }
-    : { kind: "text", title: packed.title ?? "", size, rev };
+    : {
+        kind: "text",
+        title: packed.title ?? "",
+        size,
+        rev,
+        ...(rev ? { bodyId: packed.bodyId } : {}),
+      };
 };
 const OCTET_STREAM = "application/octet-stream";
 
@@ -115,7 +139,7 @@ const OCTET_STREAM = "application/octet-stream";
  * opens as contents, nor the other way round, though both use the item key.
  */
 const METADATA_LABEL = encoder.encode("kurobako/v4/metadata");
-/** The body key of revision <rev> is HKDF(item key, BODY_INFO + rev). */
+/** Revision zero uses its unique item key; replacements add a random body ID. */
 const BODY_INFO = "kurobako/v4/body/";
 
 /** IV followed by the AES-GCM ciphertext and tag; `label` is authenticated, not sent. */
@@ -146,15 +170,23 @@ const segmentNonce = (index, last) => {
   return nonce;
 };
 
-/** An item's body key for revision `rev`, from the item key's bytes. */
-export const bodyKey = async (itemKeyBytes, rev = 0) =>
-  crypto.subtle.importKey(
+/** An item's body key; bodyId is mandatory for every replacement. */
+export const bodyKey = async (itemKeyBytes, rev = 0, bodyId) => {
+  if (
+    !Number.isSafeInteger(rev) ||
+    rev < 0 ||
+    (rev === 0 ? bodyId !== undefined : !validBodyId(bodyId))
+  ) {
+    throw new Error("Invalid encrypted body revision.");
+  }
+  return crypto.subtle.importKey(
     "raw",
-    await hkdf(itemKeyBytes, `${BODY_INFO}${rev}`, ITEM_KEY_BYTES),
+    await hkdf(itemKeyBytes, `${BODY_INFO}${rev}${rev ? `/${bodyId}` : ""}`, ITEM_KEY_BYTES),
     "AES-GCM",
     false,
     ["encrypt", "decrypt"],
   );
+};
 
 /** Contents sealed as a body: their segments, one after the other. */
 const sealBody = async (key, bytes) => {
@@ -181,6 +213,13 @@ const sealBody = async (key, bytes) => {
 export const openSegments = async (key, bytes, first = 0, last = true) => {
   const sealed = new Uint8Array(bytes);
   const step = SEGMENT_BYTES + TAG_BYTES;
+  if (
+    !sealed.byteLength ||
+    (!last && sealed.byteLength % step !== 0) ||
+    (last && (sealed.byteLength - 1) % step < TAG_BYTES)
+  ) {
+    throw new Error("This item could not be decrypted.");
+  }
   const count = Math.ceil(sealed.byteLength / step);
   const contents = new Uint8Array(Math.max(0, sealed.byteLength - TAG_BYTES * count));
   try {
@@ -380,7 +419,7 @@ const spaceOf = async (idBytes, namespaceKeyBytes, writeKey) => {
       const sealedMetadata = await sealWith(
         itemKey,
         METADATA_LABEL,
-        encoder.encode(JSON.stringify(packMetadata(metadata))),
+        encoder.encode(JSON.stringify(packMetadata({ ...metadata, rev: 0, bodyId: undefined }))),
       );
       return {
         header: `${toBase64Url(wrappedKey)}.${toBase64Url(sealedMetadata)}`,
@@ -449,8 +488,9 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
     metadata,
     keyText,
     /** The body key of these contents' revision, for opening them in parts. */
-    bodyKey: () => bodyKey(rawKey, metadata.rev),
-    open: async (bytes) => openSegments(await bodyKey(rawKey, metadata.rev), bytes),
+    bodyKey: () => bodyKey(rawKey, metadata.rev, metadata.bodyId),
+    open: async (bytes) =>
+      openSegments(await bodyKey(rawKey, metadata.rev, metadata.bodyId), bytes),
     sealMetadata: async (changed) =>
       toBase64Url(
         await sealWith(
@@ -459,13 +499,14 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
           encoder.encode(JSON.stringify(packMetadata(changed))),
         ),
       ),
-    /** Seals replacement contents under rev + 1, so a body key is never reused. */
+    /** Every attempt gets an independent body key, even after the same revision. */
     sealContents: async (bytes, changes = {}) => {
       const changed = {
         ...metadata,
         ...changes,
         size: bytes.byteLength,
         rev: metadata.rev + 1,
+        bodyId: toBase64Url(crypto.getRandomValues(new Uint8Array(16))),
       };
       return {
         metadata: changed,
@@ -476,7 +517,7 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
             encoder.encode(JSON.stringify(packMetadata(changed))),
           ),
         ),
-        body: await sealBody(await bodyKey(rawKey, changed.rev), bytes),
+        body: await sealBody(await bodyKey(rawKey, changed.rev, changed.bodyId), bytes),
       };
     },
   };
@@ -487,7 +528,7 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 /** This file's version, the same as the server it comes from (package.json). */
 export const VERSION = "0.7.3";
 /** The protocol this file speaks; a server says its own in /.well-known/kurobako. */
-export const PROTOCOL = 4;
+export const PROTOCOL = 5;
 // Everything below only runs when this file is executed directly. It reads
 // like curl: the same options and the same paths as the plain API, with
 // e#<name> in place of the namespace.
@@ -1564,7 +1605,10 @@ const rename = async (space, site, selector, given) => {
   const item = await (
     await call(`${site}/e/${space.id}/${entry.item.id}/n`, {
       method: "POST",
-      headers: { "X-Sealed-Metadata": header },
+      headers: {
+        "X-Sealed-Metadata": header,
+        "If-Match": JSON.stringify(entry.item.updatedAt ?? entry.item.createdAt),
+      },
     })
   ).json();
   const renamed = {

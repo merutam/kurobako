@@ -884,6 +884,18 @@ describe("rules kept in two places", () => {
     );
     expect(bodyKeyBytes.toString("hex")).toBe(vector("body-key"));
     expect(sealBody(bodyKeyBytes, Buffer.from("hello")).toString("base64url")).toBe(vector("body"));
+    const replacementId = vector("replacement-body-id");
+    expect(Buffer.from(replacementId, "base64url")).toEqual(Buffer.alloc(16, 1));
+    expect(
+      seal(itemKey, 0x20, "kurobako/v4/metadata", Buffer.from(vector("replacement-metadata"))),
+    ).toBe(vector("sealed-replacement-metadata"));
+    const replacementKey = Buffer.from(
+      hkdfSync("sha256", itemKey, Buffer.alloc(0), `kurobako/v4/body/1/${replacementId}`, 16),
+    );
+    expect(replacementKey.toString("hex")).toBe(vector("replacement-body-key"));
+    expect(sealBody(replacementKey, Buffer.from("edited")).toString("base64url")).toBe(
+      vector("replacement-body"),
+    );
     const long = Uint8Array.from({ length: 70_000 }, (_, index) => index % 251);
     const longBody = sealBody(bodyKeyBytes, long);
     expect(longBody.byteLength).toBe(70_032);
@@ -917,6 +929,34 @@ describe("rules kept in two places", () => {
     // A body cut short, or a segment put elsewhere, does not open.
     await expect(opened.open(longBody.subarray(0, 65_552))).rejects.toThrow();
     await expect(openSegments(key, longBody.subarray(65_552), 0, true)).rejects.toThrow();
+    await expect(opened.open(new Uint8Array())).rejects.toThrow();
+    await expect(openSegments(key, longBody.subarray(0, 20), 0, false)).rejects.toThrow();
+    const replacementKeyJs = await bodyKey(itemKey, 1, replacementId);
+    expect(
+      new TextDecoder().decode(
+        await openSegments(replacementKeyJs, Buffer.from(vector("replacement-body"), "base64url")),
+      ),
+    ).toBe("edited");
+    const replaced = await space.openItem(
+      `${vector("wrapped")}.${vector("sealed-replacement-metadata")}`,
+      Buffer.from(vector("replacement-body"), "base64url").byteLength,
+    );
+    expect(replaced.metadata).toEqual({
+      kind: "text",
+      title: "edited",
+      size: 6,
+      rev: 1,
+      bodyId: replacementId,
+    });
+    expect(
+      new TextDecoder().decode(
+        await replaced.open(Buffer.from(vector("replacement-body"), "base64url")),
+      ),
+    ).toBe("edited");
+    await expect(bodyKey(itemKey, 1)).rejects.toThrow();
+    await expect(bodyKey(itemKey, 0, replacementId)).rejects.toThrow();
+    const missingBodyId = seal(itemKey, 0x20, "kurobako/v4/metadata", Buffer.from('{"rev":1}'));
+    await expect(space.openItem(`${vector("wrapped")}.${missingBodyId}`, 22)).rejects.toThrow();
 
     // The same key, but a body never opens as metadata, nor metadata as a body:
     // not even contents that read as metadata, which would otherwise pass.
