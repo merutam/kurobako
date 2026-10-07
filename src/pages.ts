@@ -53,6 +53,7 @@ export const STATIC_FILES = [
   "k.mjs",
   "status.js",
   "theme.js",
+  "scroll-top.js",
   "styles.css",
   "tokens.css",
   "vendor/highlight.js",
