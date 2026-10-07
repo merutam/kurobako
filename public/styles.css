@@ -1149,14 +1149,15 @@ button.media-preview img {
   left: -9999px;
 }
 
+.intro a[data-icon] svg,
+.links a[data-icon] svg {
+  margin-right: 0.25em;
+  vertical-align: -0.15em;
+}
 .live-status {
   color: var(--success-text);
 }
 #viewers svg {
-  vertical-align: -0.15em;
-}
-#page-links a svg {
-  margin-right: 0.25em;
   vertical-align: -0.15em;
 }
 .live-status.offline {

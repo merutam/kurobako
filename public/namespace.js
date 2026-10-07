@@ -17,6 +17,7 @@ import {
   formatDuration,
   formatExpiry,
   HIDDEN_TITLE,
+  iconLink,
   ignoreStrayDrops,
   numberFormatter,
   readConfig,
@@ -1359,19 +1360,18 @@ const showPage = () => {
       : `Any file · max ${formatBytes(fileLimit())}`;
   pageTitle.textContent = mode.title;
   modeLabel.textContent = mode.label ? `${mode.label} · ` : "";
-  const link = (href, text, symbol) => {
-    const anchor = Object.assign(document.createElement("a"), { href, textContent: text });
-    anchor.prepend(icon(symbol, 14));
-    return anchor;
-  };
   pageLinks.replaceChildren(
     " · ",
     // An encrypted name or read token lives only in the fragment. Keep it
     // client-side on the log page so its Back link can return here.
-    link(`${mode.basePath}/log${mode.label ? window.location.hash : ""}`, "Access log", "users"),
+    iconLink(
+      `${mode.basePath}/log${mode.label ? window.location.hash : ""}`,
+      "Access log",
+      "users",
+    ),
     " · ",
     // In encrypted mode this shows exactly what the server holds: ciphertext.
-    link(`${mode.basePath}/ls`, "See JSON", "json"),
+    iconLink(`${mode.basePath}/ls`, "See JSON", "json"),
   );
   document.title = `${mode.title} · Kurobako`;
   // Drawn locally: an encrypted link must never be sent to the server.

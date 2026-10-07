@@ -9,6 +9,7 @@ import {
   element,
   formatBytes,
   formatDuration,
+  iconLink,
   ignoreStrayDrops,
   numberFormatter,
   request,
@@ -157,7 +158,7 @@ const renderNamespaces = (namespaces) => {
               { className: "links" },
               el("a", { href: `${SITE}/${encodeURIComponent(name)}` }, "Open"),
               " · ",
-              el("a", { href: `${SITE}/${encodeURIComponent(name)}/log` }, "Access log"),
+              iconLink(`${SITE}/${encodeURIComponent(name)}/log`, "Access log", "users"),
             ),
           ),
         )

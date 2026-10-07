@@ -6,7 +6,7 @@
 // and the restore of a backup. (theme.js, a classic script that runs before
 // the page is drawn, keeps to itself.)
 
-import { icon } from "./icons.js";
+import { decorateIcons, icon } from "./icons.js";
 
 export const element = (selector) => {
   const found = document.querySelector(selector);
@@ -159,13 +159,19 @@ export const button = (label, onClick, className, iconName) => {
   return control;
 };
 
+/** A native link with the site's decorative icon. */
+export const iconLink = (href, label, iconName) => {
+  const anchor = el("a", { href, textContent: label });
+  anchor.dataset.icon = iconName;
+  anchor.prepend(icon(iconName, 14));
+  return anchor;
+};
+
 // Buttons in the pages' markup ask for their icon with data-icon="send";
 // links to other sites, class="external-link", are marked as such.
 // (Tests import this module too, with no page around it.)
 if (typeof document !== "undefined") {
-  for (const control of document.querySelectorAll("[data-icon]")) {
-    control.prepend(icon(control.dataset.icon));
-  }
+  decorateIcons();
   for (const link of document.querySelectorAll("a.external-link")) {
     link.append(icon("external", 14));
   }
