@@ -70,6 +70,32 @@ export const withExtension = (title, extension) => {
   return extension ? `${base}.${extension}` : base;
 };
 
+/** Keeps a full-screen editor's bottom bar above an overlaid phone keyboard. */
+const followKeyboard = (root) => {
+  const viewport = window.visualViewport;
+  if (!viewport) return () => {};
+  const update = () => {
+    // With interactive-widget=resizes-content both heights shrink together.
+    // Safari and older browsers instead leave the layout viewport behind the
+    // keyboard; only that obscured strip needs to become bottom padding.
+    const inset = Math.max(
+      0,
+      Math.round(window.innerHeight - viewport.height - viewport.offsetTop),
+    );
+    root.style.setProperty("--text-editor-keyboard-inset", `${inset}px`);
+  };
+  viewport.addEventListener("resize", update);
+  viewport.addEventListener("scroll", update);
+  window.addEventListener("resize", update);
+  update();
+  return () => {
+    viewport.removeEventListener("resize", update);
+    viewport.removeEventListener("scroll", update);
+    window.removeEventListener("resize", update);
+    root.style.removeProperty("--text-editor-keyboard-inset");
+  };
+};
+
 /**
  * Keeps a native textarea editable over a syntax-colored, scroll-synchronized
  * copy. The textarea's own letters are transparent, so the copy must follow
@@ -221,8 +247,11 @@ export const createTextEditor = (
       onError(`Could not open full screen: ${error.message}`);
     }
   });
+  let stopFollowingKeyboard = () => {};
   root.addEventListener("fullscreenchange", () => {
     const expanded = document.fullscreenElement === root;
+    stopFollowingKeyboard();
+    stopFollowingKeyboard = expanded ? followKeyboard(root) : () => {};
     expand.setAttribute("aria-label", expanded ? "Exit full screen" : "Edit in full screen");
     expand.title = expanded ? "Exit full screen" : "Edit in full screen";
     expand.setAttribute("aria-pressed", String(expanded));

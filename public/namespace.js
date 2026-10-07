@@ -35,7 +35,6 @@ import {
   downloadBlob,
   extensionOf,
   highlightedText,
-  imageFrame,
   itemSummary,
   streamAddress,
   videoPlayer,
@@ -772,7 +771,7 @@ const renderItem = (entry, position) => {
               image,
             );
             open.addEventListener("click", () => mediaViewer.open(entry));
-            preview.replaceChildren(imageFrame(open, image));
+            preview.replaceChildren(open);
           }
         }
       } catch (error) {
