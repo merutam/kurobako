@@ -523,6 +523,10 @@ export const sharedTests = (harness: Harness) => {
         "Shopping list for the weekend: rice, beans, coffee, rice, beans, coffee, rice",
       );
       expect(await (await call(`/${ns}/shopping`)).text()).toBe(long);
+      const withEmoji = `${"a".repeat(79)}😀and more`;
+      const emojiText = await await parse<Item & { name: string }>(sendText(ns, withEmoji));
+      expect(emojiText.name).toBe(`${"a".repeat(79)}😀`);
+      expect(await (await call(`/${ns}/${emojiText.id}`)).text()).toBe(withEmoji);
       await json(`/${ns}/new`, {
         method: "POST",
         headers: { "content-type": "application/octet-stream", "x-filename": "Report 2024.pdf" },

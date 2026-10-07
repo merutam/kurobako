@@ -746,8 +746,17 @@ describe("rules kept in two places", () => {
       "x".repeat(200),
       `${"word ".repeat(15)}end, and more punctuation!?`,
       "Ação, café e pão: uma lista com acentos que passa bem dos oitenta caracteres sim",
+      `${"a".repeat(79)}😀and more`,
+      "😀".repeat(81),
+      "one\uFEFFtwo",
+      "one\u0085two",
     ];
     for (const text of texts) expect(clientDefaultName(text)).toBe(defaultTextName(text));
+    expect(defaultTextName(`${"a".repeat(79)}😀and more`)).toBe(`${"a".repeat(79)}😀`);
+    expect(defaultTextName("😀".repeat(81))).toBe("😀".repeat(80));
+    expect(defaultTextName("What is this?")).toBe("What is this?");
+    expect(defaultTextName("one\uFEFFtwo")).toBe("one two");
+    expect(defaultTextName("one\u0085two")).toBe("one\u0085two");
   });
 
   test("safe file names", () => {

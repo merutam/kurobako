@@ -43,14 +43,22 @@ export type TextItem = InlineTextItem | ExternalTextItem;
 export const TEXT_NAME_MAX_CHARS = 200;
 
 /**
- * A text's name until it is given one: its start, up to 80 characters, cut at
- * a word and without trailing punctuation. Clients use the same rule.
+ * A text's default name: up to 80 Unicode code points. Only when truncated,
+ * cut at the last word boundary and remove trailing punctuation. Clients use
+ * the same convention; it is not part of decryption.
  */
 export const DEFAULT_NAME_CHARS = 80;
 export const defaultTextName = (text: string): string => {
   const flat = text.replace(/\s+/g, " ").trim();
-  if (flat.length <= DEFAULT_NAME_CHARS) return flat;
-  const cut = flat.slice(0, DEFAULT_NAME_CHARS);
+  let end = 0;
+  let count = 0;
+  for (const point of flat) {
+    if (count === DEFAULT_NAME_CHARS) break;
+    end += point.length;
+    count += 1;
+  }
+  if (end === flat.length) return flat;
+  const cut = flat.slice(0, end);
   const space = cut.lastIndexOf(" ");
   return (space > 0 ? cut.slice(0, space) : cut).replace(/[\s,.;:!?–—-]+$/u, "");
 };
