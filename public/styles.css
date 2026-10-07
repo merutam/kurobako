@@ -1013,9 +1013,11 @@ a.icon-button:hover {
   height: 100%;
   margin: 0;
   /* Clear of a phone's notch, rounded corners and home indicator; the bar
-     keeps a little room of its own below. */
+     keeps a little room of its own below. When a browser overlays its
+     keyboard, text-editor.js adds the obscured part as another inset. */
   padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    calc(env(safe-area-inset-bottom) + var(--space-2)) env(safe-area-inset-left);
+    calc(env(safe-area-inset-bottom) + var(--space-2) + var(--text-editor-keyboard-inset, 0px))
+    env(safe-area-inset-left);
   border: 0;
   background: var(--background);
   color: var(--text);
