@@ -41,7 +41,7 @@ const PAGES = {
 export const STATIC_FILES = [
   "namespaces/index.js",
   "namespaces/modes.js",
-  "namespaces/items.js",
+  "namespaces/item-list.js",
   "namespaces/live.js",
   "namespaces/forms.js",
   "namespaces/access.js",
