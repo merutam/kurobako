@@ -48,7 +48,7 @@ import {
   secretNameProblem,
   splitFragment,
 } from "./k.mjs";
-import { createMediaViewer } from "./media-viewer.js";
+import { createMediaFeed } from "./media-feed.js";
 import { createStatus } from "./status.js";
 import {
   createTextEditor,
@@ -68,6 +68,7 @@ const textInput = element("#text");
 const textLanguage = element("#text-language");
 const fileInput = element("#file");
 const refreshButton = element("#refresh");
+const openMediaButton = element("#open-media");
 const textLimit = element("#text-limit");
 const fileLimitLabel = element("#file-limit");
 const backupZip = element("#backup-zip");
@@ -84,10 +85,11 @@ const qrImage = element("#qr");
 const pageUrl = element("#page-url");
 const copyLinkButton = element("#copy-link");
 const burnInput = element("#burn");
+const burnHint = element("#burn-hint");
 const expandModeSelect = element("#expand-mode");
 const sendSection = element("#send-section");
-const sendOptions = element(".send-options");
 const lockSection = element("#lock-section");
+const lockActions = element("#lock-actions");
 const lockHint = element("#lock-hint");
 const lockLinkRow = element("#lock-link-row");
 const lockLink = element("#lock-link");
@@ -417,8 +419,8 @@ const partsAddress = async (entry) =>
 
 /**
  * An image or video's browser address. Plain media stays streamed from the
- * server. Decrypted media becomes a Blob URL, kept by its row or by the open
- * viewer for only as long as it needs it.
+ * server. Decrypted media becomes a Blob URL, kept by its row or by the media
+ * feed for only as long as it needs it.
  */
 const mediaAddress = async (entry, { preview = false } = {}) => {
   const { item, info } = entry;
@@ -433,7 +435,8 @@ const mediaAddress = async (entry, { preview = false } = {}) => {
   return { src, revoke: () => URL.revokeObjectURL(src) };
 };
 
-const mediaViewer = createMediaViewer(mediaAddress);
+const mediaFeed = createMediaFeed(mediaAddress);
+openMediaButton.addEventListener("click", () => mediaFeed.open());
 
 const downloadItem = async (entry) => {
   try {
@@ -595,8 +598,6 @@ const mainTextEditor = createTextEditor(textInput, {
   title: () =>
     textLanguage.value && textLanguage.value !== "auto" ? `source.${textLanguage.value}` : "",
   autoDetect: () => textLanguage.value === "auto",
-  fullscreenRoot: textForm.querySelector("fieldset"),
-  onError: (message) => status.error(message),
 });
 textInputParent.insertBefore(mainTextEditor.editor, textInputNext);
 // The caret's line and column, with the language, below the text.
@@ -631,8 +632,6 @@ const editItem = async (entry, preview) => {
   language.value = initialExtension;
   const editor = createTextEditor(textarea, {
     title: () => withExtension(entry.info.title, language.value),
-    fullscreenRoot: form,
-    onError: (message) => status.error(message),
   });
   language.addEventListener("change", () => editor.refresh({ immediate: true }));
   const size = el("span", { className: "hint" });
@@ -765,12 +764,12 @@ const renderItem = (entry, position) => {
               {
                 type: "button",
                 className: "media-preview",
-                ariaLabel: `Open ${info.title} in media viewer`,
-                title: "Open media viewer",
+                ariaLabel: `Open ${info.title} in media feed`,
+                title: "Open media feed",
               },
               image,
             );
-            open.addEventListener("click", () => mediaViewer.open(entry));
+            open.addEventListener("click", () => mediaFeed.open(entry));
             preview.replaceChildren(open);
           }
         }
@@ -839,7 +838,11 @@ const renderItem = (entry, position) => {
     actions.append(button("Open once", () => openOnce(entry), undefined, "burn"));
   } else {
     if (info.isImage || info.isVideo) {
-      actions.append(iconButton("expand", "Open media viewer", () => mediaViewer.open(entry)));
+      actions.append(
+        iconButton(info.isVideo ? "video" : "image", "Open media feed", () =>
+          mediaFeed.open(entry),
+        ),
+      );
     }
     if (!entry.opened && info.kind === "text" && canWrite()) {
       actions.append(
@@ -940,12 +943,12 @@ const renderItems = async (items, { force = false } = {}) => {
     ...openedOnly.map((entry) => ({ item: entry.item, info: entry.info, opened: entry })),
   ].sort((a, b) => b.item.createdAt.localeCompare(a.item.createdAt));
 
-  mediaViewer.update(
-    entries.filter(
-      (entry) =>
-        (entry.info.isImage || entry.info.isVideo) && (!entry.item.burn || Boolean(entry.opened)),
-    ),
+  const mediaEntries = entries.filter(
+    (entry) =>
+      (entry.info.isImage || entry.info.isVideo) && (!entry.item.burn || Boolean(entry.opened)),
   );
+  mediaFeed.update(mediaEntries);
+  openMediaButton.hidden = mediaEntries.length === 0;
 
   // Rows of unchanged items stay as they are (only their position moves),
   // so a busy queue neither reloads previews nor opens and closes them.
@@ -1242,7 +1245,7 @@ copyLinkButton.addEventListener("click", copyLink);
 /** Encrypted files grow a little; the server's limit applies to what it receives. */
 const fileLimit = () => mode.fileLimit(config.maxFileBytes);
 
-/** Shows what this page may do: send, or only read, and the Lock section's state. */
+/** Shows what this page may do: send, or only read, and the lock controls. */
 const showAccess = () => {
   const readOnly = !canWrite();
   // From here on the forms' hidden attribute says it: the marks that hid
@@ -1252,8 +1255,13 @@ const showAccess = () => {
   sendSection.hidden = readOnly;
   restore.hidden = readOnly;
   // A locked namespace has no items that delete when opened.
-  sendOptions.hidden = locked;
+  burnInput.disabled = locked || readOnly;
   if (locked) burnInput.checked = false;
+  burnHint.textContent = locked
+    ? "Unavailable while this namespace is locked."
+    : readOnly
+      ? "Only writers can use this setting."
+      : "New items sent while enabled are deleted when first opened.";
   modeLabel.textContent = [mode.label, locked ? (readOnly ? "Read-only" : "Locked") : ""]
     .filter(Boolean)
     .map((part) => `${part} · `)
@@ -1266,7 +1274,8 @@ const showAccess = () => {
   lockButton.hidden = locked;
   unlockButton.hidden = !locked || !key;
   // An encrypted namespace's key is its name: nothing to forget or type in.
-  forgetKeyButton.hidden = sealed || !key;
+  forgetKeyButton.hidden = sealed || !locked || !key;
+  lockActions.hidden = lockButton.hidden && unlockButton.hidden && forgetKeyButton.hidden;
   keyForm.hidden = sealed || !locked || Boolean(key);
   lockLinkRow.hidden = !locked || !key;
   if (sealed) {

@@ -152,7 +152,7 @@ p {
 
 /* --- Layout --------------------------------------------------------------- */
 
-/* One column on phones, two on wider screens. */
+/* General two-column layouts. */
 .columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -361,20 +361,23 @@ button.destructive {
   color: var(--destructive);
 }
 
-/* The button sits over the heading's border so this heading keeps the same
-   height as its neighbor in the other column. */
 .section-heading {
-  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
 }
 .section-heading h2 {
-  padding-right: 7rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
-.section-heading button {
-  position: absolute;
-  right: 0;
-  bottom: 5px;
-  min-height: 0;
-  padding: 2px 10px;
+.section-heading .actions {
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 /* --- Header and footer ---------------------------------------------------- */
@@ -518,6 +521,41 @@ fieldset .status {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Each number belongs to a logical line; long lines scroll instead of wrap. */
+.numbered-text {
+  display: flex;
+  max-height: 24rem;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+.numbered-text pre {
+  flex: none;
+  min-height: 100%;
+  max-height: none;
+  margin: 0;
+  overflow: visible;
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.numbered-text .line-numbers {
+  position: sticky;
+  left: 0;
+  min-width: calc(3ch + 2 * var(--space-2));
+  padding: var(--space-2);
+  background: var(--surface);
+  color: var(--text-subtle);
+  text-align: right;
+  user-select: none;
+}
+.numbered-text pre:last-child {
+  flex: 1 0 auto;
+  padding-left: var(--space-3);
+}
 .hljs {
   color: var(--text);
 }
@@ -570,47 +608,6 @@ fieldset .status {
   max-height: 30rem;
   background: #000;
 }
-/* A video with a layer of our own over its picture (see videoPlayer): taps
-   there play, pause and seek; the controls strip below stays the browser's. */
-.video-player {
-  position: relative;
-  display: inline-block;
-  max-width: 100%;
-  vertical-align: top;
-}
-.video-gestures {
-  position: absolute;
-  inset: 0 0 56px;
-  cursor: pointer;
-  touch-action: pan-y;
-  -webkit-tap-highlight-color: transparent;
-}
-.video-seek-flash {
-  position: absolute;
-  top: 40%;
-  padding: var(--space-1) var(--space-3);
-  border-radius: 999px;
-  background: rgb(0 0 0 / 60%);
-  color: #fff;
-  font-weight: bold;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 150ms;
-}
-.video-seek-flash[data-side="left"] {
-  left: 12%;
-}
-.video-seek-flash[data-side="right"] {
-  right: 12%;
-}
-.video-seek-flash.shown {
-  opacity: 1;
-}
-@media (prefers-reduced-motion: reduce) {
-  .video-seek-flash {
-    transition: none;
-  }
-}
 .item img,
 .shared-item img {
   display: block;
@@ -631,139 +628,145 @@ button.media-preview:active {
   border: 0;
   background: none;
   font-weight: normal;
-  cursor: zoom-in;
+  cursor: pointer;
 }
 button.media-preview:focus-visible {
   outline-offset: 3px;
 }
 
-/* Native modal media gallery: Escape closes it; its controls and colors stay
-   those of the rest of the site, while the medium gets the whole viewport. */
-body:has(.media-viewer[open]) {
-  overflow: hidden;
+/* A scrollable page of native images and videos. */
+main.media-feed-open > :not(.site-header, #media-feed) {
+  display: none;
 }
-.media-viewer {
-  inset: 0;
-  width: 100vw;
-  max-width: none;
-  height: 100dvh;
-  max-height: none;
-  margin: 0;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-    env(safe-area-inset-left);
-  border: 0;
-  background: var(--background);
-  color: var(--text);
+.media-feed {
+  margin: var(--space-5) 0 0;
 }
-.media-viewer[open] {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-}
-.media-viewer::backdrop {
-  background: rgb(0 0 0 / 75%);
-}
-.media-viewer-bar {
+.media-feed-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  min-width: 0;
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--surface);
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
 }
-.media-viewer-bar p {
+.media-feed-heading h1 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.media-view-options {
   display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.media-view-options button[aria-pressed="true"] {
+  border-color: var(--focus);
+  background: var(--surface-strong);
+}
+.media-feed-item {
+  margin: 0 0 var(--space-6);
+}
+.media-feed-slot {
+  display: flex;
+  min-height: 12rem;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  color: #fff;
+}
+.media-feed-slot :where(img, video) {
+  display: block;
+  max-width: 100%;
+  max-height: 95dvh;
+  height: auto;
+}
+.media-feed-item figcaption {
+  padding: var(--space-2) 0;
+  overflow-wrap: anywhere;
+  color: var(--text-subtle);
+  font-size: var(--text-small);
+}
+.media-feed-meta {
+  display: none;
+}
+#media-feed-top {
+  position: fixed;
+  right: max(var(--page-gutter), calc((100vw - var(--page-width)) / 2 + var(--page-gutter)));
+  bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  z-index: 2;
+  background: var(--surface-strong);
+}
+.media-feed-list[data-view="grid"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2) var(--space-3);
+}
+/* A flexible filler keeps the final row from stretching a few images wide. */
+.media-feed-list[data-view="grid"]::after {
+  content: "";
+  flex: 1000 1 0;
+}
+.media-feed-list[data-view="grid"] .media-feed-item {
+  flex: var(--media-ratio, 1) 1 var(--media-basis, 14rem);
   min-width: 0;
-  align-items: baseline;
-  gap: var(--space-2);
   margin: 0;
 }
-.media-viewer-bar strong {
+.media-feed-list[data-view="grid"] .media-feed-title {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.media-viewer-bar .hint,
-.media-viewer-bar form {
-  flex: none;
-  margin: 0;
-}
-.media-viewer-stage {
-  position: relative;
+.media-feed-list[data-view="grid"] .media-feed-slot {
+  aspect-ratio: var(--media-ratio, 1);
   min-height: 0;
-  overflow: hidden;
-  background: #000;
-  touch-action: pan-y;
-  overscroll-behavior: contain;
+  background: var(--surface);
+  color: var(--text-subtle);
 }
-.media-viewer-content {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.media-feed-list[data-view="grid"] .media-feed-slot :where(img, video),
+.media-feed-list[data-view="details"] .media-feed-slot :where(img, video) {
   width: 100%;
   height: 100%;
-  user-select: none;
-}
-.media-viewer-content img,
-.media-viewer-content video {
-  display: block;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  border: 0;
-  background: #000;
-}
-/* The grid has already subtracted the bar and safe areas. Fill what remains
-   instead of guessing its height from the viewport. */
-.media-viewer-content :where(.video-player, .image-frame),
-.media-viewer-content :where(.video-player video, .image-frame img) {
-  width: 100%;
-  height: 100%;
-}
-/* Images need one custom control that native video already has. */
-.image-frame {
-  position: relative;
-  display: inline-block;
-  max-width: 100%;
-  vertical-align: top;
-}
-.image-fullscreen-button {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-large);
-  background: rgb(0 0 0 / 55%);
-  color: #fff;
-}
-.image-fullscreen-button:hover,
-.image-fullscreen-button:active {
-  background: rgb(0 0 0 / 75%);
-}
-img:fullscreen {
-  width: 100vw;
-  height: 100vh;
-  max-width: none;
   max-height: none;
   object-fit: contain;
-  border: 0;
-  background: #000;
 }
-.media-viewer-content .hint,
-.media-viewer-error {
+.media-feed-list[data-view="details"] .media-feed-item {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
   margin: 0;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
 }
-.media-viewer-error {
-  color: var(--error-text);
+.media-feed-list[data-view="details"] .media-feed-slot {
+  width: 6rem;
+  height: 6rem;
+  min-height: 0;
+}
+.media-feed-list[data-view="details"] .media-feed-slot video {
+  pointer-events: none;
+}
+.media-feed-list[data-view="details"] figcaption {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.media-feed-list[data-view="details"] .media-feed-title {
+  color: var(--text);
+  font-weight: bold;
+}
+.media-feed-list[data-view="details"] .media-feed-meta {
+  display: inline-flex;
 }
 /* --- Item list ------------------------------------------------------------ */
 
@@ -880,8 +883,7 @@ a.icon-button:hover {
   color: var(--text-subtle);
   font-size: var(--text-small);
 }
-.item pre {
-  max-height: 24rem;
+.item .numbered-text {
   margin: var(--space-1) 0 0;
 }
 .item-editor {
@@ -918,22 +920,40 @@ a.icon-button:hover {
 .text-editor > textarea,
 .text-editor > pre.text-editor-highlight {
   position: absolute;
-  inset: 0;
-  width: 100%;
+  inset: 0 0 0 calc(var(--line-number-width, 3ch) + 2 * var(--space-2));
+  width: calc(100% - var(--line-number-width, 3ch) - 2 * var(--space-2));
   height: 100%;
   min-height: 0;
   max-height: none;
   margin: 0;
-  padding: 6px 3rem 6px var(--space-2);
+  padding: 6px var(--space-2);
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-family: var(--font-mono);
   font-size: 0.9375rem;
   line-height: 1.6;
-  overflow-wrap: break-word;
+  overflow-wrap: normal;
   tab-size: 2;
-  white-space: pre-wrap;
+  white-space: pre;
+}
+.text-editor > pre.text-editor-lines {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--line-number-width, 3ch) + 2 * var(--space-2));
+  margin: 0;
+  padding: 6px var(--space-2);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: var(--background);
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  text-align: right;
+  user-select: none;
 }
 .text-editor > pre.text-editor-highlight {
   background: var(--background);
@@ -950,6 +970,11 @@ a.icon-button:hover {
   caret-color: var(--text);
   color: transparent;
   -webkit-text-fill-color: transparent;
+}
+.text-editor > textarea,
+.text-editor > pre.text-editor-highlight {
+  border-left: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
 }
 /* The send form's size line: an icon for the characters, in the text's line. */
 #text-limit svg {
@@ -974,14 +999,6 @@ a.icon-button:hover {
 .text-editor.composing > pre.text-editor-highlight {
   visibility: hidden;
 }
-.text-editor-expand {
-  position: absolute;
-  top: var(--space-1);
-  right: var(--space-1);
-  z-index: 2;
-  background: var(--surface);
-  color: var(--text-subtle);
-}
 .text-editor-options {
   display: flex;
   align-items: center;
@@ -997,102 +1014,15 @@ a.icon-button:hover {
   width: auto;
   max-width: 16rem;
 }
-/* Full screen is for writing, like a plain text editor: the text takes the
-   whole screen, its lines numbered and unwrapped; what the form holds
-   besides (language, size, buttons) sits in a thin bar below. */
-.text-editor-gutter {
-  display: none;
+#text-form .text-editor {
+  height: min(65dvh, 42rem);
+  min-height: 24rem;
 }
-.text-editor-fullscreen:fullscreen {
-  display: grid;
-  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto;
-  grid-template-rows: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  /* Clear of a phone's notch, rounded corners and home indicator; the bar
-     keeps a little room of its own below. When a browser overlays its
-     keyboard, text-editor.js adds the obscured part as another inset. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    calc(env(safe-area-inset-bottom) + var(--space-2) + var(--text-editor-keyboard-inset, 0px))
-    env(safe-area-inset-left);
-  border: 0;
-  background: var(--background);
-  color: var(--text);
-}
-.text-editor-fullscreen:fullscreen > legend {
-  display: none;
-}
-/* The text takes all the room; the rest is one thin bar below it. */
-.text-editor-fullscreen:fullscreen > .text-editor {
-  grid-column: 1 / -1;
-  height: auto;
-  min-height: 0;
-  align-self: stretch;
-  resize: none;
-}
-.text-editor-fullscreen:fullscreen > :not(.text-editor) {
-  margin: 0;
-}
-.text-editor-fullscreen:fullscreen > :not(.text-editor):first-of-type {
-  margin-left: var(--space-3);
-}
-.text-editor-fullscreen:fullscreen > :not(.text-editor):last-child {
-  justify-self: end;
-  margin-right: var(--space-3);
-}
-/* A single bar element (an item's editor) spans the whole width. */
-.text-editor-fullscreen:fullscreen > .text-editor + :last-child {
-  grid-column: 1 / -1;
-  margin-left: var(--space-3);
-}
-/* On a narrow screen the language picker narrows, and the size is cut
-   short, rather than the bar growing a second line or past the screen. */
-.text-editor-fullscreen:fullscreen > .text-editor-options {
-  min-width: 0;
-}
-.text-editor-fullscreen:fullscreen > .text-editor-options :where(select) {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.text-editor-fullscreen:fullscreen > .hint {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.text-editor-fullscreen:fullscreen :where(button, select) {
-  min-height: 28px;
-  padding: 2px var(--space-2);
-  font-size: var(--text-small);
-}
-.text-editor-fullscreen:fullscreen .text-editor > textarea,
-.text-editor-fullscreen:fullscreen .text-editor > pre.text-editor-highlight {
-  padding-left: calc(var(--gutter-digits, 2) * 1ch + 2ch + var(--space-2));
-  border: 0;
-  border-bottom: 1px solid var(--border-subtle);
-  border-radius: 0;
-  overflow-wrap: normal;
-  white-space: pre;
-}
-.text-editor-fullscreen:fullscreen .text-editor-gutter {
-  position: absolute;
-  inset: 0 auto 0 0;
-  z-index: 2;
-  display: block;
-  width: calc(var(--gutter-digits, 2) * 1ch + 2ch);
-  overflow: hidden;
-  padding: 6px 1ch 6px 0;
-  border-right: 1px solid var(--border-subtle);
-  background: var(--surface);
-  color: var(--text-subtle);
-  font-family: var(--font-mono);
-  font-size: 0.9375rem;
-  line-height: 1.6;
-  text-align: right;
-  white-space: pre;
-  user-select: none;
+@media (max-width: 799px) {
+  #text-form .text-editor {
+    height: 22rem;
+    min-height: 16rem;
+  }
 }
 .error-text {
   color: var(--error-text);
@@ -1128,19 +1058,44 @@ button.media-preview img {
   }
 }
 
-/* The rows of options over the send forms and over the list sit side by
-   side: the same height, so the forms and the list start level. */
-.send-options,
+/* Settings sit side by side when they fit, leaving room for more options later. */
+.namespace-settings {
+  margin-bottom: var(--space-6);
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--space-3) var(--space-5);
+}
+.setting-row {
+  max-width: var(--prose-width);
+}
+.setting-row .actions {
+  margin: 0;
+}
+.setting-row .hint {
+  margin: var(--space-1) 0 0;
+}
+.setting-row label.setting-check {
+  min-height: var(--control-height);
+  margin: 0;
+}
+.setting-check span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.setting-check:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+/* How items open, beside the list actions. */
 .list-options {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-height: var(--control-height);
   margin: 0;
-}
-/* How items open, over the list. */
-.list-options {
-  justify-content: flex-end;
 }
 .list-options label {
   margin: 0;
@@ -1175,9 +1130,6 @@ button.media-preview img {
   color: var(--error-text);
 }
 
-.send-options label.checkbox-label {
-  margin: 0;
-}
 .burn-note {
   color: var(--destructive);
 }
@@ -1196,6 +1148,10 @@ button.media-preview img {
   display: flex;
   gap: var(--space-2);
   max-width: 40rem;
+}
+.setting-row .copy-link,
+.setting-row form {
+  margin-top: var(--space-2);
 }
 /* Looks like a field, not a link: clicking copies instead of navigating. */
 .copy-link input {
@@ -1390,7 +1346,7 @@ button.media-preview img {
 
 /* --- Shared item page ----------------------------------------------------- */
 
-.shared-item pre {
+.shared-item .numbered-text {
   max-height: 32rem;
 }
 
@@ -1412,10 +1368,8 @@ button.media-preview img {
 .stack > :is(h1, h2, .section-heading) + * {
   margin-top: 0;
 }
-/* The list's top border level with the Text box's beside it, which runs
-   through the middle of its legend: half a line down. */
-.stack > .list-options + .items {
-  margin-top: calc(var(--space-5) + 0.8rem);
+#items-section > .items {
+  margin-top: var(--space-5);
 }
 /* A QR code and the link it encodes belong together. */
 .stack > .qr-code + .copy-link {
