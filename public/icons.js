@@ -15,6 +15,16 @@ const ICONS = {
     ["circle", { cx: "6", cy: "6.5", r: "1.2" }],
     ["path", { d: "M2.5 12l3.5-3.5 2.5 2.5 2-2 3 3" }],
   ],
+  grid: [
+    ["rect", { x: "2", y: "2", width: "5", height: "5", rx: ".5" }],
+    ["rect", { x: "9", y: "2", width: "5", height: "5", rx: ".5" }],
+    ["rect", { x: "2", y: "9", width: "5", height: "5", rx: ".5" }],
+    ["rect", { x: "9", y: "9", width: "5", height: "5", rx: ".5" }],
+  ],
+  list: [
+    ["path", { d: "M5.5 3h8M5.5 8h8M5.5 13h8" }],
+    ["path", { d: "M2 3h1M2 8h1M2 13h1" }],
+  ],
   file: [["path", { d: "M4 1.8h5l3 3v9.4H4zM9 1.8v3h3" }]],
   video: [
     ["rect", { x: "1.5", y: "3.5", width: "13", height: "9", rx: "1" }],
@@ -39,7 +49,6 @@ const ICONS = {
     ["path", { d: "M11 5V3.5a1 1 0 0 0-1-1H3.5a1 1 0 0 0-1 1V10a1 1 0 0 0 1 1H5" }],
   ],
   edit: [["path", { d: "M3 13l2.6-.6L13 5l-2-2-7.4 7.4zM9.8 4.2l2 2" }]],
-  expand: [["path", { d: "M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10" }]],
   download: [["path", { d: "M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10" }]],
   share: [
     [

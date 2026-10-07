@@ -17,75 +17,101 @@
 
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
-  <dialog id="media-viewer" class="media-viewer" aria-labelledby="media-viewer-title">
-    <div class="media-viewer-bar">
-      <p>
-        <strong id="media-viewer-title"></strong>
-        <span id="media-viewer-count" class="hint"></span>
-      </p>
-      <form method="dialog">
-        <button class="icon-button" data-icon="dismiss" type="submit" aria-label="Close the viewer" title="Close the viewer"></button>
-      </form>
+  <section id="media-feed" class="media-feed" aria-labelledby="media-feed-title" hidden>
+    <p><a id="media-feed-back" href=".">← Back to namespace</a></p>
+    <div class="media-feed-heading">
+      <h1 id="media-feed-title">Media</h1>
+      <fieldset class="media-view-options">
+        <legend class="visually-hidden">Media view</legend>
+        <button data-icon="image" data-media-view="list" type="button" aria-pressed="true">List</button>
+        <button data-icon="grid" data-media-view="grid" type="button" aria-pressed="false">Grid</button>
+        <button data-icon="list" data-media-view="details" type="button" aria-pressed="false">Details</button>
+      </fieldset>
     </div>
-    <div id="media-viewer-stage" class="media-viewer-stage">
-      <div id="media-viewer-content" class="media-viewer-content" aria-live="polite"></div>
-    </div>
-  </dialog>
+    <div id="media-feed-list" class="media-feed-list"></div>
+    <button id="media-feed-top" type="button" hidden>↑ Top</button>
+  </section>
 
-  <div class="columns">
-    <section id="send-section" class="stack" aria-labelledby="send-title">
-      <h2 id="send-title">Send</h2>
-
-      <p class="send-options">
-        <label class="checkbox-label">
-          <input id="burn" name="burn" type="checkbox" />
-          Delete after first open
+  <section id="access-options" class="namespace-settings" aria-labelledby="settings-title">
+    <h2 id="settings-title">Settings</h2>
+    <div class="settings-grid">
+      <div id="burn-option" class="setting-row">
+        <label class="checkbox-label setting-check">
+          <input id="burn" type="checkbox" disabled />
+          <span data-icon="burn">Delete after first open</span>
         </label>
-      </p>
-
-      <form id="text-form">
-        <fieldset>
-          <legend id="text-legend">Text</legend>
-          <textarea id="text" name="text" rows="8" aria-labelledby="text-legend" aria-describedby="text-limit" required></textarea>
-          <p class="text-editor-options">
-            <label for="text-language">Highlight</label>
-            <select id="text-language" aria-label="Syntax highlighting">
-              <option value="">Plain text</option>
-            </select>
-          </p>
-          <p id="text-limit" class="hint"></p>
-          <button data-icon="send" type="submit" class="primary">Send</button>
-        </fieldset>
-      </form>
-
-      <form id="file-form">
-        <fieldset>
-          <legend id="file-legend">File</legend>
-          <input id="file" class="visually-hidden" name="file" type="file" multiple aria-labelledby="file-legend" aria-describedby="file-limit" required />
-          <label id="file-zone" class="dropzone" for="file">Drop files here, or click to pick them</label>
-          <p id="file-limit" class="hint"></p>
-          <button data-icon="send" type="submit" class="primary">Send</button>
-        </fieldset>
-      </form>
-    </section>
-
-    <section class="stack" aria-labelledby="queue-title">
-      <div class="section-heading">
-        <h2 id="queue-title">Items <small id="item-count"></small> <small id="live-status" class="live-status"></small> <small id="viewers" title="Pages open on this namespace right now, this one included"></small></h2>
-        <button data-icon="refresh" id="refresh" type="button">Refresh</button>
+        <p id="burn-hint" class="hint">New items sent while enabled are deleted when first opened.</p>
       </div>
-      <p class="list-options">
-        <label for="expand-mode">Show contents</label>
-        <select id="expand-mode">
-          <option value="one">One at a time</option>
-          <option value="several">Several at once</option>
-          <option value="all">All</option>
-        </select>
-      </p>
-      <ol id="items" class="items"></ol>
-      <p id="empty" class="empty" hidden>No items.</p>
-    </section>
-  </div>
+      <div id="lock-section" class="setting-row" hidden>
+        <p id="lock-actions" class="actions">
+          <button data-icon="lock" id="lock-button" type="button" hidden>Lock</button>
+          <button data-icon="unlock" id="unlock-button" type="button" hidden>Unlock</button>
+          <button data-icon="logout" id="forget-key" type="button" hidden>Forget the key here</button>
+        </p>
+        <p id="lock-hint" class="hint"></p>
+        <div id="lock-link-row" class="copy-link" hidden>
+          <input id="lock-link" type="text" readonly aria-label="Link that writes here" />
+          <button data-icon="copy" id="copy-lock-link" type="button">Copy link</button>
+        </div>
+        <form id="key-form" hidden>
+          <label for="key-input">Write key</label>
+          <div class="copy-link">
+            <input id="key-input" type="text" autocomplete="off" spellcheck="false" required />
+            <button data-icon="login" type="submit">Use key</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section id="send-section" class="stack" aria-labelledby="send-title">
+    <h2 id="send-title">Send</h2>
+
+    <form id="text-form">
+      <fieldset>
+        <legend id="text-legend">Text</legend>
+        <textarea id="text" name="text" rows="8" aria-labelledby="text-legend" aria-describedby="text-limit" required></textarea>
+        <p class="text-editor-options">
+          <label for="text-language">Highlight</label>
+          <select id="text-language" aria-label="Syntax highlighting">
+            <option value="">Plain text</option>
+          </select>
+        </p>
+        <p id="text-limit" class="hint"></p>
+        <button data-icon="send" type="submit" class="primary">Send</button>
+      </fieldset>
+    </form>
+
+    <form id="file-form">
+      <fieldset>
+        <legend id="file-legend">File</legend>
+        <input id="file" class="visually-hidden" name="file" type="file" multiple aria-labelledby="file-legend" aria-describedby="file-limit" required />
+        <label id="file-zone" class="dropzone" for="file">Drop files here, or click to pick them</label>
+        <p id="file-limit" class="hint"></p>
+        <button data-icon="send" type="submit" class="primary">Send</button>
+      </fieldset>
+    </form>
+  </section>
+
+  <section id="items-section" class="page-section stack" aria-labelledby="queue-title">
+    <div class="section-heading">
+      <h2 id="queue-title">Items <small id="item-count"></small> <small id="live-status" class="live-status"></small> <small id="viewers" title="Pages open on this namespace right now, this one included"></small></h2>
+      <span class="actions">
+        <button data-icon="image" id="open-media" type="button" hidden>Media</button>
+        <button data-icon="refresh" id="refresh" type="button">Refresh</button>
+        <span class="list-options">
+          <label for="expand-mode">Show contents</label>
+          <select id="expand-mode">
+            <option value="one">One at a time</option>
+            <option value="several">Several at once</option>
+            <option value="all">All</option>
+          </select>
+        </span>
+      </span>
+    </div>
+    <ol id="items" class="items"></ol>
+    <p id="empty" class="empty" hidden>No items.</p>
+  </section>
 
   <section class="page-section stack" aria-labelledby="qr-title">
     <h2 id="qr-title">Open on another device</h2>
@@ -94,27 +120,6 @@
       <input id="page-url" type="text" readonly aria-label="Link to this page" />
       <button data-icon="copy" id="copy-link" type="button">Copy link</button>
     </div>
-  </section>
-
-  <section id="lock-section" class="page-section stack" aria-labelledby="lock-title" hidden>
-    <h2 id="lock-title">Lock</h2>
-    <p id="lock-hint" class="hint"></p>
-    <div id="lock-link-row" class="copy-link" hidden>
-      <input id="lock-link" type="text" readonly aria-label="Link that writes here" />
-      <button data-icon="copy" id="copy-lock-link" type="button">Copy link</button>
-    </div>
-    <form id="key-form" hidden>
-      <label for="key-input">Write key</label>
-      <div class="copy-link">
-        <input id="key-input" type="text" autocomplete="off" spellcheck="false" required />
-        <button data-icon="login" type="submit">Use key</button>
-      </div>
-    </form>
-    <p class="actions">
-      <button data-icon="lock" id="lock-button" type="button" hidden>Lock</button>
-      <button data-icon="unlock" id="unlock-button" type="button" hidden>Unlock</button>
-      <button data-icon="logout" id="forget-key" type="button" hidden>Forget the key here</button>
-    </p>
   </section>
 
   <section class="page-section stack" aria-labelledby="backup-title">

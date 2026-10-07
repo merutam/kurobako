@@ -5,11 +5,11 @@
 // textarea stays in charge of selection, forms and accessibility; a copy below
 // it only paints the syntax colors.
 import { el } from "./common.js";
-import { icon } from "./icons.js";
 import {
   DETECTION_CHARACTERS,
   extensionOf,
   highlightedCode,
+  lineNumbers,
   MAX_HIGHLIGHT_CHARACTERS,
 } from "./items.js";
 import hljs from "./vendor/highlight.js";
@@ -70,32 +70,6 @@ export const withExtension = (title, extension) => {
   return extension ? `${base}.${extension}` : base;
 };
 
-/** Keeps a full-screen editor's bottom bar above an overlaid phone keyboard. */
-const followKeyboard = (root) => {
-  const viewport = window.visualViewport;
-  if (!viewport) return () => {};
-  const update = () => {
-    // With interactive-widget=resizes-content both heights shrink together.
-    // Safari and older browsers instead leave the layout viewport behind the
-    // keyboard; only that obscured strip needs to become bottom padding.
-    const inset = Math.max(
-      0,
-      Math.round(window.innerHeight - viewport.height - viewport.offsetTop),
-    );
-    root.style.setProperty("--text-editor-keyboard-inset", `${inset}px`);
-  };
-  viewport.addEventListener("resize", update);
-  viewport.addEventListener("scroll", update);
-  window.addEventListener("resize", update);
-  update();
-  return () => {
-    viewport.removeEventListener("resize", update);
-    viewport.removeEventListener("scroll", update);
-    window.removeEventListener("resize", update);
-    root.style.removeProperty("--text-editor-keyboard-inset");
-  };
-};
-
 /**
  * Keeps a native textarea editable over a syntax-colored, scroll-synchronized
  * copy. The textarea's own letters are transparent, so the copy must follow
@@ -104,14 +78,10 @@ const followKeyboard = (root) => {
  * once, then again only when typing pauses. A text too large to color on
  * every keystroke shows its letters at once and its colors when typing pauses.
  */
-export const createTextEditor = (
-  textarea,
-  { title = () => "", autoDetect = () => true, fullscreenRoot, onError = () => {} } = {},
-) => {
+export const createTextEditor = (textarea, { title = () => "", autoDetect = () => true } = {}) => {
   const highlight = el("pre", { className: "text-editor-highlight", ariaHidden: true });
-  /** Line numbers, shown in full screen only, where lines do not wrap. */
-  const gutter = el("div", { className: "text-editor-gutter", ariaHidden: true });
-  let numbered = 0;
+  const gutter = el("pre", { className: "text-editor-lines", ariaHidden: true });
+  let lineCount = 0;
   /** The language guessed for a text whose name has no extension; null until guessed. */
   let detected = null;
   let detectTimer = null;
@@ -145,26 +115,6 @@ export const createTextEditor = (
     highlight.replaceChildren(code);
     highlight.scrollTop = textarea.scrollTop;
     highlight.scrollLeft = textarea.scrollLeft;
-    numberLines();
-  };
-
-  /** Numbers the lines, in full screen: redrawn only when their count changes. */
-  const numberLines = () => {
-    if (document.fullscreenElement !== root) return;
-    let lines = 1;
-    for (
-      let at = textarea.value.indexOf("\n");
-      at !== -1;
-      at = textarea.value.indexOf("\n", at + 1)
-    ) {
-      lines += 1;
-    }
-    if (lines !== numbered) {
-      numbered = lines;
-      gutter.textContent = `${Array.from({ length: lines }, (_, index) => index + 1).join("\n")}\n`;
-      editor.style.setProperty("--gutter-digits", String(String(lines).length));
-    }
-    gutter.scrollTop = textarea.scrollTop;
   };
 
   /** Guesses the language from a bounded sample, then colors with it. */
@@ -177,6 +127,20 @@ export const createTextEditor = (
   };
 
   const refresh = ({ immediate = false } = {}) => {
+    let count = 1;
+    for (
+      let at = textarea.value.indexOf("\n");
+      at !== -1;
+      at = textarea.value.indexOf("\n", at + 1)
+    ) {
+      count += 1;
+    }
+    if (count !== lineCount) {
+      lineCount = count;
+      gutter.textContent = lineNumbers(textarea.value);
+      editor.style.setProperty("--line-number-width", `${Math.max(3, String(count).length)}ch`);
+      gutter.scrollTop = textarea.scrollTop;
+    }
     clearTimeout(colorTimer);
     if (immediate) {
       if (guessing() && detected === null) detect();
@@ -200,16 +164,6 @@ export const createTextEditor = (
     }
   };
 
-  const expand = el(
-    "button",
-    {
-      type: "button",
-      className: "icon-button text-editor-expand",
-      ariaLabel: "Edit in full screen",
-      title: "Edit in full screen",
-    },
-    icon("expand"),
-  );
   /**
    * Where the caret is: "12:5", and how much is selected, "12:5 (27)". The
    * caller puts it below the text, with the form's other details.
@@ -234,37 +188,15 @@ export const createTextEditor = (
     if (positionFrame === null) positionFrame = requestAnimationFrame(showPosition);
   };
 
-  const editor = el("div", { className: "text-editor" }, gutter, highlight, textarea, expand);
-  const root = fullscreenRoot ?? editor;
-  root.classList.add("text-editor-fullscreen");
-
-  expand.addEventListener("click", async () => {
-    try {
-      if (document.fullscreenElement === root) await document.exitFullscreen();
-      else await root.requestFullscreen();
-      textarea.focus();
-    } catch (error) {
-      onError(`Could not open full screen: ${error.message}`);
-    }
-  });
-  let stopFollowingKeyboard = () => {};
-  root.addEventListener("fullscreenchange", () => {
-    const expanded = document.fullscreenElement === root;
-    stopFollowingKeyboard();
-    stopFollowingKeyboard = expanded ? followKeyboard(root) : () => {};
-    expand.setAttribute("aria-label", expanded ? "Exit full screen" : "Edit in full screen");
-    expand.title = expanded ? "Exit full screen" : "Edit in full screen";
-    expand.setAttribute("aria-pressed", String(expanded));
-    numbered = 0;
-    numberLines();
-  });
+  const editor = el("div", { className: "text-editor" }, gutter, highlight, textarea);
 
   textarea.spellcheck = false;
+  textarea.setAttribute("wrap", "off");
   textarea.addEventListener("input", () => refresh());
   textarea.addEventListener("scroll", () => {
+    gutter.scrollTop = textarea.scrollTop;
     highlight.scrollTop = textarea.scrollTop;
     highlight.scrollLeft = textarea.scrollLeft;
-    gutter.scrollTop = textarea.scrollTop;
   });
   // A phone's keyboard composes a word before it is typed, and some browsers
   // tell the page only once it is done: meanwhile the textarea shows its own
