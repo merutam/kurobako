@@ -14,7 +14,6 @@ export const createMediaFeed = (sourceOf) => {
   const page = element("#media-feed");
   const list = element("#media-feed-list");
   const back = element("#media-feed-back");
-  const topButton = element("#media-feed-top");
   const viewButtons = [...page.querySelectorAll("[data-media-view]")];
   const previousView = { large: "list", grid: "grid", list: "details" }[
     storage.get("kurobako-media-view")
@@ -52,17 +51,6 @@ export const createMediaFeed = (sourceOf) => {
   for (const button of viewButtons) {
     button.addEventListener("click", () => setView(button.dataset.mediaView));
   }
-  const updateTopButton = () => {
-    topButton.hidden = page.hidden || window.scrollY < window.innerHeight / 2;
-  };
-  window.addEventListener("scroll", updateTopButton, { passive: true });
-  topButton.addEventListener("click", () => {
-    window.scrollTo({
-      top: 0,
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-    });
-  });
-
   const mediaUrl = (id) => {
     const url = new URL(window.location.href);
     if (id) url.searchParams.set("media", id);
@@ -212,7 +200,6 @@ export const createMediaFeed = (sourceOf) => {
       cards.clear();
       list.replaceChildren();
     }
-    updateTopButton();
   };
 
   const open = (entry = entries[0]) => {
