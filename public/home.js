@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kurobako contributors
 
 // The home page: opening a namespace, plain or encrypted (with a random
-// name, and how strong a typed one is), and the instance's stats.
-import { element, formatDuration, numberFormatter, readConfig, request, SITE } from "./common.js";
+// name, and how strong a typed one is).
+import { element, readConfig, SITE } from "./common.js";
 import { encryptionAvailable, normalizeSecretName, secretNameProblem } from "./k.mjs";
 import { createStatus } from "./status.js";
 
@@ -14,21 +14,10 @@ const pageTitle = element("#page-title");
 const hint = element("#namespace-hint");
 const strength = element("#name-strength");
 const encrypted = element("#encrypted");
-const encryptedHint = element("#encrypted-hint");
+const e2eeHelp = element("#e2ee-help");
+const e2eeDialog = element("#e2ee-dialog");
 const randomButton = element("#random-name");
 const status = createStatus(element("#home-status"));
-const maxItems = element("#max-items");
-const expiry = element("#expiry");
-
-const regionNames = new Intl.DisplayNames(undefined, { type: "region" });
-const countryName = (code) => {
-  try {
-    return regionNames.of(code) ?? code;
-  } catch {
-    // Some proxies use non-ISO codes such as "XX" (unknown) and "T1" (Tor).
-    return code;
-  }
-};
 /** Lowercase letters and digits are valid in both modes. */
 const RANDOM_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
 
@@ -89,13 +78,14 @@ const updateMode = () => {
   pageTitle.textContent = prefix.textContent;
   input.maxLength = sealed ? config.sealed.maxNameLength : config.namespace.maxLength;
   hint.textContent = sealed
-    ? `Max ${config.sealed.maxNameLength} characters. Longer is safer: use Random name.`
-    : `a-z, 0-9, _ and -. Max ${config.namespace.maxLength} characters.`;
+    ? `E2EE. Max ${config.sealed.maxNameLength} characters.`
+    : `a-z, 0-9, _ and -. Max ${config.namespace.maxLength} characters.${encrypted.disabled ? " Encryption needs HTTPS." : ""}`;
   status.clear();
   showStrength();
 };
 
 encrypted.addEventListener("change", updateMode);
+e2eeHelp.addEventListener("click", () => e2eeDialog.showModal());
 input.addEventListener("input", showStrength);
 randomButton.addEventListener("click", () => {
   input.value = randomName();
@@ -141,41 +131,10 @@ try {
   };
   if (!encryptionAvailable()) {
     encrypted.disabled = true;
-    encryptedHint.textContent = "Needs HTTPS.";
+    encrypted.checked = false;
   }
   updateMode();
-  maxItems.textContent = numberFormatter.format(config.maxItems);
-  expiry.textContent = config.itemTtlSeconds ? formatDuration(config.itemTtlSeconds) : "Never";
 } catch (error) {
   form.querySelector("button[type=submit]").disabled = true;
-  maxItems.textContent = expiry.textContent = "?";
   status.error(`Could not load settings: ${error.message}`);
-}
-
-/** One country per line, so a long list stays readable. */
-const countryLines = (countries) => {
-  if (!countries.length) return ["—"];
-  return countries.flatMap(({ country, visitors }, index) => [
-    ...(index ? [document.createElement("br")] : []),
-    `${countryName(country)} (${numberFormatter.format(visitors)})`,
-  ]);
-};
-
-// Each cell names its /stats.json field in data-stat; numbers need no entry here.
-// A format returns the cell's contents: text and elements.
-const statFormats = {
-  topCountriesLast24h: countryLines,
-};
-const statCells = document.querySelectorAll("[data-stat]");
-
-try {
-  const stats = await (await request(`${SITE}/stats.json`, { cache: "no-store" })).json();
-  for (const cell of statCells) {
-    const value = stats[cell.dataset.stat];
-    const format = statFormats[cell.dataset.stat] ?? ((number) => numberFormatter.format(number));
-    const contents = value === undefined ? "?" : format(value);
-    cell.replaceChildren(...[contents].flat());
-  }
-} catch {
-  for (const cell of statCells) cell.textContent = "?";
 }

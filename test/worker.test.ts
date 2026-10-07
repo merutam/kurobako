@@ -347,8 +347,14 @@ describe("site", () => {
   test("leaves scripts and styles to Workers Static Assets", async () => {
     // In production these never reach the Worker (run_worker_first); the
     // Worker itself has no route for them.
-    expect((await call("/namespace.js")).status).toBe(404);
-    for (const path of ["namespace.js", "styles.css", "vendor/uqr.js"]) {
+    expect((await call("/namespaces/index.js")).status).toBe(404);
+    for (const path of [
+      "namespaces/index.js",
+      "namespaces/items.js",
+      "components.js",
+      "styles.css",
+      "vendor/uqr.js",
+    ]) {
       expect((await env.ASSETS.fetch(`https://assets.invalid/${path}`)).status).toBe(200);
     }
   });

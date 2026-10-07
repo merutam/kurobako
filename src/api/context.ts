@@ -15,7 +15,7 @@ import {
 } from "../model";
 import { LIVE, type WriteCheck } from "../namespace";
 import { isAutomatedNetwork, networkKey } from "../networks";
-import { escapeHtml, staticFiles, type WebAssets } from "../pages";
+import { escapeHtml, renderHomeLimits, staticFiles, type WebAssets } from "../pages";
 import type { Platform } from "../platform";
 import { accessEvent, clientKey } from "../request-info";
 import { CLIENT_PATH, PROTOCOL_PATH, PROTOCOL_VERSION } from "../routing";
@@ -153,7 +153,7 @@ export const createContext = (
       // Quoted in the pages, so they stay valid JSON until filled in.
       .replaceAll('"%CONFIG%"', embeddedConfig);
   const pages = {
-    home: build(assets.homeHtml),
+    home: renderHomeLimits(build(assets.homeHtml), config),
     namespace: build(assets.namespaceHtml),
     admin: build(assets.adminHtml),
     item: build(assets.itemHtml),

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 // A namespace page's write access, known before its first paint, so that a
-// reader never sees the send forms appear and vanish (see namespace.js,
+// reader never sees the send forms appear and vanish (see namespaces/access.js,
 // which takes over once loaded). A classic script in <head>, like theme.js:
 // - a read-only link (/e#/<token>) starts as a reader's page, until the
 //   namespace says it is open;

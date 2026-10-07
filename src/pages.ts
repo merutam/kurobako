@@ -3,6 +3,7 @@
 
 import { createHash } from "node:crypto";
 import packageJson from "../package.json";
+import type { AppConfig } from "./config";
 import { type AccessLogEntry, locationOf } from "./request-info";
 
 export type WebAssets = {
@@ -38,10 +39,16 @@ const PAGES = {
 
 /** Files in public/ that pages load, served as they are at /<path>. */
 export const STATIC_FILES = [
-  "namespace.js",
+  "namespaces/index.js",
+  "namespaces/modes.js",
+  "namespaces/items.js",
+  "namespaces/live.js",
+  "namespaces/forms.js",
+  "namespaces/access.js",
   "home.js",
   "item.js",
   "common.js",
+  "components.js",
   "items.js",
   "icons.js",
   "access.js",
@@ -147,6 +154,45 @@ export const escapeHtml = (value: string): string =>
         "'": "&#39;",
       })[character] ?? character,
   );
+
+/** Static instance limits are filled once, when the page is assembled. */
+export const renderHomeLimits = (html: string, config: AppConfig): string => {
+  const number = new Intl.NumberFormat("en-US");
+  const bytes = (size: number) => {
+    if (size < 1000) return `${size} B`;
+    const units = ["kB", "MB", "GB"];
+    let value = size / 1000;
+    let unit = 0;
+    while (value >= 1000 && unit < units.length - 1) {
+      value /= 1000;
+      unit += 1;
+    }
+    return `${Number(value.toFixed(value < 10 ? 1 : 0))} ${units[unit]}`;
+  };
+  const duration = (seconds: number) => {
+    if (!seconds) return "Never";
+    const units = [
+      ["day", 86_400],
+      ["hour", 3_600],
+      ["minute", 60],
+      ["second", 1],
+    ] as const;
+    const [unit, size] = units.find(([, size]) => seconds >= size) ?? ["second", 1];
+    const value = Math.round(seconds / size);
+    return `${value} ${unit}${value === 1 ? "" : "s"}`;
+  };
+  const values = {
+    "%MAX_ITEMS%": number.format(config.maxItems),
+    "%ITEM_EXPIRY%": duration(config.itemTtlMs / 1000),
+    "%MAX_FILE_SIZE%": bytes(config.maxFileBytes),
+    "%MAX_TEXT_SIZE%": bytes(config.maxTextBytes),
+    "%SENDS_PER_MINUTE%": number.format(config.sendsPerMinute),
+  };
+  for (const [placeholder, value] of Object.entries(values)) {
+    html = html.replaceAll(placeholder, escapeHtml(value));
+  }
+  return html;
+};
 
 export const renderLogPage = (
   layout: string,

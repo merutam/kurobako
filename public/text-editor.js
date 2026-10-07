@@ -6,13 +6,7 @@
 // it only paints the syntax colors.
 import { el } from "./common.js";
 import { icon } from "./icons.js";
-import {
-  DETECTION_CHARACTERS,
-  extensionOf,
-  highlightedCode,
-  lineNumbers,
-  MAX_HIGHLIGHT_CHARACTERS,
-} from "./items.js";
+import { highlightedCode, lineNumbers, MAX_HIGHLIGHT_CHARACTERS } from "./items.js";
 import hljs from "./vendor/highlight.js";
 
 const PREFERRED_EXTENSIONS = {
@@ -35,13 +29,8 @@ const PREFERRED_EXTENSIONS = {
 
 export { MAX_HIGHLIGHT_CHARACTERS };
 
-export const languageOptions = (selected, { plain = false } = {}) => {
-  const options = plain
-    ? [
-        el("option", { value: "", textContent: "Plain text" }),
-        el("option", { value: "auto", textContent: "Auto detect" }),
-      ]
-    : [el("option", { value: "", textContent: "Auto · no extension" })];
+export const languageOptions = (selected) => {
+  const options = [el("option", { value: "", textContent: "Plain text" })];
   for (const language of hljs.listLanguages()) {
     const details = hljs.getLanguage(language);
     const extension = PREFERRED_EXTENSIONS[language] ?? language;
@@ -52,7 +41,7 @@ export const languageOptions = (selected, { plain = false } = {}) => {
       }),
     );
   }
-  if (selected && selected !== "auto" && !options.some((option) => option.value === selected)) {
+  if (selected && !options.some((option) => option.value === selected)) {
     const details = hljs.getLanguage(selected);
     options.splice(
       1,
@@ -126,36 +115,24 @@ const addResizeHandle = (editor) => {
 /**
  * Keeps a native textarea editable over a syntax-colored, scroll-synchronized
  * copy. The textarea's own letters are transparent, so the copy must follow
- * every keystroke: it is redrawn on the next frame with one grammar, which is
- * quick. Guessing a language means running every grammar, so that happens
- * once, then again only when typing pauses. A text too large to color on
- * every keystroke shows its letters at once and its colors when typing pauses.
+ * every keystroke: it is redrawn on the next frame with the selected grammar.
+ * A text too large to color on every keystroke shows its letters at once and
+ * its colors when typing pauses.
  */
-export const createTextEditor = (textarea, { title = () => "", autoDetect = () => true } = {}) => {
+export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   const highlight = el("pre", { className: "text-editor-highlight", ariaHidden: true });
   const gutter = el("pre", { className: "text-editor-lines", ariaHidden: true });
   const emptySelection = el("div", { className: "text-editor-selection", ariaHidden: true });
   let lineCount = 0;
   let lineStarts = [0];
-  /** The language guessed for a text whose name has no extension; null until guessed. */
-  let detected = null;
-  let detectTimer = null;
   let colorTimer = null;
   let frame = null;
   /** Whether coloring the whole text took too long to do on every keystroke. */
   let slow = false;
 
-  const guessing = () => !extensionOf(title()) && autoDetect();
-  /** A name whose extension picks the grammar, or null to leave the text plain. */
-  const sourceName = () => {
-    const name = title();
-    if (extensionOf(name)) return name;
-    return guessing() && detected ? `source.${detected}` : null;
-  };
-
   const paint = (colored) => {
     const text = textarea.value;
-    const source = sourceName();
+    const source = title();
     let code;
     if (colored && source && text.length <= MAX_HIGHLIGHT_CHARACTERS) {
       const started = performance.now();
@@ -170,15 +147,6 @@ export const createTextEditor = (textarea, { title = () => "", autoDetect = () =
     highlight.replaceChildren(code);
     highlight.scrollTop = textarea.scrollTop;
     highlight.scrollLeft = textarea.scrollLeft;
-  };
-
-  /** Guesses the language from a bounded sample, then colors with it. */
-  const detect = () => {
-    detectTimer = null;
-    if (!guessing()) return;
-    const sample = textarea.value.slice(0, DETECTION_CHARACTERS);
-    detected = sample.trim() ? (hljs.highlightAuto(sample).language ?? null) : null;
-    paint(true);
   };
 
   const refresh = ({ immediate = false } = {}) => {
@@ -200,8 +168,7 @@ export const createTextEditor = (textarea, { title = () => "", autoDetect = () =
     }
     clearTimeout(colorTimer);
     if (immediate) {
-      if (guessing() && detected === null) detect();
-      else paint(true);
+      paint(true);
       updatePosition();
       return;
     }
@@ -215,10 +182,6 @@ export const createTextEditor = (textarea, { title = () => "", autoDetect = () =
         paint(false);
         colorTimer = setTimeout(() => paint(true), 400);
       });
-    }
-    if (guessing()) {
-      clearTimeout(detectTimer);
-      detectTimer = setTimeout(detect, detected ? 2_000 : 600);
     }
     updatePosition();
   };

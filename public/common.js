@@ -2,9 +2,8 @@
 // Copyright (C) 2026 Kurobako contributors
 
 // What every page's script shares: finding and building elements, talking to
-// the server, formatting numbers, sizes and times, the clipboard, file fields
-// and the restore of a backup. (theme.js, a classic script that runs before
-// the page is drawn, keeps to itself.)
+// the server, formatting numbers, sizes and times, the clipboard and the
+// restore of a backup.
 
 import { decorateIcons, icon } from "./icons.js";
 
@@ -217,84 +216,6 @@ export const asPng = async (blob) => {
   });
 };
 
-const carriesFiles = (event) => event.dataTransfer?.types.includes("Files") ?? false;
-
-/**
- * Lets a file be dropped on `zone` as well as picked: the drop fills `input`
- * as the picker would (one file, the first), and the form still waits for
- * its button. A file dropped anywhere else on the page is ignored, where the
- * browser would otherwise leave the page to open it.
- */
-export const acceptDrops = (zone, input) => {
-  let depth = 0;
-  const highlight = (on) => zone.classList.toggle("dropping", on);
-  zone.addEventListener("dragenter", (event) => {
-    if (!carriesFiles(event) || input.disabled) return;
-    event.preventDefault();
-    depth += 1;
-    highlight(true);
-  });
-  zone.addEventListener("dragover", (event) => {
-    if (!carriesFiles(event) || input.disabled) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-  });
-  zone.addEventListener("dragleave", () => {
-    depth = Math.max(0, depth - 1);
-    if (!depth) highlight(false);
-  });
-  zone.addEventListener("drop", (event) => {
-    if (!carriesFiles(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    depth = 0;
-    highlight(false);
-    // A field for several files takes every one dropped; any other, the first.
-    const files = [...event.dataTransfer.files].slice(0, input.multiple ? undefined : 1);
-    if (!files.length || input.disabled) return;
-    const picked = new DataTransfer();
-    for (const file of files) picked.items.add(file);
-    input.files = picked.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-    input.focus();
-  });
-};
-
-/** Drops outside every zone do nothing, instead of opening the file in place of the page. */
-export const ignoreStrayDrops = () => {
-  for (const type of ["dragover", "drop"]) {
-    window.addEventListener(type, (event) => {
-      if (carriesFiles(event)) event.preventDefault();
-    });
-  }
-};
-
-/** Several files in a few words: "3 files · 1.2 MB". */
-const describeFiles = (files) => {
-  if (files.length === 1) return `${files[0].name} · ${formatBytes(files[0].size)}`;
-  const total = files.reduce((sum, file) => sum + file.size, 0);
-  return `${files.length} files · ${formatBytes(total)}`;
-};
-
-/**
- * A file field shown as its drop zone, a <label> for the hidden input: a
- * click picks files, a drop gives them, and the zone then names them, back
- * to its first words once the form is cleared.
- */
-export const fileField = (input, zone) => {
-  const empty = zone.textContent.trim();
-  const show = () => {
-    const files = [...(input.files ?? [])];
-    zone.textContent = files.length ? describeFiles(files) : empty;
-    zone.title = files.map((file) => file.name).join("\n");
-    zone.classList.toggle("chosen", files.length > 0);
-  };
-  input.addEventListener("change", show);
-  // A reset clears the input without a change event; show it once it is done.
-  input.form?.addEventListener("reset", () => setTimeout(show));
-  acceptDrops(zone, input);
-};
-
 /** What a restore did, in one sentence: {restored, skipped, rejected, namespaces}. */
 const restoredMessage = ({ restored, skipped, rejected, namespaces }) => {
   const notes = [skipped ? `${skipped} already there` : "", rejected ? `${rejected} refused` : ""];
@@ -305,12 +226,11 @@ const restoredMessage = ({ restored, skipped, rejected, namespaces }) => {
 };
 
 /**
- * A backup's restore form: its file field (picked or dropped), the request,
- * and what came of it in `status`. `send(file)` posts the backup and returns
- * the server's answer; `done()` follows a restore that worked.
+ * A backup's restore form: the request and what came of it in `status`.
+ * The <k-file-field> handles selection and drops; `send(file)` posts the
+ * backup and returns the server's answer; `done()` follows a successful one.
  */
-export const restoreForm = ({ form, input, zone, status, send, done }) => {
-  fileField(input, zone);
+export const restoreForm = ({ form, input, status, send, done }) => {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const file = input.files?.[0];

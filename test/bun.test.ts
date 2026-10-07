@@ -1286,10 +1286,13 @@ describe("under a base path", () => {
       expect(links.length).toBeGreaterThan(3);
       for (const link of links) expect(link).toStartWith("/k/");
     }
-    const script = await at("/k/namespace.js?v=1");
+    const script = await at("/k/namespaces/index.js?v=1");
     expect(script.headers.get("content-type")).toContain("javascript");
     // Scripts import each other by relative paths, which stay under the path.
-    expect(await script.text()).toContain('from "./common.js"');
+    expect(await script.text()).toContain('from "../common.js"');
+    expect(await (await at("/k/components.js")).text()).toContain(
+      'customElements.define("k-file-field", KFileField)',
+    );
   });
 
   test("items and share links are under the path", async () => {

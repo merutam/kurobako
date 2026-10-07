@@ -72,18 +72,20 @@
       <form id="restore-form">
         <fieldset>
           <legend id="restore-legend">Restore</legend>
-          <input
-            id="restore-file"
-            class="visually-hidden"
-            type="file"
-            accept=".zip,.tar,application/zip,application/x-tar"
-            aria-labelledby="restore-legend"
-            aria-describedby="restore-hint"
-            required
-          />
-          <label id="restore-zone" class="dropzone" for="restore-file">
-            Drop a backup here, or click to pick one
-          </label>
+          <k-file-field>
+            <input
+              id="restore-file"
+              class="visually-hidden"
+              type="file"
+              accept=".zip,.tar,application/zip,application/x-tar"
+              aria-labelledby="restore-legend"
+              aria-describedby="restore-hint"
+              required
+            />
+            <label id="restore-zone" class="dropzone" for="restore-file">
+              Drop a backup here, or click to pick one
+            </label>
+          </k-file-field>
           <p id="restore-hint" class="hint">
             A backup of the instance or of a namespace (zip or tar).
           </p>

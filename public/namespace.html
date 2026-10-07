@@ -5,7 +5,7 @@
 <head>
   <title>Kurobako</title>
   <script src="/access.js"></script>
-  <script type="module" src="/namespace.js"></script>
+  <script type="module" src="/namespaces/index.js"></script>
   <!-- Filled in by the server: limits and rules, fixed for each deployment. -->
   <script type="application/json" id="config">"%CONFIG%"</script>
 </head>
@@ -83,12 +83,14 @@
     <form id="file-form">
       <fieldset>
         <legend id="file-legend">File</legend>
-        <input id="file" class="visually-hidden" name="file" type="file" multiple aria-labelledby="file-legend" aria-describedby="file-limit" required />
-        <label id="file-zone" class="dropzone" for="file">Drop files here, or click to pick them</label>
-        <div class="form-footer">
-          <p id="file-limit" class="hint"></p>
+        <k-file-field>
+          <input id="file" class="visually-hidden" name="file" type="file" multiple aria-labelledby="file-legend" aria-describedby="file-limit" required />
+          <label id="file-zone" class="dropzone" for="file">Drop files here, or click to pick them</label>
+        </k-file-field>
+        <p id="file-limit" class="hint"></p>
+        <p class="actions">
           <button data-icon="send" type="submit" class="primary">Send</button>
-        </div>
+        </p>
       </fieldset>
     </form>
   </section>
@@ -131,18 +133,20 @@
     <form id="restore-form">
       <fieldset>
         <legend id="restore-legend">Restore</legend>
-        <input
-          id="restore-file"
-          class="visually-hidden"
-          type="file"
-          accept=".zip,.tar,application/zip,application/x-tar"
-          aria-labelledby="restore-legend"
-          aria-describedby="restore-hint"
-          required
-        />
-        <label id="restore-zone" class="dropzone" for="restore-file">
-          Drop a backup here, or click to pick one
-        </label>
+        <k-file-field>
+          <input
+            id="restore-file"
+            class="visually-hidden"
+            type="file"
+            accept=".zip,.tar,application/zip,application/x-tar"
+            aria-labelledby="restore-legend"
+            aria-describedby="restore-hint"
+            required
+          />
+          <label id="restore-zone" class="dropzone" for="restore-file">
+            Drop a backup here, or click to pick one
+          </label>
+        </k-file-field>
         <p id="restore-hint" class="hint">
           A backup of a namespace (zip or tar); items already here are skipped.
         </p>
