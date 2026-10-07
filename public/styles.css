@@ -191,6 +191,9 @@ p {
 /* --- Forms ---------------------------------------------------------------- */
 
 fieldset {
+  /* A fieldset grows to its content's widest line by default: here it
+     narrows like any box, and its content does instead. */
+  min-width: 0;
   margin: 0;
   padding: var(--space-3) var(--space-4) var(--space-4);
   border: 1px solid var(--border-subtle);
@@ -653,19 +656,8 @@ body:has(.media-viewer[open]) {
   color: var(--text);
 }
 .media-viewer[open] {
-  display: block;
-}
-.media-viewer-frame {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  height: 100%;
-  background: var(--background);
-}
-/* In full screen the dialog's own padding is gone: the frame keeps clear of
-   a phone's notch and home indicator instead. */
-.media-viewer-frame:fullscreen {
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-    env(safe-area-inset-left);
 }
 .media-viewer::backdrop {
   background: rgb(0 0 0 / 75%);
@@ -701,6 +693,7 @@ body:has(.media-viewer[open]) {
   position: relative;
   min-height: 0;
   overflow: hidden;
+  background: #000;
   touch-action: pan-y;
   overscroll-behavior: contain;
 }
@@ -710,7 +703,6 @@ body:has(.media-viewer[open]) {
   justify-content: center;
   width: 100%;
   height: 100%;
-  padding: var(--space-3);
   user-select: none;
 }
 .media-viewer-content img,
@@ -722,10 +714,49 @@ body:has(.media-viewer[open]) {
   border: 0;
   background: #000;
 }
-/* A video sits in its player (see videoPlayer), whose height follows it:
-   the screen, less the gallery's bar and margins, bounds it instead. */
-.media-viewer-content .video-player video {
-  max-height: calc(100dvh - 7rem);
+/* The grid has already subtracted the bar and safe areas. Fill what remains
+   instead of guessing its height from the viewport. */
+.media-viewer-content :where(.video-player, .image-frame),
+.media-viewer-content :where(.video-player video, .image-frame img) {
+  width: 100%;
+  height: 100%;
+}
+/* Images need one custom control that native video already has. */
+.image-frame {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+}
+.image-fullscreen-button {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-large);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+.image-fullscreen-button:hover,
+.image-fullscreen-button:active {
+  background: rgb(0 0 0 / 75%);
+}
+img:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  border: 0;
+  background: #000;
 }
 .media-viewer-content .hint,
 .media-viewer-error {
@@ -920,19 +951,28 @@ a.icon-button:hover {
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
-/* The caret's line and column, in a corner of the editor. */
+/* The send form's size line: an icon for the characters, in the text's line. */
+#text-limit svg {
+  vertical-align: -0.15em;
+}
+/* The caret's line and column, below the text with the form's details. */
 .text-editor-position {
-  position: absolute;
-  right: var(--space-3);
-  bottom: var(--space-1);
-  z-index: 2;
-  padding: 0 6px;
-  border-radius: var(--radius-large);
-  background: var(--surface);
+  /* Short (see createTextEditor), so always whole: the picker gives way. */
+  flex: none;
+  margin-left: auto;
   color: var(--text-subtle);
   font-family: var(--font-mono);
   font-size: 0.75rem;
-  pointer-events: none;
+  white-space: nowrap;
+}
+/* While a phone's keyboard composes a word, the textarea shows its own
+   letters (see createTextEditor). */
+.text-editor.composing > textarea {
+  color: var(--text);
+  -webkit-text-fill-color: currentcolor;
+}
+.text-editor.composing > pre.text-editor-highlight {
+  visibility: hidden;
 }
 .text-editor-expand {
   position: absolute;
@@ -952,6 +992,8 @@ a.icon-button:hover {
   margin: 0;
 }
 .text-editor-options select {
+  min-width: 0;
+  flex: 0 1 auto;
   width: auto;
   max-width: 16rem;
 }

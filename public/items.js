@@ -12,6 +12,7 @@ import {
   HIDDEN_TITLE,
   SITE,
 } from "./common.js";
+import { icon } from "./icons.js";
 import hljs from "./vendor/highlight.js";
 
 export const extensionOf = (title) => /\.([A-Za-z0-9_+-]+)$/.exec(title)?.[1]?.toLowerCase() ?? "";
@@ -131,11 +132,6 @@ export const seekVideo = (video, direction) => {
  */
 export const gestureVideo = (src) => {
   const video = el("video", { src, controls: true, preload: "metadata", playsInline: true });
-  // Its own full screen would show the bare video, without these gestures:
-  // the gallery's full screen button is the one (Firefox ignores this; the
-  // gallery moves its full screen to itself there).
-  video.setAttribute("controlslist", "nofullscreen");
-  video.disablePictureInPicture = true;
   const gestures = el("div", {
     className: "video-gestures",
     title: "Tap to play or pause; double-tap left or right to seek 10 seconds",
@@ -278,4 +274,28 @@ export const streamAddress = async (stream) => {
     channel.port2,
   ]);
   return (await accepted) ? `${SITE}/k/stream/${token}` : null;
+};
+
+/**
+ * An image with the one control images lack: full screen. Videos keep their
+ * browser-native controls instead. `fullscreenTarget` may be the image inside
+ * a button that opens the gallery.
+ */
+export const imageFrame = (image, fullscreenTarget = image) => {
+  if (typeof fullscreenTarget.requestFullscreen !== "function") return image;
+  const button = el(
+    "button",
+    {
+      type: "button",
+      className: "image-fullscreen-button",
+      ariaLabel: "Full screen",
+      title: "Full screen",
+    },
+    icon("expand"),
+  );
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void fullscreenTarget.requestFullscreen().catch(() => {});
+  });
+  return el("div", { className: "image-frame" }, image, button);
 };
