@@ -478,7 +478,7 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 // --- Command line ------------------------------------------------------------
 
 /** This file's version, the same as the server it comes from (package.json). */
-export const VERSION = "0.7.0";
+export const VERSION = "0.7.1";
 /** The protocol this file speaks; a server says its own in /.well-known/kurobako. */
 export const PROTOCOL = 4;
 // Everything below only runs when this file is executed directly. It reads
