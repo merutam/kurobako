@@ -350,7 +350,7 @@ describe("site", () => {
     expect((await call("/namespaces/index.js")).status).toBe(404);
     for (const path of [
       "namespaces/index.js",
-      "namespaces/items.js",
+      "namespaces/item-list.js",
       "components.js",
       "styles.css",
       "vendor/uqr.js",

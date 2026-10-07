@@ -10,7 +10,7 @@ import { createStatus } from "../status.js";
 import { renderSVG } from "../vendor/uqr.js";
 import { createAccess } from "./access.js";
 import { createForms } from "./forms.js";
-import { createItemList } from "./items.js";
+import { createItemList } from "./item-list.js";
 import { createLive, LIVE_FIRST_QUEUE_MS } from "./live.js";
 import { plainMode, sealedMode } from "./modes.js";
 
