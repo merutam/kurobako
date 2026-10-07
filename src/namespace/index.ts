@@ -542,12 +542,16 @@ export class NamespaceCore {
   async rename(
     ref: ItemRef,
     change: Rename,
+    expected: string | null,
     visit?: AccessEvent,
-  ): Promise<{ item: StoredItem } | { error: string } | null> {
+  ): Promise<{ item: StoredItem } | { error: string; conflict?: true } | null> {
     if (!this.exists()) return null;
     await this.enter(visit);
     const item = this.queue.find(ref);
     if (!item) return null;
+    if (expected !== null && expected !== (item.updatedAt ?? item.createdAt)) {
+      return { error: "It changed since you opened it: open it again.", conflict: true };
+    }
     const renamed = renamedItem(item, change);
     if ("error" in renamed) return renamed;
     const updated = { ...renamed, updatedAt: this.nextUpdate(item) };

@@ -319,15 +319,18 @@ export const sharedTests = (harness: Harness) => {
         headers: { "x-sealed-metadata": "a2V5.bWV0YQ" },
         body: new Uint8Array([1, 2, 3]),
       });
-      const reseal = (metadata: string) =>
+      const reseal = (metadata: string, version = sealed.createdAt) =>
         call(`/e/${id}/${sealed.id}/n`, {
           method: "POST",
-          headers: { "x-sealed-metadata": metadata },
+          headers: { "x-sealed-metadata": metadata, "if-match": JSON.stringify(version) },
         });
       const resealed = await parse<Item>(reseal("a2V5.bmV3"));
       expect(resealed.metadata).toBe("a2V5.bmV3");
       expect(resealed.updatedAt).toBeDefined();
-      expect((await reseal("b3RoZXI.bmV3")).status).toBe(400);
+      expect(
+        (await reseal("b3RoZXI.bmV3", defined(resealed.updatedAt, "rename version"))).status,
+      ).toBe(400);
+      expect((await reseal("a2V5.bmV3")).status).toBe(412);
     });
 
     test("edits texts without changing their identity, and rejects stale edits", async () => {
@@ -428,6 +431,14 @@ export const sharedTests = (harness: Harness) => {
       );
       const second = new TextEncoder().encode("secret two");
       const replacement = await opened.withContents(second, { title: "secret two" });
+      const competing = await opened.withContents(second);
+      expect(replacement.metadata.rev).toBe(competing.metadata.rev);
+      expect(replacement.metadata.bodyId).not.toBe(competing.metadata.bodyId);
+      expect(replacement.body).not.toEqual(competing.body);
+      const competingOpened = await space.openItem(competing.header, competing.body.byteLength);
+      expect(new TextDecoder().decode(await competingOpened.open(competing.body))).toBe(
+        "secret two",
+      );
       const response = await call(`/e/${space.id}/${original.id}/e`, {
         method: "POST",
         headers: {
@@ -445,6 +456,15 @@ export const sharedTests = (harness: Harness) => {
       );
       expect(reopened.keyText).toBe(opened.keyText);
       expect(reopened.metadata.rev).toBe(1);
+      expect(reopened.metadata.bodyId).toBe(replacement.metadata.bodyId);
+      const staleRename = await call(`/e/${space.id}/${original.id}/n`, {
+        method: "POST",
+        headers: {
+          "if-match": JSON.stringify(original.createdAt),
+          "x-sealed-metadata": await opened.withMetadata({ title: "outdated title" }),
+        },
+      });
+      expect(staleRename.status).toBe(412);
       expect(
         new TextDecoder().decode(
           await reopened.open(await (await call(`/e/${space.id}/1`)).arrayBuffer()),

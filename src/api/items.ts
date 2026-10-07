@@ -139,19 +139,30 @@ export const mountItems = (
         const refused = (await refuseSend(c)) ?? (await refuseWrite(c, ref));
         if (refused) return refused;
         let change: { name: string } | { metadata: string };
+        let expected: string | null = null;
         if (space.kind === "sealed") {
+          const tag = c.req.header("if-match")?.trim() ?? "";
+          const matched = /^"([^"\\]+)"$/.exec(tag);
+          if (!matched?.[1]) {
+            return jsonError(
+              c,
+              400,
+              'Renaming an encrypted item needs If-Match: "<updatedAt-or-createdAt>".',
+            );
+          }
+          expected = matched[1];
           change = { metadata: c.req.header("x-sealed-metadata") ?? "" };
         } else {
           const bytes = await readLimited(c, MAX_NAME_BYTES);
           if (!bytes) return jsonError(c, 413, `The limit is ${MAX_NAME_BYTES} bytes.`);
           change = { name: new TextDecoder().decode(bytes) };
         }
-        const result = (await namespace(c, ref).rename(itemRef(c), change, visit(c))) as
+        const result = (await namespace(c, ref).rename(itemRef(c), change, expected, visit(c))) as
           | { item: StoredItem }
-          | { error: string }
+          | { error: string; conflict?: true }
           | null;
         if (!result) return jsonError(c, 404, "Item not found.");
-        if ("error" in result) return jsonError(c, 400, result.error);
+        if ("error" in result) return jsonError(c, result.conflict ? 412 : 400, result.error);
         return c.json(publicItem(result.item));
       }, "Item not found."),
     );
