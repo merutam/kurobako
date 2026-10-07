@@ -5,6 +5,7 @@
 // textarea stays in charge of selection, forms and accessibility; a copy below
 // it only paints the syntax colors.
 import { el } from "./common.js";
+import { icon } from "./icons.js";
 import {
   DETECTION_CHARACTERS,
   extensionOf,
@@ -70,6 +71,58 @@ export const withExtension = (title, extension) => {
   return extension ? `${base}.${extension}` : base;
 };
 
+const addResizeHandle = (editor) => {
+  const handle = el(
+    "button",
+    {
+      type: "button",
+      className: "text-resize-handle",
+      ariaLabel: "Resize text editor",
+      title: "Drag to resize; tap to expand or shrink",
+    },
+    icon("resize", 18),
+  );
+  const setHeight = (height) => {
+    const minimum = Number.parseFloat(getComputedStyle(editor).minHeight);
+    editor.style.height = `${Math.max(minimum, height)}px`;
+  };
+  let start = null;
+  let dragged = false;
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    start = { id: event.pointerId, y: event.clientY, height: editor.offsetHeight };
+    dragged = false;
+    handle.setPointerCapture(event.pointerId);
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== start?.id) return;
+    const distance = event.clientY - start.y;
+    if (Math.abs(distance) > 3) dragged = true;
+    if (dragged) setHeight(start.height + distance);
+  });
+  for (const type of ["pointerup", "pointercancel"]) {
+    handle.addEventListener(type, (event) => {
+      if (event.pointerId !== start?.id) return;
+      start = null;
+      if (type === "pointercancel") dragged = false;
+    });
+  }
+  handle.addEventListener("click", () => {
+    if (dragged) {
+      dragged = false;
+      return;
+    }
+    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    setHeight(editor.offsetHeight < 22 * rem ? 28 * rem : 16 * rem);
+  });
+  handle.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    setHeight(editor.offsetHeight + (event.key === "ArrowDown" ? 32 : -32));
+  });
+  editor.append(handle);
+};
+
 /**
  * Keeps a native textarea editable over a syntax-colored, scroll-synchronized
  * copy. The textarea's own letters are transparent, so the copy must follow
@@ -81,7 +134,9 @@ export const withExtension = (title, extension) => {
 export const createTextEditor = (textarea, { title = () => "", autoDetect = () => true } = {}) => {
   const highlight = el("pre", { className: "text-editor-highlight", ariaHidden: true });
   const gutter = el("pre", { className: "text-editor-lines", ariaHidden: true });
+  const emptySelection = el("div", { className: "text-editor-selection", ariaHidden: true });
   let lineCount = 0;
+  let lineStarts = [0];
   /** The language guessed for a text whose name has no extension; null until guessed. */
   let detected = null;
   let detectTimer = null;
@@ -127,14 +182,16 @@ export const createTextEditor = (textarea, { title = () => "", autoDetect = () =
   };
 
   const refresh = ({ immediate = false } = {}) => {
-    let count = 1;
+    const starts = [0];
     for (
       let at = textarea.value.indexOf("\n");
       at !== -1;
       at = textarea.value.indexOf("\n", at + 1)
     ) {
-      count += 1;
+      starts.push(at + 1);
     }
+    lineStarts = starts;
+    const count = starts.length;
     if (count !== lineCount) {
       lineCount = count;
       gutter.textContent = lineNumbers(textarea.value);
@@ -145,6 +202,7 @@ export const createTextEditor = (textarea, { title = () => "", autoDetect = () =
     if (immediate) {
       if (guessing() && detected === null) detect();
       else paint(true);
+      updatePosition();
       return;
     }
     if (frame === null) {
@@ -162,6 +220,7 @@ export const createTextEditor = (textarea, { title = () => "", autoDetect = () =
       clearTimeout(detectTimer);
       detectTimer = setTimeout(detect, detected ? 2_000 : 600);
     }
+    updatePosition();
   };
 
   /**
@@ -170,25 +229,69 @@ export const createTextEditor = (textarea, { title = () => "", autoDetect = () =
    */
   const position = el("span", { className: "text-editor-position", ariaHidden: true });
   let positionFrame = null;
+  const showEmptySelection = () => {
+    const { selectionStart: start, selectionEnd: end } = textarea;
+    if (start === end || document.activeElement !== textarea) {
+      emptySelection.replaceChildren();
+      return;
+    }
+    const style = getComputedStyle(textarea);
+    const lineHeight = Number.parseFloat(style.lineHeight);
+    const topOffset = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.paddingTop);
+    const left =
+      Number.parseFloat(style.borderLeftWidth) +
+      Number.parseFloat(style.paddingLeft) -
+      textarea.scrollLeft;
+    const first = Math.max(0, Math.floor((textarea.scrollTop - topOffset) / lineHeight));
+    const last = Math.min(
+      lineStarts.length - 2,
+      Math.ceil((textarea.scrollTop + textarea.clientHeight - topOffset) / lineHeight),
+    );
+    const markers = [];
+    for (let row = first; row <= last; row += 1) {
+      const newline = lineStarts[row];
+      if (lineStarts[row + 1] !== newline + 1 || newline < start || newline >= end) continue;
+      const top = topOffset + row * lineHeight - textarea.scrollTop;
+      const marker = el("span", { className: "text-editor-selected-empty-line" });
+      marker.style.top = `${top}px`;
+      marker.style.left = `${left}px`;
+      marker.style.height = `${lineHeight}px`;
+      markers.push(marker);
+    }
+    emptySelection.replaceChildren(...markers);
+  };
   const showPosition = () => {
     positionFrame = null;
-    const { value, selectionStart: start, selectionEnd: end } = textarea;
+    const { selectionStart: start, selectionEnd: end } = textarea;
     const caret = textarea.selectionDirection === "backward" ? start : end;
-    let line = 1;
-    for (let at = value.indexOf("\n"); at !== -1 && at < caret; at = value.indexOf("\n", at + 1)) {
-      line += 1;
+    let low = 0;
+    let high = lineStarts.length;
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (lineStarts[middle] <= caret) low = middle;
+      else high = middle;
     }
-    const column = caret - value.lastIndexOf("\n", caret - 1);
+    const line = low + 1;
+    const column = caret - lineStarts[low] + 1;
     const selected = end - start;
     // Short, as editors write it (line:column), with the words on hover.
     position.textContent = `${line}:${column}${selected ? ` (${selected})` : ""}`;
     position.title = `Line ${line}, column ${column}${selected ? `, ${selected} selected` : ""}`;
+    showEmptySelection();
   };
   const updatePosition = () => {
     if (positionFrame === null) positionFrame = requestAnimationFrame(showPosition);
   };
 
-  const editor = el("div", { className: "text-editor" }, gutter, highlight, textarea);
+  const editor = el(
+    "div",
+    { className: "text-editor" },
+    gutter,
+    highlight,
+    textarea,
+    emptySelection,
+  );
+  addResizeHandle(editor);
 
   textarea.spellcheck = false;
   textarea.setAttribute("wrap", "off");
@@ -197,6 +300,7 @@ export const createTextEditor = (textarea, { title = () => "", autoDetect = () =
     gutter.scrollTop = textarea.scrollTop;
     highlight.scrollTop = textarea.scrollTop;
     highlight.scrollLeft = textarea.scrollLeft;
+    updatePosition();
   });
   // A phone's keyboard composes a word before it is typed, and some browsers
   // tell the page only once it is done: meanwhile the textarea shows its own
@@ -211,6 +315,20 @@ export const createTextEditor = (textarea, { title = () => "", autoDetect = () =
   for (const type of ["input", "click", "keyup", "select", "focus"]) {
     textarea.addEventListener(type, updatePosition);
   }
+  textarea.addEventListener("blur", updatePosition);
+  let alignTimer = null;
+  const alignOnTouch = () => {
+    if (!window.matchMedia("(pointer: coarse)").matches) return;
+    const form = textarea.closest("form");
+    form?.scrollIntoView({ block: "start" });
+    clearTimeout(alignTimer);
+    // The keyboard may move the page again after the field receives focus.
+    alignTimer = setTimeout(() => {
+      if (document.activeElement === textarea) form?.scrollIntoView({ block: "start" });
+    }, 300);
+  };
+  textarea.addEventListener("focus", alignOnTouch);
+  textarea.addEventListener("click", alignOnTouch);
   document.addEventListener("selectionchange", () => {
     if (document.activeElement === textarea) updatePosition();
   });

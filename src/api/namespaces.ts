@@ -15,7 +15,6 @@ import {
   sealedName,
   summaryItem,
 } from "../model";
-import type { LockResult } from "../namespace";
 import { renderLogPage } from "../pages";
 import {
   type Api,
@@ -26,13 +25,6 @@ import {
   WRITE_KEY_HEADER,
 } from "./context";
 import { burnRequested, type createUploads, decodeFilename } from "./uploads";
-
-/** A fresh write key for a plain namespace: 128 random bits in base64url (22 characters). */
-const newWriteKey = () =>
-  btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
 
 export type Space = {
   kind: SpaceKind;
@@ -145,56 +137,11 @@ export const mountNamespaces = (
       }),
     );
 
-    /**
-     * Locks the namespace: from then on writing needs its key, in Write-Key,
-     * while anyone may still read. A plain namespace locks only while empty,
-     * and gets a key from the server (shown once), unless Write-Key brings
-     * one; an encrypted one brings the key its client derived from the name.
-     * Locked, the same request with the current key changes a plain
-     * namespace's key.
-     */
+    // New locks and key rotation are paused until encrypted ownership can be
+    // verified. Keep the route explicit so older clients get a clear answer.
     app.post(
       `${prefix}/lock`,
-      inNamespace(async (c, ref) => {
-        c.header("Cache-Control", "no-store");
-        const refused = await refuseSend(c);
-        if (refused) return refused;
-        const ns = namespace(c, ref);
-        const given = c.req.header(WRITE_KEY_HEADER)?.trim() || null;
-        const locked = (await ns.isLocked()) as boolean;
-        if (locked && !given) {
-          c.header("Locked", "1");
-          return jsonError(
-            c,
-            401,
-            "Already locked: changing its key needs the current one (Write-Key).",
-          );
-        }
-        if (space.kind === "sealed" && !given) {
-          return jsonError(
-            c,
-            400,
-            "An encrypted namespace locks with the key its client derives (Write-Key).",
-          );
-        }
-        const key =
-          space.kind === "plain" && (locked || !given) ? newWriteKey() : (given as string);
-        const result = (await ns.lock(
-          ref,
-          await sha256Hex(key),
-          given && locked ? await sha256Hex(given) : null,
-          space.kind === "plain",
-        )) as LockResult;
-        if (result === "not-empty") {
-          return jsonError(c, 409, "Only an empty namespace can be locked.");
-        }
-        c.header("Locked", "1");
-        if (result === "wrong") {
-          c.set("miss", true);
-          return jsonError(c, 403, "Wrong write key for this namespace.");
-        }
-        return c.json({ locked: true, ...(key !== given ? { writeKey: key } : {}) });
-      }),
+      inNamespace((c) => jsonError(c, 503, "Creating or changing locks is temporarily disabled.")),
     );
 
     /** Opens a locked namespace to every writer again, given its key. */
