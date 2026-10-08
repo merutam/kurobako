@@ -48,6 +48,9 @@ export class NamespaceObject extends DurableObject<Env> {
   list(visit?: AccessEvent) {
     return this.core.list(visit);
   }
+  listState(visit?: AccessEvent) {
+    return this.core.listState(visit);
+  }
   save(
     ref: NamespaceRef,
     input: SaveInput,

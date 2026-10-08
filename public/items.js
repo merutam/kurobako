@@ -80,6 +80,7 @@ export const describePlain = (item) =>
         size: item.size,
         isImage: false,
         isVideo: false,
+        isAudio: false,
       }
     : {
         kind: "file",
@@ -89,6 +90,7 @@ export const describePlain = (item) =>
         size: item.size,
         isImage: item.kind === "image",
         isVideo: item.mime?.startsWith("video/") ?? false,
+        isAudio: item.mime?.startsWith("audio/") ?? false,
       };
 
 /** An encrypted item, from its opened metadata, in the same shape. */
@@ -97,6 +99,7 @@ export const describeOpened = (metadata) => ({
   title: metadata.title || HIDDEN_TITLE,
   isImage: metadata.mime?.startsWith("image/") ?? false,
   isVideo: metadata.mime?.startsWith("video/") ?? false,
+  isAudio: metadata.mime?.startsWith("audio/") ?? false,
 });
 
 /**
@@ -118,10 +121,22 @@ export const videoPlayer = (src) => {
   return video;
 };
 
+/** Native audio controls keep seeking, downloads and accessibility in the browser. */
+export const audioPlayer = (src) =>
+  el("audio", { src, controls: true, preload: "metadata", playsInline: true });
+
 /** "Text · 23 B · 10/6/26, 9:10 AM": the start of the line under an item's title. */
 export const itemSummary = (item, info) => {
   const kind =
-    info.kind === "text" ? "Text" : info.isImage ? "Image" : info.isVideo ? "Video" : "File";
+    info.kind === "text"
+      ? "Text"
+      : info.isImage
+        ? "Image"
+        : info.isVideo
+          ? "Video"
+          : info.isAudio
+            ? "Audio"
+            : "File";
   return `${kind} · ${formatBytes(info.size ?? item.size)} · ${dateFormatter.format(new Date(item.createdAt))}`;
 };
 

@@ -11,6 +11,7 @@ const describeFiles = (files) => {
   const total = files.reduce((sum, file) => sum + file.size, 0);
   return `${files.length} files · ${formatBytes(total)}`;
 };
+const megabytes = (bytes) => `${(bytes / 1_000_000).toFixed(2)} MB`;
 
 // Interaction shared by file fields.
 class KFileField extends HTMLElement {
@@ -26,6 +27,13 @@ class KFileField extends HTMLElement {
     }
 
     this.#placeholder ??= zone.textContent.trim();
+    const selected = this.querySelector(".file-selection") ?? document.createElement("ul");
+    if (input.multiple && !selected.isConnected) {
+      selected.className = "file-selection";
+      selected.setAttribute("aria-live", "polite");
+      selected.hidden = true;
+      this.append(selected);
+    }
     const listeners = new AbortController();
     this.#listeners = listeners;
     const options = { signal: listeners.signal };
@@ -34,6 +42,29 @@ class KFileField extends HTMLElement {
       zone.textContent = files.length ? describeFiles(files) : this.#placeholder;
       zone.title = files.map((file) => file.name).join("\n");
       zone.classList.toggle("chosen", files.length > 0);
+      if (input.multiple) {
+        selected.replaceChildren();
+        for (const file of files) {
+          const row = document.createElement("li");
+          const name = document.createElement("span");
+          name.textContent = file.name;
+          const size = document.createElement("span");
+          size.textContent = megabytes(file.size);
+          row.append(name, size);
+          selected.append(row);
+        }
+        if (files.length) {
+          const total = document.createElement("li");
+          total.className = "file-selection-total";
+          const label = document.createElement("span");
+          label.textContent = `${files.length} file${files.length === 1 ? "" : "s"} total`;
+          const size = document.createElement("span");
+          size.textContent = megabytes(files.reduce((sum, file) => sum + file.size, 0));
+          total.append(label, size);
+          selected.append(total);
+        }
+        selected.hidden = files.length === 0;
+      }
     };
     const highlight = (on) => zone.classList.toggle("dropping", on);
     let depth = 0;

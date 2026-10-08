@@ -9,6 +9,7 @@ import {
   request,
   restoreForm,
   setBusy,
+  storage,
 } from "../common.js";
 import { createTextEditor, languageOptions, MAX_HIGHLIGHT_CHARACTERS } from "../text-editor.js";
 
@@ -19,11 +20,9 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const textLanguage = element("#text-language");
   const fileInput = element("#file");
   const burnInput = element("#burn");
-  const readsInput = element("#reads-limit");
   const expiresInput = element("#expires-in");
   const sendSettings = () => ({
     burn: burnInput.checked,
-    reads: burnInput.checked ? null : readsInput.value || null,
     expiresIn: expiresInput.value || null,
   });
   const textLimit = element("#text-limit");
@@ -39,14 +38,20 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   let config = null;
   const textInputNext = textInput.nextSibling;
   const textInputParent = textInput.parentNode;
-  textLanguage.replaceChildren(...languageOptions(""));
+  const languageKey = "kurobako-text-language";
+  const savedLanguage = storage.get(languageKey) ?? "";
+  textLanguage.replaceChildren(...languageOptions(savedLanguage));
+  textLanguage.value = savedLanguage;
   const mainTextEditor = createTextEditor(textInput, {
     title: () => (textLanguage.value ? `source.${textLanguage.value}` : ""),
   });
   textInputParent.insertBefore(mainTextEditor.editor, textInputNext);
   // The caret's line and column, with the language, below the text.
   textLanguage.parentElement.append(mainTextEditor.position);
-  textLanguage.addEventListener("change", () => mainTextEditor.refresh({ immediate: true }));
+  textLanguage.addEventListener("change", () => {
+    storage.set(languageKey, textLanguage.value);
+    mainTextEditor.refresh({ immediate: true });
+  });
 
   textForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -234,6 +239,26 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     expiryLabel.textContent = config.itemTtlSeconds
       ? `Expires after ${formatDuration(config.itemTtlSeconds)}`
       : "No expiration";
+    const maxSeconds = config.itemTtlSeconds || 30 * 24 * 60 * 60;
+    const presets = [
+      60, 300, 900, 1800, 3600, 10_800, 21_600, 43_200, 86_400, 259_200, 604_800, 2_592_000,
+    ];
+    const selected = expiresInput.value;
+    expiresInput.replaceChildren(
+      new Option(
+        config.itemTtlSeconds
+          ? `Instance default (${formatDuration(config.itemTtlSeconds)})`
+          : "Instance default (no expiration)",
+        "",
+      ),
+      ...presets
+        .filter((seconds) => seconds <= maxSeconds)
+        .map((seconds) => new Option(formatDuration(seconds), String(seconds))),
+    );
+    expiresInput.value =
+      selected && [...expiresInput.options].some((option) => option.value === selected)
+        ? selected
+        : "";
   };
 
   return {

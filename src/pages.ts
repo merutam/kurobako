@@ -61,6 +61,7 @@ export const STATIC_FILES = [
   "admin.js",
   "login.js",
   "log.js",
+  "loading.js",
   "k.mjs",
   "status.js",
   "theme.js",
@@ -224,7 +225,8 @@ export const renderLogPage = (
   <title>${escapeHtml(title)} access log · Kurobako</title>
   <script type="module" src="/log.js"></script>
 </head>
-<main>
+<main data-loading>
+  <div id="page-loading" class="page-loading" role="status" aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span><span>Loading access log…</span></div>
   <p${backHref ? "" : ' id="log-back-row" hidden'}><a${backHref ? "" : ' id="log-back"'} href="${escapeHtml(backHref ?? "#")}">← Back to namespace</a></p>
   <h1>Access log · ${escapeHtml(title)}</h1>
   <p class="intro">

@@ -22,6 +22,35 @@
   /* biome-ignore lint/complexity/noImportantStyles: the attribute must win over every component's display. */
   display: none !important;
 }
+main[data-loading] > :not(.site-header, #page-loading) {
+  display: none;
+}
+.page-loading {
+  display: flex;
+  min-height: 35dvh;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--text-subtle);
+}
+.loading-spinner {
+  width: 1.2em;
+  height: 1.2em;
+  border: 2px solid var(--border);
+  border-top-color: var(--progressive);
+  border-radius: 50%;
+  animation: loading-turn 0.8s linear infinite;
+}
+@keyframes loading-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner {
+    animation: none;
+  }
+}
 
 body {
   margin: 0;
@@ -461,6 +490,26 @@ button.destructive {
   gap: 6px;
   min-height: var(--control-height);
 }
+.file-selection {
+  margin: var(--space-2) 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-small);
+}
+.file-selection li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 2px 0;
+}
+.file-selection li span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.file-selection-total {
+  border-top: 1px solid var(--border-subtle);
+  font-weight: bold;
+}
 
 /* --- Header and footer ---------------------------------------------------- */
 
@@ -697,6 +746,11 @@ fieldset .status {
   max-height: 30rem;
   background: #000;
 }
+.item audio,
+.shared-item audio {
+  display: block;
+  width: min(100%, 36rem);
+}
 .item img,
 .shared-item img {
   display: block;
@@ -775,6 +829,11 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   max-height: 95dvh;
   height: auto;
 }
+.media-feed-slot audio {
+  display: block;
+  width: min(100%, 36rem);
+  margin: var(--space-4);
+}
 .media-feed-item figcaption {
   padding: var(--space-2) 0;
   overflow-wrap: anywhere;
@@ -835,6 +894,13 @@ main.media-feed-open > :not(.site-header, #media-feed) {
 }
 .media-feed-list[data-view="details"] .media-feed-slot video {
   pointer-events: none;
+}
+.media-feed-list[data-view="details"] .media-feed-item:has(audio) {
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+}
+.media-feed-list[data-view="details"] .media-feed-item:has(audio) .media-feed-slot {
+  width: 100%;
+  height: auto;
 }
 .media-feed-list[data-view="details"] figcaption {
   display: flex;
@@ -1004,12 +1070,16 @@ a.icon-button:hover {
   min-height: 18rem;
   overflow: hidden;
   resize: vertical;
+  /* `--line-number-width` is set here in ch: measure it in the gutter's font. */
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  --gutter-size: calc(var(--line-number-width, 3ch) + 2 * var(--space-2) + 2px);
 }
 .text-editor > textarea,
 .text-editor > pre.text-editor-highlight {
   position: absolute;
-  inset: 0 0 0 calc(var(--line-number-width, 3ch) + 2 * var(--space-2));
-  width: calc(100% - var(--line-number-width, 3ch) - 2 * var(--space-2));
+  inset: 0 0 0 var(--gutter-size);
+  width: calc(100% - var(--gutter-size));
   height: 100%;
   min-height: 0;
   max-height: none;
@@ -1028,7 +1098,7 @@ a.icon-button:hover {
 .text-editor > pre.text-editor-lines {
   position: absolute;
   inset: 0 auto 0 0;
-  width: calc(var(--line-number-width, 3ch) + 2 * var(--space-2));
+  width: var(--gutter-size);
   margin: 0;
   padding: 6px var(--space-2);
   overflow: hidden;
@@ -1040,6 +1110,8 @@ a.icon-button:hover {
   font-family: var(--font-mono);
   font-size: 0.9375rem;
   line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
   text-align: right;
   user-select: none;
 }
@@ -1064,7 +1136,7 @@ a.icon-button:hover {
 }
 .text-editor-selection {
   position: absolute;
-  inset: 0 0 0 calc(var(--line-number-width, 3ch) + 2 * var(--space-2));
+  inset: 0 0 0 var(--gutter-size);
   z-index: 2;
   overflow: hidden;
   pointer-events: none;
@@ -1457,11 +1529,25 @@ button.media-preview img {
 .setting-row {
   max-width: var(--prose-width);
 }
-.setting-row .actions {
-  margin: 0;
+.expiry-setting {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  max-width: none;
 }
-.setting-row .hint {
-  margin: var(--space-1) 0 0;
+.expiry-setting label {
+  margin: 0;
+  white-space: nowrap;
+}
+@media (min-width: 800px) {
+  .expiry-setting {
+    grid-column: span 2;
+  }
+}
+#expires-in {
+  width: fit-content;
+  max-width: 100%;
 }
 .setting-row label.setting-check {
   min-height: var(--control-height);
@@ -1476,7 +1562,9 @@ button.media-preview img {
   cursor: default;
   opacity: 0.6;
 }
-.setting-row .copy-link,
-.setting-row form {
-  margin-top: var(--space-2);
+/* Markdown source wraps visually; the textarea still stores its original newlines. */
+.text-editor.markdown > :is(textarea, pre.text-editor-highlight),
+.text-editor.markdown .text-editor-highlight code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

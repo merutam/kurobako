@@ -8,9 +8,7 @@ export const createAccess = () => {
   const sendSection = element("#send-section");
   const restore = element("#restore-form");
   const burnInput = element("#burn");
-  const readsInput = element("#reads-limit");
   const expiresInput = element("#expires-in");
-  const burnHint = element("#burn-hint");
   const modeLabel = element("#mode-label");
   let mode = null;
 
@@ -22,11 +20,7 @@ export const createAccess = () => {
     sendSection.hidden = readOnly;
     restore.hidden = readOnly;
     burnInput.disabled = readOnly;
-    readsInput.disabled = readOnly;
     expiresInput.disabled = readOnly;
-    burnHint.textContent = readOnly
-      ? "Only writers can use this setting."
-      : "New items sent while enabled are deleted when first opened.";
     modeLabel.textContent = `${mode.label}${readOnly ? " · Read-only" : ""}${mode.label || readOnly ? " · " : ""}`;
   };
 

@@ -6,6 +6,7 @@
 import { button, compactText, copyText, el, element, formatExpiry, request } from "./common.js";
 import { icon } from "./icons.js";
 import {
+  audioPlayer,
   canCopyImages,
   copyImage,
   describeOpened,
@@ -18,6 +19,7 @@ import {
   videoPlayer,
 } from "./items.js";
 import { openSharedItem } from "./k.mjs";
+import { revealPage } from "./loading.js";
 import { createStatus } from "./status.js";
 
 const title = element("#item-title");
@@ -63,6 +65,8 @@ const showContent = (info, content) => {
     body.replaceChildren(el("img", { alt: info.title, src: URL.createObjectURL(content.blob) }));
   } else if (info.isVideo) {
     body.replaceChildren(videoPlayer(URL.createObjectURL(content.blob)));
+  } else if (info.isAudio) {
+    body.replaceChildren(audioPlayer(URL.createObjectURL(content.blob)));
   } else {
     body.replaceChildren();
   }
@@ -158,7 +162,13 @@ try {
   } else if (item.kind === "file") {
     // A plain file: link to it rather than fetching it all just for a button.
     // A video plays straight from the server, in parts as it goes.
-    body.replaceChildren(...(info.isVideo ? [videoPlayer(`${here}/c`)] : []));
+    body.replaceChildren(
+      ...(info.isVideo
+        ? [videoPlayer(`${here}/c`)]
+        : info.isAudio
+          ? [audioPlayer(`${here}/c`)]
+          : []),
+    );
     actions.replaceChildren(
       el("a", { className: "button", href: `${here}/d` }, icon("download"), "Download"),
     );
@@ -177,7 +187,9 @@ try {
           })
         : null;
     if (address) {
-      body.replaceChildren(...(info.isVideo ? [videoPlayer(address)] : []));
+      body.replaceChildren(
+        ...(info.isVideo ? [videoPlayer(address)] : info.isAudio ? [audioPlayer(address)] : []),
+      );
       actions.replaceChildren(
         el("a", { className: "button", href: `${address}?download` }, icon("download"), "Download"),
       );
@@ -188,4 +200,6 @@ try {
 } catch (error) {
   title.textContent = "Shared item";
   status.error(error.message);
+} finally {
+  revealPage();
 }

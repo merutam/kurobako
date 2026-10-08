@@ -6,12 +6,13 @@
 import { copyText, element, iconLink, readConfig, SITE, setBusy } from "../common.js";
 import { ignoreStrayDrops } from "../components.js";
 import { secretNameProblem, splitFragment } from "../k.mjs";
+import { failPage, revealPage } from "../loading.js";
 import { createStatus } from "../status.js";
 import { renderSVG } from "../vendor/uqr.js";
 import { createAccess } from "./access.js";
 import { createForms } from "./forms.js";
 import { createItemList } from "./item-list.js";
-import { createLive, LIVE_FIRST_QUEUE_MS } from "./live.js";
+import { createLive } from "./live.js";
 import { plainMode, sealedMode } from "./modes.js";
 
 const status = createStatus(element("#status"));
@@ -32,6 +33,8 @@ live = createLive({
   status,
   renderItems: items.renderItems,
   isItemsShown: items.isItemsShown,
+  onReady: revealPage,
+  onError: failPage,
 });
 const forms = createForms({
   status,
@@ -94,6 +97,7 @@ try {
       if (problem) throw new Error(problem);
     }
     status.progress("Unlocking…");
+    element("#page-loading").lastElementChild.textContent = "Unlocking namespace…";
     mode = await sealedMode({ secretName, readToken }, access.writeHeaders);
     status.clear();
   } else {
@@ -128,12 +132,10 @@ try {
       status.error(error.message);
     }
   });
-  // The live connection brings the queue; the fetch is the fallback.
+  // Connect before /ls, so changes during the initial fetch are buffered.
   live.connectLive();
-  setTimeout(() => {
-    if (!items.isItemsShown()) void live.loadItems();
-  }, LIVE_FIRST_QUEUE_MS);
   setInterval(items.updateExpiries, 30_000);
 } catch (error) {
   disableAll(error.message);
+  failPage(error.message);
 }

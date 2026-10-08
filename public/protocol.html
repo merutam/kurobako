@@ -10,7 +10,7 @@
 <main class="prose">
   <h1>Protocol</h1>
   <p class="intro">
-    This page describes the current Kurobako server protocol, version 6, for
+    This page describes the current Kurobako server protocol, version 7, for
     plain and encrypted namespaces. With what is below, and nothing else, a client can
     read, write, edit, rename, delete, download and share items.
     <a href="/k.mjs"><code>k.mjs</code></a> is one such client; nothing in
@@ -43,7 +43,7 @@
     </li>
     <li>
       <code>version</code>, the server's own, and <code>protocol</code>, this
-      page's version (6): a client of another cannot open its encrypted
+      page's version (7): a client of another cannot open its encrypted
       items.
     </li>
     <li><code>protocolUrl</code> (this page) and <code>clientUrl</code> (<code>k.mjs</code>).</li>
@@ -128,7 +128,7 @@
       <tbody>
         <tr>
           <td><code>GET &lt;ns&gt;/ls</code></td>
-          <td>the queue as JSON, newest first; <code>?summary</code> cuts long texts to a <code>preview</code></td>
+          <td>the queue as JSON, newest first; <code>?summary</code> cuts long texts to a <code>preview</code>. <code>X-Queue-Revision</code> identifies this snapshot.</td>
         </tr>
         <tr>
           <td><code>GET &lt;ns&gt;/&lt;item&gt;</code></td>
@@ -153,8 +153,12 @@
         <tr>
           <td><code>GET &lt;ns&gt;/live</code></td>
           <td>
-            a WebSocket: the queue (as <code>?summary</code>) on connecting
-            and after every change, as <code>{"type": "items", "items": […]}</code>;
+            a WebSocket: <code>{"type": "ready", "revision": n}</code> on connecting,
+            then only changes as <code>{"type": "change", "revision": n,
+            "upserts": […], "removed": […], "order": […]}</code>. Connect first,
+            then fetch <code>/ls?summary</code>; apply buffered changes newer
+            than its <code>X-Queue-Revision</code> (fetch again on a gap). This
+            avoids both a redundant initial queue and missed changes;
             how many pages are open on the namespace (the receiver's
             included) whenever one opens or closes, as
             <code>{"type": "viewers", "count": …}</code>;

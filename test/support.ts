@@ -24,7 +24,8 @@ export type Item = {
 export type FileItem = Item & { filename: string; mime: string };
 /** What a live connection receives. */
 export type LiveMessage =
-  | { type: "items"; items: Item[] }
+  | { type: "ready"; revision: number }
+  | { type: "change"; revision: number; upserts: Item[]; removed: string[]; order: string[] }
   /** How many pages are open on the namespace, the receiver's included. */
   | { type: "viewers"; count: number };
 /** A shared item: the same, minus its ID. */
