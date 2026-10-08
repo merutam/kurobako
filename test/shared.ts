@@ -5,7 +5,7 @@
 // reach its storage through the harness. The Worker and the Bun server each
 // run them with their own harness, next to their platform-specific tests.
 import type { expect as vitestExpect } from "vitest";
-import { openSealedSpace, openSharedItem } from "../public/k.mjs";
+import { newViewId, openSealedSpace, openSharedItem, openViewEntry } from "../public/k.mjs";
 import type { AppConfig } from "../src/config";
 import type { AccessLogEntry } from "../src/request-info";
 import { defined, type FileItem, type Item, type SharedItem } from "./support";
@@ -50,9 +50,10 @@ export const sharedTests = (harness: Harness) => {
       .replaceAll("+", "-")
       .replaceAll("/", "_")
       .replace(/=+$/, "");
+  const freshSealedSpace = () => openSealedSpace(`test ${crypto.randomUUID()}`);
 
-  describe("locked namespaces", () => {
-    test("temporarily refuses new locks and key rotation in both spaces", async () => {
+  describe("retired namespace locks", () => {
+    test("refuses locks in both spaces", async () => {
       const plain = fresh("lock");
       const sealed = freshSealedId();
       const attempts: Record<string, string>[] = [{}, { "write-key": "arbitrary" }];
@@ -61,7 +62,7 @@ export const sharedTests = (harness: Harness) => {
           const response = await call(`${path}/lock`, { method: "POST", headers });
           expect(response.status).toBe(503);
           expect(await response.json()).toEqual({
-            error: "Creating or changing locks is temporarily disabled.",
+            error: "Namespace locks are not part of this protocol.",
           });
         }
         expect((await call(`${path}/ls`)).headers.get("locked")).toBeNull();
@@ -77,6 +78,22 @@ export const sharedTests = (harness: Harness) => {
   });
 
   describe("plain namespaces", () => {
+    test("accepts a shorter expiry on each send and rejects invalid durations", async () => {
+      const ns = fresh("expiry");
+      const now = Date.now();
+      const sent = await sendText(ns, "short-lived", { "Expires-In": "120" });
+      expect(sent.status).toBe(201);
+      const item = (await sent.json()) as Item;
+      expect(Date.parse(item.expiresAt ?? "")).toBeGreaterThanOrEqual(now + 120_000);
+      expect(Date.parse(item.expiresAt ?? "")).toBeLessThan(Date.now() + 121_000);
+      const repeated = await sendText(ns, "short-lived", { "Expires-In": "60" });
+      expect(repeated.status).toBe(200);
+      expect((await repeated.json()) as Item).toMatchObject({ id: item.id });
+      for (const value of ["0", "-1", "1.5", "abc", "999999999999999999999"]) {
+        expect((await sendText(ns, "invalid", { "Expires-In": value })).status).toBe(400);
+      }
+    });
+
     test("stores and returns text inside the namespace", async () => {
       const ns = fresh();
       expect((await sendText(ns, "café from the phone")).status).toBe(201);
@@ -268,6 +285,14 @@ export const sharedTests = (harness: Harness) => {
       expect(await json<Item[]>(`/${ns}/ls`)).toHaveLength(5);
     });
 
+    test("a clone can preserve duplicate contents as separate new items", async () => {
+      const ns = fresh("clone");
+      const first = await parse<Item>(sendText(ns, "same", { "No-Dedup": "1" }));
+      const second = await parse<Item>(sendText(ns, "same", { "No-Dedup": "1" }));
+      expect(first.id).not.toBe(second.id);
+      expect(await json<Item[]>(`/${ns}/ls`)).toHaveLength(2);
+    });
+
     test("renames items", async () => {
       const ns = fresh();
       const rename = (item: string, name: string) =>
@@ -313,16 +338,21 @@ export const sharedTests = (harness: Harness) => {
       expect((await rename("9", "x")).status).toBe(404);
 
       // An encrypted item takes new metadata under the same wrapped key, nothing else.
-      const id = freshSealedId();
+      const space = await freshSealedSpace();
+      const id = space.id;
       const sealed = await json<Item>(`/e/${id}/new`, {
         method: "POST",
-        headers: { "x-sealed-metadata": "a2V5.bWV0YQ" },
+        headers: { "x-sealed-metadata": "a2V5.bWV0YQ", "write-key": space.writeKey },
         body: new Uint8Array([1, 2, 3]),
       });
       const reseal = (metadata: string, version = sealed.createdAt) =>
         call(`/e/${id}/${sealed.id}/n`, {
           method: "POST",
-          headers: { "x-sealed-metadata": metadata, "if-match": JSON.stringify(version) },
+          headers: {
+            "x-sealed-metadata": metadata,
+            "if-match": JSON.stringify(version),
+            "write-key": space.writeKey,
+          },
         });
       const resealed = await parse<Item>(reseal("a2V5.bmV3"));
       expect(resealed.metadata).toBe("a2V5.bmV3");
@@ -422,7 +452,7 @@ export const sharedTests = (harness: Harness) => {
       });
       const original = await json<Item>(`/e/${space.id}/new`, {
         method: "POST",
-        headers: { "x-sealed-metadata": sealed.header },
+        headers: { "x-sealed-metadata": sealed.header, "write-key": space.writeKey },
         body: sealed.body,
       });
       const opened = await space.openItem(
@@ -444,6 +474,7 @@ export const sharedTests = (harness: Harness) => {
         headers: {
           "if-match": JSON.stringify(original.createdAt),
           "x-sealed-metadata": replacement.header,
+          "write-key": space.writeKey,
         },
         body: replacement.body,
       });
@@ -462,6 +493,7 @@ export const sharedTests = (harness: Harness) => {
         headers: {
           "if-match": JSON.stringify(original.createdAt),
           "x-sealed-metadata": await opened.withMetadata({ title: "outdated title" }),
+          "write-key": space.writeKey,
         },
       });
       expect(staleRename.status).toBe(412);
@@ -477,6 +509,7 @@ export const sharedTests = (harness: Harness) => {
         headers: {
           "if-match": JSON.stringify(original.createdAt),
           "x-sealed-metadata": replacement.header,
+          "write-key": space.writeKey,
         },
         body: replacement.body,
       });
@@ -493,6 +526,7 @@ export const sharedTests = (harness: Harness) => {
         headers: {
           "if-match": JSON.stringify(defined(edited.updatedAt, "the edit time")),
           "x-sealed-metadata": other.header,
+          "write-key": space.writeKey,
         },
         body: other.body,
       });
@@ -783,14 +817,85 @@ export const sharedTests = (harness: Harness) => {
   });
 
   describe("encrypted namespaces", () => {
+    test("only the name-derived write key can mutate, including the first send", async () => {
+      const space = await freshSealedSpace();
+      const path = `/e/${space.id}`;
+      const body = new Uint8Array([1, 2, 3]);
+      const send = (writeKey?: string) =>
+        call(`${path}/new`, {
+          method: "POST",
+          headers: {
+            "x-sealed-metadata": "a2V5.bWV0YQ",
+            ...(writeKey ? { "write-key": writeKey } : {}),
+          },
+          body,
+        });
+      expect((await send()).status).toBe(401);
+      expect((await send("wrong")).status).toBe(403);
+      expect(await json<Item[]>(`${path}/ls`)).toEqual([]);
+      const item = await parse<Item>(send(space.writeKey));
+      const unprivileged = [
+        call(`${path}/${item.id}/s`),
+        call(`${path}/${item.id}/n`, {
+          method: "POST",
+          headers: {
+            "if-match": JSON.stringify(item.createdAt),
+            "x-sealed-metadata": "a2V5.bWV0YQ",
+          },
+        }),
+        call(`${path}/${item.id}/e`, {
+          method: "POST",
+          headers: {
+            "if-match": JSON.stringify(item.createdAt),
+            "x-sealed-metadata": "a2V5.bWV0YQ",
+          },
+          body,
+        }),
+        call(`${path}/${item.id}`, { method: "DELETE" }),
+      ];
+      expect((await Promise.all(unprivileged)).map((response) => response.status)).toEqual([
+        401, 401, 401, 401,
+      ]);
+      const details = await json<Item & { shareUrl?: string }>(`${path}/${item.id}.json`);
+      expect(details.shareUrl).toBeUndefined();
+      expect((await call(`${path}/${item.id}`)).status).toBe(200);
+      expect(
+        (
+          await call(`${path}/${item.id}`, {
+            method: "DELETE",
+            headers: { "write-key": space.writeKey },
+          })
+        ).status,
+      ).toBe(200);
+    });
+
     test("store ciphertext apart from plain namespaces", async () => {
-      const id = freshSealedId();
+      const space = await freshSealedSpace();
+      const id = space.id;
       const ciphertext = new Uint8Array([1, 2, 3, 4, 5]);
-      expect((await call(`/e/${id}/new`, { method: "POST", body: ciphertext })).status).toBe(400);
+      expect((await call(`/e/${id}/new`, { method: "POST", body: ciphertext })).status).toBe(401);
+      expect(
+        (
+          await call(`/e/${id}/new`, {
+            method: "POST",
+            headers: { "write-key": "wrong" },
+            body: ciphertext,
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await call(`/e/${id}/new`, {
+            method: "POST",
+            headers: { "write-key": space.writeKey },
+            body: ciphertext,
+          })
+        ).status,
+      ).toBe(400);
 
       const item = await json<Item>(`/e/${id}/new`, {
         method: "POST",
-        headers: { "x-sealed-metadata": "a2V5.bWV0YQ" },
+        headers: { "x-sealed-metadata": "a2V5.bWV0YQ", "write-key": space.writeKey },
         body: ciphertext,
       });
       expect(item).toMatchObject({ kind: "sealed", metadata: "a2V5.bWV0YQ", size: 5 });
@@ -808,7 +913,14 @@ export const sharedTests = (harness: Harness) => {
       const twin = id.toLowerCase().replace(/[^a-z0-9]/g, "0");
       expect(await json<Item[]>(`/${twin}/ls`)).toEqual([]);
 
-      expect((await call(`/e/${id}/${item.id}`, { method: "DELETE" })).status).toBe(200);
+      expect(
+        (
+          await call(`/e/${id}/${item.id}`, {
+            method: "DELETE",
+            headers: { "write-key": space.writeKey },
+          })
+        ).status,
+      ).toBe(200);
       expect(await json<Item[]>(`/e/${id}/ls`)).toEqual([]);
     });
 
@@ -822,7 +934,7 @@ export const sharedTests = (harness: Harness) => {
       });
       const item = await json<Item>(`/e/${space.id}/new`, {
         method: "POST",
-        headers: { "x-sealed-metadata": header },
+        headers: { "x-sealed-metadata": header, "write-key": space.writeKey },
         body,
       });
 
@@ -842,7 +954,9 @@ export const sharedTests = (harness: Harness) => {
       expect(opened.keyText).toBe(keyText);
 
       // With only a share link's key: the same item, and nothing else.
-      const url = await shareLink(`/e/${space.id}/${item.id}/s`);
+      const url = await shareLink(`/e/${space.id}/${item.id}/s`, {
+        headers: { "write-key": space.writeKey },
+      });
       const shared = await json<SharedItem>(`${url}.json`);
       const fromLink = await openSharedItem(keyText, shared.metadata, shared.size);
       const linked = await (await call(`${url}/c`)).arrayBuffer();
@@ -861,10 +975,15 @@ export const sharedTests = (harness: Harness) => {
     test("serve the page, refuse bad IDs and keep the encrypted log's back link client-side", async () => {
       expect(await (await call("/e")).text()).toContain("<html");
       expect((await call("/e/kk/ls")).status).toBe(404);
-      const id = freshSealedId();
+      const space = await freshSealedSpace();
+      const id = space.id;
       await call(`/e/${id}/new`, {
         method: "POST",
-        headers: { "x-sealed-metadata": "a2V5.eA", "cf-connecting-ip": "203.0.113.7" },
+        headers: {
+          "x-sealed-metadata": "a2V5.eA",
+          "cf-connecting-ip": "203.0.113.7",
+          "write-key": space.writeKey,
+        },
         body: "x",
       });
       const log = await (await call(`/e/${id}/log`)).text();
@@ -876,7 +995,223 @@ export const sharedTests = (harness: Harness) => {
     });
   });
 
+  describe("shared namespace views", () => {
+    const viewId = () =>
+      btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replace(/=+$/, "");
+
+    test("plain views follow sends, then freeze membership on rotation", async () => {
+      const ns = fresh("view");
+      const first = await parse<Item>(sendText(ns, "one"));
+      const created = await json<{ token: string; url: string }>(`/${ns}/views`, {
+        method: "POST",
+        body: JSON.stringify({
+          viewId: viewId(),
+          previousToken: null,
+          entries: [{ id: first.id }],
+        }),
+      });
+      expect(created.url).toBe(`/v/${created.token}`);
+      const second = await parse<Item>(sendText(ns, "two"));
+      const contents = await json<{ entries: { url: string; item: Item }[] }>(
+        `${created.url}.json`,
+      );
+      expect(contents.entries.map(({ item }) => item.text)).toEqual(["two", "one"]);
+      expect(JSON.stringify(contents)).not.toContain(ns);
+      const page = await (await call(created.url)).text();
+      expect(page).toContain('id="view-data"');
+      expect(page).not.toContain(ns);
+      expect(contents.entries.every(({ url }) => url.startsWith("/i/"))).toBe(true);
+      const next = await json<{ url: string }>(`/${ns}/views`, {
+        method: "POST",
+        body: JSON.stringify({
+          viewId: viewId(),
+          previousToken: created.token,
+          entries: [{ id: second.id }, { id: first.id }],
+        }),
+      });
+      await sendText(ns, "three");
+      expect((await json<{ entries: unknown[] }>(`${created.url}.json`)).entries).toHaveLength(2);
+      expect((await json<{ entries: unknown[] }>(`${next.url}.json`)).entries).toHaveLength(3);
+      const edited = await call(`/${ns}/${first.id}/e`, {
+        method: "POST",
+        headers: { "content-type": "text/plain", "if-match": JSON.stringify(first.createdAt) },
+        body: "one edited",
+      });
+      expect(edited.status).toBe(200);
+      expect(JSON.stringify(await json(`${created.url}.json`))).toContain("one edited");
+      expect((await call(`/${ns}/${first.id}`, { method: "DELETE" })).status).toBe(200);
+      expect((await json<{ entries: unknown[] }>(`${created.url}.json`)).entries).toHaveLength(1);
+    });
+
+    test("a view never reveals limited text before a consuming read", async () => {
+      const ns = fresh("viewlimited");
+      const item = await parse<Item>(sendText(ns, "private phrase", { Reads: "2" }));
+      const created = await json<{ url: string }>(`/${ns}/views`, {
+        method: "POST",
+        body: JSON.stringify({
+          viewId: viewId(),
+          previousToken: null,
+          entries: [{ id: item.id }],
+        }),
+      });
+      const index = await json<{ entries: { item: Item; url: string }[] }>(`${created.url}.json`);
+      expect(index.entries).toHaveLength(1);
+      expect(JSON.stringify(index)).not.toContain("private phrase");
+      const entry = index.entries[0];
+      if (!entry) throw new Error("Expected a shared item.");
+      expect(entry.item).not.toHaveProperty("text");
+      expect(entry.item).not.toHaveProperty("name");
+      expect(await (await call(`${entry.url}/c`)).text()).toBe("private phrase");
+      expect(
+        (await json<{ entries: { item: Item }[] }>(`${created.url}.json`)).entries[0]?.item,
+      ).toHaveProperty("readsLeft", 1);
+    });
+
+    test("encrypted sends require an envelope for the current view", async () => {
+      const space = await freshSealedSpace();
+      const path = `/e/${space.id}`;
+      const firstSealed = await space.sealItem(new TextEncoder().encode("one"), {
+        kind: "text",
+        title: "one",
+        size: 3,
+      });
+      const headers = { "write-key": space.writeKey, "x-sealed-metadata": firstSealed.header };
+      const first = await parse<Item>(
+        call(`${path}/new`, {
+          method: "POST",
+          headers,
+          body: firstSealed.body,
+        }),
+      );
+      const id = newViewId();
+      const envelope = await space.sealViewEntry(id, firstSealed.keyText);
+      const created = await json<{ token: string; url: string }>(`${path}/views`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          viewId: id,
+          previousToken: null,
+          entries: [{ id: first.id, envelope }],
+        }),
+      });
+      const secondSealed = await space.sealItem(new TextEncoder().encode("two"), {
+        kind: "text",
+        title: "two",
+        size: 3,
+      });
+      const nextHeaders = { ...headers, "x-sealed-metadata": secondSealed.header };
+      expect(
+        (
+          await call(`${path}/new`, {
+            method: "POST",
+            headers: nextHeaders,
+            body: secondSealed.body,
+          })
+        ).status,
+      ).toBe(409);
+      const sent = await call(`${path}/new`, {
+        method: "POST",
+        headers: {
+          ...nextHeaders,
+          "view-token": created.token,
+          "view-envelope": await space.sealViewEntry(id, secondSealed.keyText),
+        },
+        body: secondSealed.body,
+      });
+      expect(sent.status).toBe(201);
+      const view = await json<{ entries: { envelope: string }[] }>(`${created.url}.json`);
+      expect(view.entries).toHaveLength(2);
+      expect(await (await call(created.url)).text()).not.toContain(space.id);
+      expect(await openViewEntry(id, await space.viewKey(id), view.entries[0]?.envelope)).toBe(
+        secondSealed.keyText,
+      );
+      expect((await call(`${path}/views`)).status).toBe(401);
+    });
+
+    test("two rotations from one active view cannot both win", async () => {
+      const ns = fresh("viewrace");
+      const item = await parse<Item>(sendText(ns, "first"));
+      const first = await json<{ token: string }>(`/${ns}/views`, {
+        method: "POST",
+        body: JSON.stringify({ viewId: viewId(), previousToken: null, entries: [{ id: item.id }] }),
+      });
+      const rotate = () =>
+        call(`/${ns}/views`, {
+          method: "POST",
+          body: JSON.stringify({
+            viewId: viewId(),
+            previousToken: first.token,
+            entries: [{ id: item.id }],
+          }),
+        });
+      const results = await Promise.all([rotate(), rotate()]);
+      expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+    });
+
+    test("rejects noncanonical view IDs", async () => {
+      const ns = fresh("viewid");
+      const response = await call(`/${ns}/views`, {
+        method: "POST",
+        body: JSON.stringify({ viewId: `${"A".repeat(21)}B`, previousToken: null, entries: [] }),
+      });
+      expect(response.status).toBe(400);
+    });
+  });
+
   describe("burn after reading", () => {
+    test("counts reads atomically across namespace and share routes", async () => {
+      const ns = fresh("reads");
+      const sent = await sendText(ns, "three claims", { Reads: "3" });
+      expect(sent.status).toBe(201);
+      const item = (await sent.json()) as Item & { readsLeft?: number };
+      expect(item.readsLeft).toBe(3);
+      expect(item).not.toHaveProperty("text");
+      expect(item).not.toHaveProperty("name");
+      const link = await shareLink(`/${ns}/${item.id}/s`);
+      expect((await json<Item & { readsLeft?: number }>(`${link}.json`)).readsLeft).toBe(3);
+      const attempts = await Promise.all([
+        call(`/${ns}/${item.id}/c`),
+        call(`${link}/c`),
+        call(`/${ns}/${item.id}/d`),
+        call(`${link}/c`),
+      ]);
+      expect(attempts.filter((response) => response.status === 200)).toHaveLength(3);
+      expect(attempts.filter((response) => response.status === 404)).toHaveLength(1);
+      for (const response of attempts)
+        if (response.status === 200) expect(await response.text()).toBe("three claims");
+      expect((await call(`/${ns}/${item.id}`)).status).toBe(404);
+      expect((await call(`${link}.json`)).status).toBe(404);
+    });
+
+    test("limited files ignore ranges and headers cannot disagree", async () => {
+      const ns = fresh("readsfile");
+      const file = await call(`/${ns}/limited.bin`, {
+        method: "PUT",
+        headers: { Reads: "2" },
+        body: png,
+      });
+      expect(file.status).toBe(201);
+      const item = (await file.json()) as Item & { readsLeft?: number };
+      const first = await call(`/${ns}/${item.id}`, { headers: { Range: "bytes=0-1" } });
+      expect(first.status).toBe(200);
+      expect(first.headers.get("accept-ranges")).toBeNull();
+      expect(new Uint8Array(await first.arrayBuffer())).toEqual(png);
+      expect((await json<Item & { readsLeft?: number }>(`/${ns}/${item.id}.json`)).readsLeft).toBe(
+        1,
+      );
+      expect((await call(`/${ns}/${item.id}`, { headers: { Range: "bytes=0-1" } })).status).toBe(
+        200,
+      );
+      expect((await call(`/${ns}/${item.id}`)).status).toBe(404);
+      expect((await sendText(ns, "invalid", { Reads: "2", Burn: "1" })).status).toBe(400);
+      for (const value of ["0", "-1", "1.5", "abc"]) {
+        expect((await sendText(ns, "invalid", { Reads: value })).status).toBe(400);
+      }
+    });
+
     test("hides a text until its first read, then deletes it", async () => {
       const ns = fresh();
       const item = await await parse<Item>(sendText(ns, "secret", { burn: "1" }));
@@ -903,10 +1238,11 @@ export const sharedTests = (harness: Harness) => {
       expect(await (await call(`/${ns}/1`)).text()).toBe("latest");
       expect((await call(`/${ns}/1`)).status).toBe(404);
 
-      const id = freshSealedId();
+      const space = await freshSealedSpace();
+      const id = space.id;
       const sealed = await json<Item>(`/e/${id}/new`, {
         method: "POST",
-        headers: { "x-sealed-metadata": "a2V5.bWV0YQ", burn: "1" },
+        headers: { "x-sealed-metadata": "a2V5.bWV0YQ", burn: "1", "write-key": space.writeKey },
         body: new Uint8Array([9, 9]),
       });
       expect((await call(`/e/${id}/${sealed.id}`)).status).toBe(200);
@@ -1037,13 +1373,17 @@ export const sharedTests = (harness: Harness) => {
     });
 
     test("work for encrypted items, which only carry ciphertext", async () => {
-      const id = freshSealedId();
+      const space = await freshSealedSpace();
+      const id = space.id;
       const item = await json<Item>(`/e/${id}/new`, {
         method: "POST",
-        headers: { "x-sealed-metadata": "a2V5.bWV0YQ" },
+        headers: { "x-sealed-metadata": "a2V5.bWV0YQ", "write-key": space.writeKey },
         body: new Uint8Array([7, 7, 7]),
       });
-      const url = await share(`/e/${id}`, item.id);
+      const url = await shareLink(`/e/${id}/${item.id}/s`, {
+        method: "POST",
+        headers: { "write-key": space.writeKey },
+      });
       const shared = await json<SharedItem>(`${url}.json`);
       expect(shared).toMatchObject({
         kind: "sealed",
@@ -1195,7 +1535,7 @@ export const sharedTests = (harness: Harness) => {
         live: { ping: "ping" },
       });
       expect(new RegExp(body.namespace.pattern).test("alpha")).toBe(true);
-      expect(body.namespace.reserved).toEqual(["e", "i", "k"]);
+      expect(body.namespace.reserved).toEqual(["e", "i", "k", "v"]);
     });
   });
 

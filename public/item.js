@@ -13,6 +13,7 @@ import {
   downloadBlob,
   highlightedText,
   itemSummary,
+  limitedItem,
   streamAddress,
   videoPlayer,
 } from "./items.js";
@@ -110,8 +111,10 @@ const showContent = (info, content) => {
 
 const describeMeta = (item, info, opened) => {
   const parts = [itemSummary(item, info)];
-  if (opened && item.burn) parts.push("deleted from the server");
-  else if (item.burn) parts.push("deletes when opened");
+  if (opened && limitedItem(item))
+    parts.push(item.burn || item.readsLeft === 1 ? "deleted from the server" : "one read used");
+  else if (limitedItem(item))
+    parts.push(item.readsLeft ? `${item.readsLeft} reads left` : "deletes when opened");
   if (!opened && item.expiresAt) parts.push(formatExpiry(item.expiresAt));
   if (info.decrypt) parts.unshift("Encrypted");
   meta.textContent = parts.join(" · ");
@@ -128,18 +131,22 @@ try {
   describeMeta(item, info, false);
   section.hidden = false;
 
-  if (item.burn) {
+  if (limitedItem(item)) {
     // Never on page load: link previews and accidental visits must not burn it.
     body.replaceChildren();
     actions.replaceChildren(
       button(
-        "Open once",
+        item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once",
         async () => {
           try {
             const content = await loadContent(item, info);
             describeMeta(item, info, true);
             showContent(info, content);
-            status.success("Opened and deleted from the server.");
+            status.success(
+              item.burn || item.readsLeft === 1
+                ? "Opened and deleted from the server."
+                : "Opened; one read used.",
+            );
           } catch (error) {
             status.error(error.message === "Item not found." ? GONE : error.message);
           }
@@ -148,7 +155,7 @@ try {
         "burn",
       ),
     );
-  } else if (item.kind === "file" && !item.burn) {
+  } else if (item.kind === "file") {
     // A plain file: link to it rather than fetching it all just for a button.
     // A video plays straight from the server, in parts as it goes.
     body.replaceChildren(...(info.isVideo ? [videoPlayer(`${here}/c`)] : []));

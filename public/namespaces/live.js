@@ -6,7 +6,7 @@ import { icon } from "../icons.js";
 
 export const LIVE_FIRST_QUEUE_MS = 3_000;
 
-export const createLive = ({ status, renderItems, setLocked, isItemsShown }) => {
+export const createLive = ({ status, renderItems, isItemsShown }) => {
   const refreshButton = element("#refresh");
   const liveStatus = element("#live-status");
   const viewersLabel = element("#viewers");
@@ -26,7 +26,6 @@ export const createLive = ({ status, renderItems, setLocked, isItemsShown }) => 
       const response = await request(`${mode.basePath}/ls?summary`, {
         cache: "no-store",
       });
-      setLocked(response.headers.get("locked") === "1");
       await renderItems(await response.json());
     } catch (error) {
       status.error(`Could not refresh: ${error.message}`);
@@ -92,7 +91,6 @@ export const createLive = ({ status, renderItems, setLocked, isItemsShown }) => 
       if (event.data === config.live.pong) return;
       const message = JSON.parse(event.data);
       if (message.type === "items") {
-        setLocked(Boolean(message.locked));
         void renderItems(message.items);
       }
       if (message.type === "viewers") showViewers(message.count);

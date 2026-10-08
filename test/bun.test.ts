@@ -27,6 +27,7 @@ import {
   fileMetadata,
   PROTOCOL as K_PROTOCOL,
   VERSION as K_VERSION,
+  newViewId,
   openReadOnlySpace,
   openSealedSpace,
   openSegments,
@@ -270,10 +271,22 @@ describe("bun server", () => {
     });
     const item = await json<Item>(`/e/${space.id}/new`, {
       method: "POST",
-      headers: { "content-type": "application/octet-stream", "x-sealed-metadata": header },
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-sealed-metadata": header,
+        "write-key": space.writeKey,
+      },
       body,
     });
-    const url = new URL((await (await call(`/e/${space.id}/${item.id}/s`)).text()).trim()).pathname;
+    const url = new URL(
+      (
+        await (
+          await call(`/e/${space.id}/${item.id}/s`, {
+            headers: { "write-key": space.writeKey },
+          })
+        ).text()
+      ).trim(),
+    ).pathname;
     const page = await (await call(url)).text();
     expect(page).not.toContain(space.id);
     const shared = await json<SharedItem>(`${url}.json`);
@@ -443,7 +456,11 @@ describe("bun server", () => {
     });
     await call(`/e/${space.id}/new`, {
       method: "POST",
-      headers: { "content-type": "application/octet-stream", "x-sealed-metadata": hostile.header },
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-sealed-metadata": hostile.header,
+        "write-key": space.writeKey,
+      },
       body: hostile.body,
     });
     await k("-OJ", `${link}/1/d`);
@@ -545,9 +562,48 @@ describe("bun server", () => {
     socket.close();
   });
 
+  test("k.mjs rotates encrypted views and keeps new sends in the active one", async () => {
+    const script = join(import.meta.dir, "..", "public", "k.mjs");
+    const link = `${base}/e#${encodeURIComponent(`views ${crypto.randomUUID()}`)}`;
+    const k = async (...args: string[]) => {
+      const child = Bun.spawn(["bun", script, ...args], { stdout: "pipe", stderr: "pipe" });
+      const [out, error, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      if (code !== 0) throw new Error(error);
+      return JSON.parse(out);
+    };
+    await k("-d", "one", `${link}/new`);
+    const first = await k("-X", "POST", `${link}/views`);
+    expect(first.url).toMatch(/\/v\/[A-Za-z0-9_-]{14}#[A-Za-z0-9_-]{22}$/);
+    const viewJsonUrl = new URL(first.url);
+    viewJsonUrl.pathname += ".json";
+    expect((await k(viewJsonUrl.toString())).items).toHaveLength(1);
+    await k("-d", "two", `${link}/new`);
+    const firstPath = new URL(first.url).pathname;
+    expect((await json<{ entries: unknown[] }>(`${firstPath}.json`)).entries).toHaveLength(2);
+    const second = await k("-X", "POST", `${link}/views`);
+    await k("-d", "three", `${link}/new`);
+    expect((await json<{ entries: unknown[] }>(`${firstPath}.json`)).entries).toHaveLength(2);
+    expect(
+      (await json<{ entries: unknown[] }>(`${new URL(second.url).pathname}.json`)).entries,
+    ).toHaveLength(3);
+    expect((await k(`${link}/views`)).views).toHaveLength(2);
+  });
+
   test("keeps items across a restart and deletes a namespace once it is empty", async () => {
     const ns = fresh();
     const item = await typed(ns, "kept");
+    const view = await json<{ url: string }>(`/${ns}/views`, {
+      method: "POST",
+      body: JSON.stringify({
+        viewId: newViewId(),
+        previousToken: null,
+        entries: [{ id: item.id }],
+      }),
+    });
     await running.stop();
     await start();
     const file = join(dataDir, "namespaces", "plain", `${ns}.sqlite`);
@@ -559,6 +615,7 @@ describe("bun server", () => {
     await Bun.sleep(config.emptyNamespaceTtlMs + 300);
     expect(existsSync(file)).toBe(false);
     expect(await json<Item[]>(`/${ns}/ls`)).toEqual([]);
+    expect((await call(`${view.url}.json`)).status).toBe(404);
   });
 
   test("restores timers after a restart without visiting each namespace", async () => {
@@ -666,7 +723,7 @@ describe("bun server", () => {
     }
   }, 30_000);
 
-  test("k.mjs reports that creating locks is temporarily disabled", async () => {
+  test("k.mjs reports that namespace locks are retired", async () => {
     const script = join(import.meta.dir, "..", "public", "k.mjs");
     const k = async (args: string[], env: Record<string, string> = {}) => {
       const child = Bun.spawn(["bun", script, ...args], {
@@ -693,7 +750,7 @@ describe("bun server", () => {
     const ns = `${own.server.url.origin}/${fresh()}`;
     const plainLock = await k(["-X", "POST", `${ns}/lock`]);
     expect(plainLock.code).toBe(1);
-    expect(plainLock.error).toContain("Creating or changing locks is temporarily disabled.");
+    expect(plainLock.error).toContain("Namespace locks are not part of this protocol.");
     expect((await k(["-d", "hello", `${ns}/new`])).code).toBe(0);
     expect((await k([`${ns}/1`])).out).toBe("hello");
 
@@ -701,7 +758,7 @@ describe("bun server", () => {
     expect((await k(["-d", "first", `${sealed}/new`])).code).toBe(0);
     const sealedLock = await k(["-X", "POST", `${sealed}/lock`]);
     expect(sealedLock.code).toBe(1);
-    expect(sealedLock.error).toContain("Creating or changing locks is temporarily disabled.");
+    expect(sealedLock.error).toContain("Namespace locks are not part of this protocol.");
     expect((await k(["-d", "second", `${sealed}/new`])).code).toBe(0);
     expect((await k([`${sealed}/1`])).out).toBe("second");
     await own.stop();
@@ -836,11 +893,12 @@ describe("rules kept in two places", () => {
     expect(secret.toString("hex")).toBe(vector("pbkdf2"));
     const derive = (info: string) =>
       Buffer.from(hkdfSync("sha256", secret, Buffer.alloc(0), info, 16));
-    const id = derive("kurobako/v4/id");
+    const writeKey = derive("kurobako/v4/write");
+    const id = createHash("sha256").update(writeKey.toString("base64url")).digest().subarray(0, 16);
     const namespaceKey = derive("kurobako/v4/namespace");
     expect(id.toString("base64url")).toBe(vector("id"));
     expect(namespaceKey.toString("hex")).toBe(vector("namespace-key"));
-    expect(derive("kurobako/v4/write").toString("base64url")).toBe(vector("write-key"));
+    expect(writeKey.toString("base64url")).toBe(vector("write-key"));
     expect(Buffer.concat([id, namespaceKey]).toString("base64url")).toBe(vector("read-token"));
 
     const seal = (key: Uint8Array, ivStart: number, label: string, plain: Uint8Array) => {
@@ -1146,6 +1204,24 @@ describe("several servers", () => {
     const token = new URL(link).pathname.split("/")[2] ?? "";
     expect(tokenSlot(token)).toBe(slotOf({ space: "plain", name: ns }));
     expect(await (await via(`/i/${token}/c`)).text()).toBe("shared across");
+  });
+
+  test("shared views route to their namespace's server", async () => {
+    const ns = fresh();
+    const item = await send(ns, "a view across servers");
+    const created = (await (
+      await via(`/${ns}/views`, {
+        method: "POST",
+        body: JSON.stringify({
+          viewId: newViewId(),
+          previousToken: null,
+          entries: [{ id: item.id }],
+        }),
+      })
+    ).json()) as { token: string; url: string };
+    expect(tokenSlot(created.token)).toBe(slotOf({ space: "plain", name: ns }));
+    const view = (await (await via(`${created.url}.json`)).json()) as { entries: { item: Item }[] };
+    expect(view.entries[0]?.item.text).toBe("a view across servers");
   });
 
   test("relays live updates both ways", async () => {

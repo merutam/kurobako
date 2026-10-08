@@ -94,6 +94,13 @@ export class HubCore {
         UNIQUE (space, name, item_id)
       )`,
     );
+    this.sql.exec(
+      `CREATE TABLE IF NOT EXISTS namespace_views (
+        token TEXT PRIMARY KEY,
+        space TEXT NOT NULL,
+        name TEXT NOT NULL
+      )`,
+    );
   }
 
   /** The `total` column of a query's single row. */
@@ -134,6 +141,7 @@ export class HubCore {
   async forgetNamespace(ref: NamespaceRef): Promise<void> {
     this.sql.exec("DELETE FROM namespaces WHERE space = ? AND name = ?", ref.space, ref.name);
     this.sql.exec("DELETE FROM item_shares WHERE space = ? AND name = ?", ref.space, ref.name);
+    this.sql.exec("DELETE FROM namespace_views WHERE space = ? AND name = ?", ref.space, ref.name);
   }
 
   async recordActivity(event: ActivityEvent): Promise<void> {
@@ -193,7 +201,8 @@ export class HubCore {
     const remaining = this.count(
       `SELECT (SELECT COUNT(*) FROM namespaces) + (SELECT COUNT(*) FROM visitors)
               + (SELECT COUNT(*) FROM activity) + (SELECT COUNT(*) FROM item_shares)
-              + (SELECT COUNT(*) FROM login_failures) AS total`,
+              + (SELECT COUNT(*) FROM login_failures)
+              + (SELECT COUNT(*) FROM namespace_views) AS total`,
     );
     if (remaining) {
       await this.host.setAlarm(now + (stale.length === SWEEP_BATCH ? MINUTE_MS : HOUSEKEEPING_MS));
@@ -203,7 +212,7 @@ export class HubCore {
   // --- Share links ------------------------------------------------------
 
   /** One token per item: sharing the same item twice gives the same link. */
-  async createShare(ref: NamespaceRef, itemId: string, expiresAt: string | null): Promise<string> {
+  private createShareRow(ref: NamespaceRef, itemId: string, expiresAt: string | null): string {
     const existing = this.sql.exec<{ token: string }>(
       "SELECT token FROM item_shares WHERE space = ? AND name = ? AND item_id = ?",
       ref.space,
@@ -227,8 +236,23 @@ export class HubCore {
       itemId,
       expiresAt ? Date.parse(expiresAt) : null,
     );
+    return token;
+  }
+
+  async createShare(ref: NamespaceRef, itemId: string, expiresAt: string | null): Promise<string> {
+    const token = this.createShareRow(ref, itemId, expiresAt);
     await this.ensureAlarm();
     return token;
+  }
+
+  /** A view index needs many links; one hub RPC is cheaper than one per item. */
+  async createShares(
+    ref: NamespaceRef,
+    items: { id: string; expiresAt: string | null }[],
+  ): Promise<string[]> {
+    const tokens = items.map((item) => this.createShareRow(ref, item.id, item.expiresAt));
+    if (tokens.length) await this.ensureAlarm();
+    return tokens;
   }
 
   /** An item sent again lives longer, and so does its share link. */
@@ -256,6 +280,30 @@ export class HubCore {
   /** For links whose item is gone (deleted, pushed out of the queue, read once). */
   async forgetShare(token: string): Promise<void> {
     this.sql.exec("DELETE FROM item_shares WHERE token = ?", token);
+  }
+
+  /** The opaque view route resolves to its source only inside the server. */
+  async registerView(ref: NamespaceRef, token: string): Promise<void> {
+    this.sql.exec(
+      "INSERT INTO namespace_views (token, space, name) VALUES (?, ?, ?)",
+      token,
+      ref.space,
+      ref.name,
+    );
+    await this.ensureAlarm();
+  }
+
+  async resolveView(token: string): Promise<NamespaceRef | null> {
+    const row = this.sql.exec<{ space: NamespaceRef["space"]; name: string }>(
+      "SELECT space, name FROM namespace_views WHERE token = ?",
+      token,
+    )[0];
+    return row ?? null;
+  }
+
+  /** A rotation that lost its compare-and-swap never publishes its route. */
+  async forgetView(token: string): Promise<void> {
+    this.sql.exec("DELETE FROM namespace_views WHERE token = ?", token);
   }
 
   private pruneShares(): void {

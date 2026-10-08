@@ -22,13 +22,14 @@ import {
   type NamespaceRef,
   objectName,
   plainName,
+  readLimitedItem,
   SEALED_METADATA_PATTERN,
   type StoredItem,
   sealedName,
 } from "../model";
 import type { Restored, SaveInput } from "../namespace";
 import { ADMIN_PATH } from "../routing";
-import { type Api, type App, type AppContext, jsonError } from "./context";
+import { type Api, type App, type AppContext, jsonError, writeVerifier } from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
 import {
   describePlainFile,
@@ -173,7 +174,7 @@ export const mountArchives = (app: App, api: Api) => {
       // millisecond keep their order in the queue (the sort is stable).
       const eligible = [...stored]
         .reverse()
-        .filter((item) => !item.burn && (since === null || changedAt(item) >= since))
+        .filter((item) => !readLimitedItem(item) && (since === null || changedAt(item) >= since))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       // Names unique across the whole namespace, so parts never clash.
       const taken = new Set<string>();
@@ -474,7 +475,11 @@ export const mountArchives = (app: App, api: Api) => {
     let restored = 0;
     let skipped = 0;
     for (const { ref, items } of batches.values()) {
-      const result = await namespace(c, ref).restore(ref, items);
+      const result = await namespace(c, ref).restore(
+        ref,
+        items,
+        into ? await writeVerifier(c) : undefined,
+      );
       restored += result.restored;
       skipped += items.length - result.restored;
       if (result.skipped.length) await blobs.delete(result.skipped);

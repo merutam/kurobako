@@ -48,8 +48,28 @@ export class NamespaceObject extends DurableObject<Env> {
   list(visit?: AccessEvent) {
     return this.core.list(visit);
   }
-  save(ref: NamespaceRef, input: SaveInput, burn: boolean, visit?: AccessEvent) {
-    return this.core.save(ref, input, burn, visit);
+  save(
+    ref: NamespaceRef,
+    input: SaveInput,
+    burn: boolean,
+    visit?: AccessEvent,
+    expiresInSeconds?: number | null,
+    reads?: number | null,
+    verifier?: string | null,
+    view?: { token: string; envelope?: string },
+    deduplicate?: boolean,
+  ) {
+    return this.core.save(
+      ref,
+      input,
+      burn,
+      visit,
+      expiresInSeconds,
+      reads,
+      verifier,
+      view,
+      deduplicate,
+    );
   }
   readText(ref: ItemRef, visit?: AccessEvent) {
     return this.core.readText(ref, visit);
@@ -68,14 +88,25 @@ export class NamespaceObject extends DurableObject<Env> {
     change: { name: string } | { metadata: string },
     expected: string | null,
     visit?: AccessEvent,
+    verifier?: string | null,
   ) {
-    return this.core.rename(ref, change, expected, visit);
+    return this.core.rename(ref, change, expected, visit, verifier);
   }
-  replace(ref: ItemRef, input: SaveInput, expected: string, visit?: AccessEvent) {
-    return this.core.replace(ref, input, expected, visit);
+  replace(
+    ref: ItemRef,
+    input: SaveInput,
+    expected: string,
+    visit?: AccessEvent,
+    verifier?: string | null,
+  ) {
+    return this.core.replace(ref, input, expected, visit, verifier);
   }
-  remove(ref: ItemRef, visit?: AccessEvent) {
-    return this.core.remove(ref, visit);
+  remove(
+    ref: ItemRef,
+    visit?: AccessEvent,
+    write?: { ref: NamespaceRef; verifier: string | null },
+  ) {
+    return this.core.remove(ref, visit, write);
   }
   accessLog(visit?: AccessEvent) {
     return this.core.accessLog(visit);
@@ -83,20 +114,20 @@ export class NamespaceObject extends DurableObject<Env> {
   cleanUpIfEmpty(ref: NamespaceRef) {
     return this.core.cleanUpIfEmpty(ref);
   }
-  restore(ref: NamespaceRef, items: Restored[]) {
-    return this.core.restore(ref, items);
+  restore(ref: NamespaceRef, items: Restored[], verifier?: string | null) {
+    return this.core.restore(ref, items, verifier);
   }
-  isLocked() {
-    return this.core.isLocked();
+  checkWrite(ref: NamespaceRef, verifier: string | null) {
+    return this.core.checkWrite(ref, verifier);
   }
-  checkWrite(verifier: string | null) {
-    return this.core.checkWrite(verifier);
+  viewsStatus(ref: NamespaceRef, verifier: string | null) {
+    return this.core.viewsStatus(ref, verifier);
   }
-  lock(ref: NamespaceRef, verifier: string, current: string | null, onlyEmpty: boolean) {
-    return this.core.lock(ref, verifier, current, onlyEmpty);
+  createView(...args: Parameters<NamespaceCore["createView"]>) {
+    return this.core.createView(...args);
   }
-  unlock(verifier: string | null) {
-    return this.core.unlock(verifier);
+  viewContents(token: string, visit?: AccessEvent) {
+    return this.core.viewContents(token, visit);
   }
   alarm() {
     return this.core.alarm();
@@ -174,6 +205,9 @@ export class HubObject extends DurableObject<Env> {
   createShare(...args: Parameters<HubCore["createShare"]>) {
     return this.core.createShare(...args);
   }
+  createShares(...args: Parameters<HubCore["createShares"]>) {
+    return this.core.createShares(...args);
+  }
   extendShare(...args: Parameters<HubCore["extendShare"]>) {
     return this.core.extendShare(...args);
   }
@@ -182,6 +216,15 @@ export class HubObject extends DurableObject<Env> {
   }
   forgetShare(...args: Parameters<HubCore["forgetShare"]>) {
     return this.core.forgetShare(...args);
+  }
+  registerView(...args: Parameters<HubCore["registerView"]>) {
+    return this.core.registerView(...args);
+  }
+  resolveView(...args: Parameters<HubCore["resolveView"]>) {
+    return this.core.resolveView(...args);
+  }
+  forgetView(...args: Parameters<HubCore["forgetView"]>) {
+    return this.core.forgetView(...args);
   }
   loginLockedOut(...args: Parameters<HubCore["loginLockedOut"]>) {
     return this.core.loginLockedOut(...args);

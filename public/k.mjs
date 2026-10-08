@@ -14,8 +14,8 @@
 // way: run `node k.mjs` for the list. The secret name ends at the first "/".
 //
 // One PBKDF2 run turns the secret name into a 256-bit secret, K; HKDF then
-// gives from it the namespace ID the server sees, the namespace key and the
-// write key, which never leave the client. A read-only link carries the ID
+// gives from it the namespace key and write key; the namespace ID is a
+// one-way hash of the write key. A read-only link carries the ID
 // and the namespace key, never K, so it cannot lead to the write key. The
 // salt, iteration count and HKDF labels are part of the protocol: changing
 // them makes every existing encrypted namespace unreadable.
@@ -49,7 +49,6 @@ const ID_BYTES = 16;
 const NAMESPACE_KEY_BYTES = 16;
 const WRITE_KEY_BYTES = 16;
 /** HKDF labels: what each key derived from K is for. */
-const ID_INFO = "kurobako/v4/id";
 const NAMESPACE_KEY_INFO = "kurobako/v4/namespace";
 const WRITE_KEY_INFO = "kurobako/v4/write";
 /** Item keys are AES-128 too, which keeps a share link short (22 characters after the #). */
@@ -57,6 +56,7 @@ const ITEM_KEY_BYTES = 16;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const isLimited = (item) => Boolean(item.burn || item.readsLeft !== undefined);
 
 const toBase64Url = (bytes) => {
   let binary = "";
@@ -354,24 +354,29 @@ export const deriveNamespaceKeys = async (secretName) => {
       DERIVED_BITS,
     ),
   );
+  const writeKey = await hkdf(secret, WRITE_KEY_INFO, WRITE_KEY_BYTES);
+  // The public ID is bound to the write credential. The server can verify a
+  // Write-Key on the first send without learning the secret name or K.
+  const id = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", encoder.encode(toBase64Url(writeKey))),
+  ).subarray(0, ID_BYTES);
   return {
     secret,
-    id: await hkdf(secret, ID_INFO, ID_BYTES),
+    id,
     namespaceKey: await hkdf(secret, NAMESPACE_KEY_INFO, NAMESPACE_KEY_BYTES),
-    writeKey: await hkdf(secret, WRITE_KEY_INFO, WRITE_KEY_BYTES),
+    writeKey,
   };
 };
 
 /** An encrypted namespace opened by its name: it reads, and writes with its write key. */
 export const openSealedSpace = async (secretName) => {
   const keys = await deriveNamespaceKeys(secretName);
-  return spaceOf(keys.id, keys.namespaceKey, toBase64Url(keys.writeKey));
+  return spaceOf(keys.id, keys.namespaceKey, toBase64Url(keys.writeKey), keys.secret);
 };
 
 /**
  * An encrypted namespace opened by a read-only link's token,
- * base64url(ID ‖ namespace key): it reads everything, and writes only
- * where nothing is locked.
+ * base64url(ID ‖ namespace key): it reads everything but cannot write.
  */
 export const openReadOnlySpace = async (token) => {
   if (!encryptionAvailable()) {
@@ -393,7 +398,7 @@ export const openReadOnlySpace = async (token) => {
  * A namespace's operations, from its ID and namespace key; `writeKey`
  * (base64url, for Write-Key) when opened by its name, null by a read-only link.
  */
-const spaceOf = async (idBytes, namespaceKeyBytes, writeKey) => {
+const spaceOf = async (idBytes, namespaceKeyBytes, writeKey, secret = null) => {
   const namespaceKey = await importWrappingKey(namespaceKeyBytes);
   const readToken = new Uint8Array(ID_BYTES + NAMESPACE_KEY_BYTES);
   readToken.set(idBytes);
@@ -404,6 +409,16 @@ const spaceOf = async (idBytes, namespaceKeyBytes, writeKey) => {
     writeKey,
     /** The fragment of a read-only link, after "#/": base64url(ID ‖ namespace key). */
     readToken: toBase64Url(readToken),
+
+    /** A fresh view ID derives a distinct read key without disclosing the namespace key. */
+    viewKey: async (viewId) => {
+      if (!secret || !/^[A-Za-z0-9_-]{22}$/.test(viewId)) throw new Error("Invalid view ID.");
+      return toBase64Url(await hkdf(secret, `kurobako/v6/view/${viewId}`, 16));
+    },
+    sealViewEntry: async (viewId, keyText) => {
+      if (!secret) throw new Error("A read-only link cannot create a view entry.");
+      return sealViewEntry(await hkdf(secret, `kurobako/v6/view/${viewId}`, 16), viewId, keyText);
+    },
 
     /**
      * Encrypts one item; `header` goes in X-Sealed-Metadata, `body` is
@@ -464,6 +479,31 @@ const spaceOf = async (idBytes, namespaceKeyBytes, writeKey) => {
       };
     },
   };
+};
+
+export const newViewId = () => toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
+
+const viewLabel = (viewId) => encoder.encode(`kurobako/v6/view-entry/${viewId}`);
+const sealViewEntry = async (viewKey, viewId, keyText) => {
+  if (!viewKey || !/^[A-Za-z0-9_-]{22}$/.test(viewId)) throw new Error("Invalid view ID.");
+  const itemKey = fromBase64Url(keyText);
+  if (itemKey.byteLength !== ITEM_KEY_BYTES) throw new Error("Invalid item key.");
+  return toBase64Url(await sealWith(await importKey(viewKey), viewLabel(viewId), itemKey));
+};
+
+/** A view link's key opens one item key, never the namespace key. */
+export const openViewEntry = async (viewId, viewKeyText, envelope) => {
+  const viewKey = fromBase64Url(viewKeyText);
+  if (viewKey.byteLength !== 16 || !/^[A-Za-z0-9_-]{22}$/.test(viewId)) {
+    throw new Error("Invalid view key.");
+  }
+  const itemKey = await openWith(
+    await importKey(viewKey),
+    viewLabel(viewId),
+    fromBase64Url(envelope),
+  );
+  if (itemKey.byteLength !== ITEM_KEY_BYTES) throw new Error("Invalid view entry.");
+  return toBase64Url(itemKey);
 };
 
 /**
@@ -528,7 +568,7 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 /** This file's version, the same as the server it comes from (package.json). */
 export const VERSION = "0.7.3";
 /** The protocol this file speaks; a server says its own in /.well-known/kurobako. */
-export const PROTOCOL = 5;
+export const PROTOCOL = 6;
 // Everything below only runs when this file is executed directly. It reads
 // like curl: the same options and the same paths as the plain API, with
 // e#<name> in place of the namespace.
@@ -553,21 +593,25 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs -d 'hello' <site>/e#<name>/new   sends a text (-d @file, -d @- for stdin)
   node k.mjs -T photo.jpg <site>/e#<name>/    sends a file
   node k.mjs -H burn:1 -d 'once' <site>/e#<name>/new
+  node k.mjs -H Reads:3 -H Expires-In:3600 -d 'limited' <site>/e#<name>/new
   node k.mjs -d 'changed' <site>/e#<name>/1/e   edits a text if it has not changed
   node k.mjs -d 'new name' <site>/e#<name>/1/n   renames it (empty: a text's default)
   node k.mjs -X DELETE <site>/e#<name>/1
   node k.mjs <site>/e#<name>/1/s              a link to share it, with its key
+  node k.mjs -X POST <site>/e#<name>/views     creates a read-only shared view
+  node k.mjs <site>/e#<name>/views             lists its shared views
   node k.mjs <site>/i/<token>#<key>           a shared item
+  node k.mjs <site>/v/<token>#<view-key>      a shared view, one line per item
 
 Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J,
 --no-clobber (do not overwrite)
 (and -s, -S, -L, -f, -p, ignored).
 A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
-A locked namespace's write key goes in KUROBAKO_WRITE_KEY. Creating or changing locks is temporarily disabled; -X DELETE <link>/lock still unlocks an existing lock.
-<link>/live stays on and prints a line per change (new, moved, changed, gone,
-locked, unlocked), the encrypted ones decrypted: for scripts.
-An encrypted namespace writes with the key its name gives; locked, it answers
-with a read-only link, <site>/e#/<token>, which reads and does not write.
+A plain namespace's name grants writes. An encrypted namespace requires the Write-Key its secret name derives; KUROBAKO_WRITE_KEY can supply it explicitly.
+<link>/live stays on and prints a line per change (new, moved, changed, gone),
+the encrypted ones decrypted: for scripts.
+An encrypted namespace writes with the key its name gives. A legacy read-only
+link, <site>/e#/<token>, reads but cannot write.
 As with curl, -d @file drops line breaks; --data-binary @file keeps them.
 -h or --help shows this.
 Plain links (<site>/<namespace>/...) work too, sent as they are; JSON prints
@@ -580,7 +624,18 @@ export const TEXT_PREVIEW_CHARS = 280;
 /** An item: its position (1 is the newest) or its six-letter ID. */
 const ITEM_PATTERN = /^(?:[1-9][0-9]{0,3}|[a-z]{6})$/;
 const BURN_VALUES = new Set(["1", "true", "yes"]);
-const FIXED_PATHS = new Set(["", "ls", "new", "log", "log.json", "live", "zip", "tar", "import"]);
+const FIXED_PATHS = new Set([
+  "",
+  "ls",
+  "new",
+  "log",
+  "log.json",
+  "live",
+  "zip",
+  "tar",
+  "import",
+  "views",
+]);
 
 const runningAsScript = async () => {
   if (typeof document !== "undefined" || !globalThis.process?.argv?.[1]) return false;
@@ -697,6 +752,9 @@ const parseArgs = (args) => {
       name.trim().toLowerCase() === "burn" && BURN_VALUES.has(value.join(":").trim().toLowerCase())
     );
   });
+  options.limited =
+    options.burn ||
+    options.headers.some((header) => header.split(":", 1)[0].trim().toLowerCase() === "reads");
   return link === null ? null : { link, options };
 };
 
@@ -731,6 +789,15 @@ const parseLink = (text) => {
       keyText: decodeURIComponent(fragment),
     };
   }
+  const view = /^((?:\/[^/]+)*)\/v\/([A-Za-z0-9_-]{14})(\.json)?$/.exec(url.pathname);
+  if (view) {
+    return {
+      kind: "view",
+      base: `${url.origin}${view[1]}/v/${view[2]}`,
+      suffix: view[3] ?? "",
+      keyText: decodeURIComponent(fragment),
+    };
+  }
   return { kind: "plain", url: `${url.origin}${url.pathname}${url.search}` };
 };
 
@@ -748,7 +815,7 @@ const parseNamespacePath = (fullPath) => {
 /**
  * fetch, failing with which site could not be reached and why. A private
  * instance's key, in KUROBAKO_KEY, goes with every request unless the command
- * sends its own Authorization header; a locked namespace's write key, in
+ * sends its own Authorization header; an encrypted namespace's write key, in
  * KUROBAKO_WRITE_KEY, unless it sends its own Write-Key.
  */
 /** The write key of the encrypted namespace a command works on, derived from its name. */
@@ -759,7 +826,7 @@ const reach = async (url, init = {}) => {
   const writeKey = globalThis.process?.env?.KUROBAKO_WRITE_KEY ?? namespaceWriteKey;
   const headers = new Headers(init.headers);
   if (key && !headers.has("authorization")) headers.set("authorization", `Bearer ${key}`);
-  // A locked namespace's write key: harmless where nothing is locked.
+  // The encrypted namespace's write capability; plain routes ignore it.
   if (writeKey && !headers.has("write-key")) headers.set("write-key", writeKey);
   try {
     return await fetch(url, { ...init, headers });
@@ -1104,10 +1171,11 @@ const itemJson = (item, metadata) => {
     ...(item.updatedAt ? { updatedAt: item.updatedAt } : {}),
     expiresAt: item.expiresAt,
     ...(item.burn ? { burn: true } : {}),
+    ...(item.readsLeft !== undefined ? { readsLeft: item.readsLeft } : {}),
     kind: !metadata ? "unreadable" : metadata.kind === "text" ? "text" : isImage ? "image" : "file",
     ...(metadata?.kind === "text" ? { mime: TEXT_MIME } : {}),
     // Burn-after-reading texts have no name, as in the plain API.
-    ...(metadata?.kind === "text" && !item.burn ? { name: metadata.title } : {}),
+    ...(metadata?.kind === "text" && !isLimited(item) ? { name: metadata.title } : {}),
     ...(metadata?.kind === "file" ? { mime: metadata.mime, filename: metadata.filename } : {}),
     size: metadata?.size ?? item.size,
   };
@@ -1146,7 +1214,7 @@ const contentsOf = async (entry) =>
 /** An entry's text or preview. Reading one consumes nothing. */
 const entryText = async (entry, options = {}) => {
   const metadata = entry.opened?.metadata;
-  if (metadata?.kind !== "text" || entry.item.burn) return {};
+  if (metadata?.kind !== "text" || isLimited(entry.item)) return {};
   const text = decoder.decode(await contentsOf(entry));
   return textJson(text, metadata.size, options);
 };
@@ -1206,7 +1274,7 @@ const LIST_TITLE_CHARS = 40;
 const titleOf = (item, limit = Number.POSITIVE_INFINITY) => {
   if (item.kind === "unreadable") return "(could not decrypt)";
   const raw = item.name ?? item.text ?? item.preview ?? item.filename ?? "";
-  if (!raw) return item.burn ? "(hidden until opened)" : "(empty)";
+  if (!raw) return isLimited(item) ? "(hidden until opened)" : "(empty)";
   const flat = raw.replace(/\s+/g, " ").trim();
   return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
 };
@@ -1237,7 +1305,7 @@ const itemsTable = (items) =>
           titleOf(item, LIST_TITLE_CHARS),
           formatBytes(item.size),
           formatTime(item.createdAt),
-          item.burn ? "deletes when opened" : "",
+          item.burn ? "deletes when opened" : item.readsLeft ? `${item.readsLeft} reads left` : "",
           item.id,
         ]),
         new Set([0, 3]),
@@ -1266,7 +1334,7 @@ const saveAll = async (entries, options) => {
     const label = `[${entry.number}] ${titleOf(tableJson(entry), LIST_TITLE_CHARS)}`;
     if (!entry.opened) {
       console.log(`${label}: skipped, could not decrypt`);
-    } else if (entry.item.burn) {
+    } else if (isLimited(entry.item)) {
       console.log(
         `${label}: skipped, it deletes when opened (read it with node k.mjs <link>/${entry.number})`,
       );
@@ -1547,17 +1615,31 @@ const send = async (space, site, options, filename) => {
   } else {
     contents = await dataBytes(options);
     // A burn-after-reading text shows no preview anywhere.
-    const title = options.burn ? "" : defaultTextName(decoder.decode(contents));
+    const title = options.limited ? "" : defaultTextName(decoder.decode(contents));
     metadata = { kind: "text", title, size: contents.byteLength };
   }
-  const { header, body } = await space.sealItem(contents, metadata);
+  const status = await (await call(`${base}/views`)).json();
+  const active = status.views.find((view) => view.active);
+  const { header, body, keyText } = await space.sealItem(contents, metadata);
+  const viewHeaders = active
+    ? {
+        "View-Token": active.token,
+        "View-Envelope": await space.sealViewEntry(active.viewId, keyText),
+      }
+    : {};
   const item = await (
     await call(`${base}/new`, {
       method: "POST",
       headers: {
+        ...Object.fromEntries(
+          options.headers.map((header) => {
+            const [name, ...value] = header.split(":");
+            return [name.trim(), value.join(":").trim()];
+          }),
+        ),
         "Content-Type": "application/octet-stream",
         "X-Sealed-Metadata": header,
-        ...(options.burn ? { Burn: "1" } : {}),
+        ...viewHeaders,
       },
       body,
     })
@@ -1566,7 +1648,7 @@ const send = async (space, site, options, filename) => {
   const text =
     metadata.kind === "text"
       ? textJson(decoder.decode(contents), metadata.size, {
-          burn: options.burn,
+          burn: options.limited,
           inlineLimit: await inlineLimitOf(`${base}/new`),
         })
       : {};
@@ -1596,7 +1678,7 @@ const rename = async (space, site, selector, given) => {
   const isText = entry.opened.metadata.kind === "text";
   let changes = isText ? { title: name } : { title: name, filename: name };
   if (isText && !name) {
-    const text = entry.item.burn ? "" : decoder.decode(await contentsOf(entry));
+    const text = isLimited(entry.item) ? "" : decoder.decode(await contentsOf(entry));
     changes = { title: defaultTextName(text) };
   } else if (!name) {
     throw new Error("A file needs a name.");
@@ -1626,7 +1708,7 @@ const rename = async (space, site, selector, given) => {
 /** Replaces an encrypted text under its next revision, keeping its item key. */
 const edit = async (space, site, selector, options) => {
   const entry = await findEntry(space, site, selector);
-  if (entry.item.burn) throw new Error("An item that deletes when opened cannot be edited.");
+  if (isLimited(entry.item)) throw new Error("An item with limited reads cannot be edited.");
   if (entry.opened.metadata.kind !== "text") throw new Error("Only texts can be edited.");
   const contents = await dataBytes(options);
   const previous = decoder.decode(await contentsOf(entry));
@@ -1660,7 +1742,7 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
   const { path, query, first, second, extra } = parseNamespacePath(fullPath);
   const space =
     readToken !== undefined ? await openReadOnlySpace(readToken) : await openSealedSpace(name);
-  // Opened by its name, it writes even when locked; by a read-only link, it has no key.
+  // Opened by its name, it can write; by a read-only link, it has no write key.
   namespaceWriteKey = space.writeKey;
   const base = `${site}/e/${space.id}`;
   const { method } = options;
@@ -1677,14 +1759,49 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
     });
   }
 
-  // Locking: the key is the one the name gives, sent along by reach. Locked,
-  // the answer adds the read-only link to hand out.
+  if (path === "views" && method === "GET") {
+    const status = await (await call(`${base}/views`)).json();
+    return printJson({
+      ...status,
+      views: await Promise.all(
+        status.views.map(async (view) => ({
+          ...view,
+          url: `${new URL(site).origin}${view.url}#${await space.viewKey(view.viewId)}`,
+        })),
+      ),
+    });
+  }
+
+  if (path === "views" && method === "POST" && !sending) {
+    const status = await (await call(`${base}/views`)).json();
+    const viewId = newViewId();
+    const entries = await Promise.all(
+      status.items.map(async (item) => {
+        const opened = await space.openItem(item.metadata, item.size);
+        return { id: item.id, envelope: await space.sealViewEntry(viewId, opened.keyText) };
+      }),
+    );
+    const created = await (
+      await call(`${base}/views`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          viewId,
+          previousToken: status.views.find((view) => view.active)?.token ?? null,
+          entries,
+        }),
+      })
+    ).json();
+    return printJson({
+      ...created,
+      url: `${new URL(site).origin}${created.url}#${await space.viewKey(viewId)}`,
+    });
+  }
+
+  // Retired endpoint: preserve its explicit migration error for encrypted URLs.
   if (path === "lock" && (method === "POST" || method === "DELETE")) {
     const response = await call(`${base}/lock`, { method });
-    const answer = await response.json();
-    return printJson(
-      answer.locked ? { ...answer, readOnlyLink: `${site}/e#/${space.readToken}` } : answer,
-    );
+    return printJson(await response.json());
   }
 
   // Backups go as they are: the server sends items still encrypted, and a
@@ -1796,6 +1913,37 @@ const sharedRequest = async ({ base, suffix, keyText }, options) => {
   return deliverEntry(entry, options, suffix ? suffix.slice(1) : base.split("/").pop());
 };
 
+/** A shared view's index, decrypted from its fragment when necessary. */
+const viewRequest = async ({ base, suffix, keyText }, options) => {
+  if (options.method !== "GET") throw new Error("A shared view can only be read.");
+  await requireProtocol(base);
+  const view = await (await call(`${base}.json`)).json();
+  const entries = await Promise.all(
+    view.entries.map(async ({ url, item, envelope }, index) => {
+      const contentUrl = `${new URL(base).origin}${url}/c`;
+      const id = url.split("/").pop();
+      if (item.kind !== "sealed") return plainEntry({ ...item, id }, index, contentUrl);
+      if (!keyText) throw new Error("Incomplete shared view link: missing the key after #.");
+      const itemKey = await openViewEntry(view.viewId, keyText, envelope);
+      return {
+        number: index + 1,
+        item: { ...item, id },
+        opened: await openSharedItem(itemKey, item.metadata, item.size),
+        contentUrl,
+      };
+    }),
+  );
+  if (suffix === ".json") {
+    return printJson({
+      active: view.active,
+      createdAt: view.createdAt,
+      items: await entriesJson(entries),
+    });
+  }
+  if (options.remoteName) return saveAll(entries, options);
+  return console.log(itemsTable(entries.map(tableJson)));
+};
+
 /**
  * Whether a plain link is a bare namespace (https://<site>/notes). With one
  * part in its path it is, at a site at the domain's root; with more, the site
@@ -1818,7 +1966,7 @@ const isNamespace = async (url) => {
  * Stays on a namespace's live connection and prints a line per change, for
  * scripts (`while read -r event id name`): "new <id> <name>", "moved <id>
  * <name>" (the same contents sent again), "changed <id> <name>", "gone <id>"
- * (deleted, expired or burnt), "locked", "unlocked". It starts from the queue
+ * (deleted, expired or burnt). It starts from the queue
  * as it is, reconnects by itself and, once back, prints only what changed
  * meanwhile. `nameOf(item)` names an item (decrypting it if need be).
  */
@@ -1836,7 +1984,6 @@ const watchLive = async (base, nameOf) => {
   const print = (line) => process.stdout.write(`${line}\n`);
   /** What was last seen, by item ID: { name, createdAt, updatedAt }; null until the first queue. */
   let known = null;
-  let locked = null;
   const names = new Map();
   const named = async (item) => {
     // Encrypted items change their sealed metadata when edited or renamed; plain ones, their name.
@@ -1845,7 +1992,7 @@ const watchLive = async (base, nameOf) => {
     return names.get(key);
   };
 
-  const apply = async ({ items, locked: nowLocked }) => {
+  const apply = async ({ items }) => {
     const seen = new Map();
     for (const item of items) {
       seen.set(item.id, {
@@ -1863,10 +2010,8 @@ const watchLive = async (base, nameOf) => {
         else if (before.updatedAt !== now.updatedAt) print(`changed ${id} ${now.name}`);
       }
       for (const id of known.keys()) if (!seen.has(id)) print(`gone ${id}`);
-      if (Boolean(nowLocked) !== locked) print(nowLocked ? "locked" : "unlocked");
     }
     known = seen;
-    locked = Boolean(nowLocked);
   };
 
   let delay = 1_000;
@@ -1997,6 +2142,7 @@ const main = async (args) => {
     const target = parseLink(parsed.link);
     if (target.kind === "sealed") return await sealedRequest(target, parsed.options);
     if (target.kind === "shared") return await sharedRequest(target, parsed.options);
+    if (target.kind === "view") return await viewRequest(target, parsed.options);
     return await plainRequest(target, parsed.options);
   } catch (error) {
     console.error(error.message);

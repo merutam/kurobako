@@ -10,6 +10,8 @@ type CommonItem = {
   size: number;
   /** Deleted by the first read of its content. Absent means false. */
   burn?: true;
+  /** Remaining consuming reads; absent means unlimited. `burn` is the legacy one-read form. */
+  readsLeft?: number;
   /**
    * SHA-256 of the contents (hex), to spot the same contents sent again.
    * Never shown, and never kept for burn-after-reading or encrypted items.
@@ -94,6 +96,9 @@ export type SealedItem = CommonItem & {
 };
 
 export type StoredItem = TextItem | ImageItem | FileItem | SealedItem;
+export const readLimitedItem = (item: StoredItem): boolean =>
+  item.burn === true || item.readsLeft !== undefined;
+export const lastRead = (item: StoredItem): boolean => item.burn === true || item.readsLeft === 1;
 export type ObjectItem = ExternalTextItem | ImageItem | FileItem | SealedItem;
 
 export const hasObject = (item: StoredItem): item is ObjectItem => "object" in item;
@@ -115,7 +120,7 @@ export const NAMESPACE_MAX_LENGTH = 64;
  * encrypted namespaces (/e), shared items (/i) and system routes (/k).
  * Static files and JSON documents have a dot, which names never do.
  */
-export const RESERVED_NAMESPACES = new Set(["e", "i", "k"]);
+export const RESERVED_NAMESPACES = new Set(["e", "i", "k", "v"]);
 
 /**
  * Share tokens: the namespace's slot (two characters, see routing.ts), then
@@ -184,7 +189,7 @@ const exposeItem = (item: StoredItem) => {
     ...metadata
   } = item as StoredItem & { object?: string; text?: string };
   // Burn-after-reading content is only handed out by a consuming read.
-  if (item.burn || item.kind !== "text" || !("text" in item)) return metadata;
+  if (readLimitedItem(item) || item.kind !== "text" || !("text" in item)) return metadata;
   return { ...metadata, text };
 };
 
@@ -203,7 +208,7 @@ export const summaryItem = (item: StoredItem) => {
   const shown = publicItem(item);
   if (
     item.kind !== "text" ||
-    item.burn ||
+    readLimitedItem(item) ||
     !("text" in item) ||
     item.text.length <= TEXT_PREVIEW_CHARS
   ) {

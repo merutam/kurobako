@@ -60,10 +60,9 @@ export const mountItems = (
           position: number;
         } | null;
         if (!found) return jsonError(c, 404, "Item not found.");
-        // Making a share link is writing: a reader of a locked namespace gets none.
-        const check = await namespace(c, ref).checkWrite(await writeVerifier(c));
+        // Making a share link is writing: the namespace's writer can do it.
+        const check = await namespace(c, ref).checkWrite(ref, await writeVerifier(c));
         if (check === "missing" || check === "wrong") {
-          c.header("Locked", "1");
           return c.json({ ...publicItem(found.item), position: found.position });
         }
         const token = await hub(c).createShare(ref, found.item.id, found.item.expiresAt);
@@ -100,7 +99,7 @@ export const mountItems = (
       ["GET", "POST"],
       `${prefix}/${ITEM}/s`,
       inNamespace(async (c, ref) => {
-        // A share link is made once and kept: in a locked namespace, by its writer.
+        // A share link is made once and kept by the namespace's writer.
         const refused = await refuseWrite(c, ref);
         if (refused) return refused;
         const item = (await namespace(c, ref).peek(itemRef(c), visit(c))) as StoredItem | null;
@@ -157,10 +156,13 @@ export const mountItems = (
           if (!bytes) return jsonError(c, 413, `The limit is ${MAX_NAME_BYTES} bytes.`);
           change = { name: new TextDecoder().decode(bytes) };
         }
-        const result = (await namespace(c, ref).rename(itemRef(c), change, expected, visit(c))) as
-          | { item: StoredItem }
-          | { error: string; conflict?: true }
-          | null;
+        const result = (await namespace(c, ref).rename(
+          itemRef(c),
+          change,
+          expected,
+          visit(c),
+          await writeVerifier(c),
+        )) as { item: StoredItem } | { error: string; conflict?: true } | null;
         if (!result) return jsonError(c, 404, "Item not found.");
         if ("error" in result) return jsonError(c, result.conflict ? 412 : 400, result.error);
         return c.json(publicItem(result.item));
@@ -172,7 +174,10 @@ export const mountItems = (
       inNamespace(async (c, ref) => {
         const refused = await refuseWrite(c, ref);
         if (refused) return refused;
-        const removed = await namespace(c, ref).remove(itemRef(c), visit(c));
+        const removed = await namespace(c, ref).remove(itemRef(c), visit(c), {
+          ref,
+          verifier: await writeVerifier(c),
+        });
         return removed ? c.json({ ok: true }) : jsonError(c, 404, "Item not found.");
       }, "Item not found."),
     );
