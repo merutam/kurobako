@@ -2,8 +2,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (C) 2026 Kurobako contributors
  */
-/* The site's styles, on the design tokens of tokens.css. */
-@import url("tokens.css");
+/* The site's styles, loaded after tokens.css by layout.html. */
 
 /* --- Base ----------------------------------------------------------------- */
 
