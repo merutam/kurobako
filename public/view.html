@@ -7,6 +7,7 @@
   <title>Shared view · Kurobako</title>
   <script type="module" src="/view.js"></script>
   <script type="application/json" id="view-data">"%VIEW%"</script>
+  <script type="application/json" id="config">"%CONFIG%"</script>
 </head>
 <main data-loading>
   <div id="page-loading" class="page-loading" role="status" aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span><span>Loading shared view…</span></div>
@@ -14,7 +15,7 @@
   <p class="intro">Read-only. New items appear here while this view is active; existing items stay live after it freezes.</p>
   <p id="view-status" class="status" role="status" aria-live="polite"></p>
 
-  <section id="media-feed" class="media-feed" aria-labelledby="media-feed-title" hidden></section>
+  <!--%MEDIA_FEED%-->
 
   <section id="items-section" class="page-section stack" aria-labelledby="queue-title">
     <div class="section-heading">
@@ -37,12 +38,24 @@
     <h2 id="clone-title">Clone into a new namespace</h2>
     <p class="hint">Copies the items available now. The copy will not follow future changes; interrupted copies may be partial.</p>
     <form id="clone-form" class="stack">
-      <label for="clone-mode">Destination</label>
-      <select id="clone-mode"><option value="plain">Plain namespace</option><option value="sealed">Encrypted namespace</option></select>
-      <label for="clone-name">New namespace name</label>
-      <input id="clone-name" type="text" autocomplete="off" required />
+      <label for="clone-name">New namespace</label>
+      <div id="clone-field" class="namespace-input">
+        <span class="namespace-prefix" aria-hidden="true">/</span>
+        <input id="clone-name" type="text" placeholder="myns" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="clone-hint view-status" required />
+        <div class="e2ee-control">
+          <input id="clone-encrypted" type="checkbox" aria-label="Enable end-to-end encryption" aria-describedby="clone-hint" />
+          <button type="button" aria-haspopup="dialog" aria-controls="clone-e2ee-dialog" title="End-to-end encryption: items are encrypted before they reach the server.">E2EE</button>
+        </div>
+      </div>
+      <p id="clone-hint" class="hint">a-z, 0-9, _ and -. Max 64 characters.</p>
       <label class="checkbox-label"><input id="clone-limited" type="checkbox" /> Include read-limited items (each copy consumes one read)</label>
       <p class="actions"><button type="submit" data-icon="copy">Clone</button></p>
     </form>
+    <dialog id="clone-e2ee-dialog" class="e2ee-dialog" aria-labelledby="clone-e2ee-title">
+      <h2 id="clone-e2ee-title">End-to-end encryption</h2>
+      <p>Your browser encrypts items before sending them. The server stores ciphertext and cannot read their contents.</p>
+      <p>The secret name after <code>#</code> stays in the browser. Anyone with the full link can read the items; without that name, they cannot be recovered.</p>
+      <form method="dialog" class="e2ee-dialog-actions"><button type="submit">Close</button></form>
+    </dialog>
   </section>
 </main>

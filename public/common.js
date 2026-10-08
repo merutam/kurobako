@@ -31,6 +31,41 @@ export const setBusy = (form, busy) => {
   for (const control of form.elements) control.disabled = busy;
 };
 
+/** The home and clone forms share one static namespace field and its mode behavior. */
+export const setupNamespaceField = (field, hint, config, onModeChange = () => {}) => {
+  const input = field.querySelector('input[type="text"]');
+  const encrypted = field.querySelector('.e2ee-control input[type="checkbox"]');
+  const prefix = field.querySelector(".namespace-prefix");
+  const help = field.querySelector('[aria-haspopup="dialog"]');
+  const update = () => {
+    const sealed = encrypted.checked;
+    input.placeholder = sealed ? "a long secret name" : "myns";
+    input.maxLength = sealed ? config.sealed.maxNameLength : config.namespace.maxLength;
+    prefix.textContent = sealed ? "/e#" : "/";
+    hint.textContent = sealed
+      ? `E2EE. Max ${config.sealed.maxNameLength} characters.`
+      : `a-z, 0-9, _ and -. Max ${config.namespace.maxLength} characters.${encrypted.disabled ? " Encryption needs HTTPS." : ""}`;
+    onModeChange();
+  };
+  if (!globalThis.crypto?.subtle) {
+    encrypted.disabled = true;
+    encrypted.checked = false;
+  }
+  encrypted.addEventListener("change", update);
+  input.addEventListener("input", () => {
+    if (encrypted.disabled) return;
+    const typed = /^\/?e#/u.exec(input.value);
+    if (!typed) return;
+    input.value = input.value.slice(typed[0].length);
+    encrypted.checked = true;
+    update();
+  });
+  help?.addEventListener("click", () =>
+    document.getElementById(help.getAttribute("aria-controls")).showModal(),
+  );
+  update();
+};
+
 /**
  * localStorage, for preferences only: a browser that refuses it (private
  * windows, blocked storage) just forgets them.
@@ -172,7 +207,7 @@ export const iconLink = (href, label, iconName) => {
 if (typeof document !== "undefined") {
   decorateIcons();
   for (const link of document.querySelectorAll("a.external-link")) {
-    link.append(icon("external", 14));
+    if (link.lastElementChild?.localName !== "svg") link.append(icon("external", 14));
   }
 }
 

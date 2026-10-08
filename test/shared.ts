@@ -1073,6 +1073,13 @@ export const sharedTests = (harness: Harness) => {
       expect(JSON.stringify(contents)).not.toContain(ns);
       const page = await (await call(created.url)).text();
       expect(page).toContain('id="view-data"');
+      expect(page).toContain('id="clone-field" class="namespace-input"');
+      expect(page).toContain('id="clone-encrypted"');
+      expect(page).not.toContain('id="clone-mode"');
+      expect(page).not.toContain("%CONFIG%");
+      expect(page).toContain('id="media-feed-list"');
+      expect(page).toContain('id="items" class="items"');
+      expect(page).not.toContain("%MEDIA_FEED%");
       expect(page).not.toContain(ns);
       expect(contents.entries.every(({ url }) => url.startsWith("/i/"))).toBe(true);
       const next = await json<{ url: string }>(`/${ns}/views`, {
@@ -1537,12 +1544,22 @@ export const sharedTests = (harness: Harness) => {
       expect(html).toContain(`(build ${version})`);
       expect(html.match(/<k-file-field>/g)).toHaveLength(2);
       expect(html).toContain('<select id="expires-in"></select>');
+      expect(html).toContain('id="media-feed-list"');
+      expect(html).not.toContain("%MEDIA_FEED%");
       expect(html).not.toContain('id="reads-limit"');
       const home = await (await call("/")).text();
-      expect(home).toContain('<span id="namespace-prefix" aria-hidden="true">/e#</span>');
+      expect(home).toContain(
+        '<span id="namespace-prefix" class="namespace-prefix" aria-hidden="true">/e#</span>',
+      );
       expect(home).toContain('aria-label="Enable end-to-end encryption"');
       expect(home).toContain('id="e2ee-help"');
-      expect(home).toContain('id="e2ee-dialog"');
+      expect(home).toContain('id="e2ee-dialog" class="e2ee-dialog"');
+      expect(home).toMatch(/id="random-name"[^>]*><svg[^>]*>/);
+      expect(home).toMatch(/data-icon="json" href="\/stats\.json"><svg[^>]*>/);
+      expect(home).toMatch(/>Source<svg[^>]*>/);
+      expect(home).toContain('id="namespace-hint" class="hint">E2EE. Max 256 characters.</p>');
+      expect(home).toContain('maxlength="256"');
+      expect(home).toContain('name="theme" value="auto" checked');
       expect(home).toContain('id="stats-section" class="stack page-section"');
       expect(home).not.toContain('id="toggle-stats"');
       expect(home).not.toContain("data-stat=");
@@ -1553,7 +1570,7 @@ export const sharedTests = (harness: Harness) => {
         `<td id="sends-per-minute">${config.sendsPerMinute.toLocaleString("en-US")}</td>`,
       );
       expect(home).not.toContain("%MAX_FILE_SIZE%");
-      expect(home).toContain('data-icon="json" href="/stats.json">Full statistics</a>');
+      expect(home).toContain("</svg>Full statistics</a>");
 
       const embedded = html.match(
         /<script type="application\/json" id="config">(.*?)<\/script>/s,

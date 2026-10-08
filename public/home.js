@@ -3,8 +3,8 @@
 
 // The home page: opening a namespace, plain or encrypted (with a random
 // name, and how strong a typed one is).
-import { element, readConfig, SITE } from "./common.js";
-import { encryptionAvailable, normalizeSecretName, secretNameProblem } from "./k.mjs";
+import { element, readConfig, SITE, setupNamespaceField } from "./common.js";
+import { normalizeSecretName, secretNameProblem } from "./k.mjs";
 import { createStatus } from "./status.js";
 
 const form = element("#namespace-form");
@@ -14,8 +14,6 @@ const pageTitle = element("#page-title");
 const hint = element("#namespace-hint");
 const strength = element("#name-strength");
 const encrypted = element("#encrypted");
-const e2eeHelp = element("#e2ee-help");
-const e2eeDialog = element("#e2ee-dialog");
 const randomButton = element("#random-name");
 const status = createStatus(element("#home-status"));
 /** Lowercase letters and digits are valid in both modes. */
@@ -71,21 +69,12 @@ const showStrength = () => {
 let config = null;
 let rules = null;
 
-const updateMode = () => {
-  const sealed = encrypted.checked;
-  input.placeholder = sealed ? "a long secret name" : "myns";
-  prefix.textContent = sealed ? "/e#" : "/";
+const modeChanged = () => {
   pageTitle.textContent = prefix.textContent;
-  input.maxLength = sealed ? config.sealed.maxNameLength : config.namespace.maxLength;
-  hint.textContent = sealed
-    ? `E2EE. Max ${config.sealed.maxNameLength} characters.`
-    : `a-z, 0-9, _ and -. Max ${config.namespace.maxLength} characters.${encrypted.disabled ? " Encryption needs HTTPS." : ""}`;
   status.clear();
   showStrength();
 };
 
-encrypted.addEventListener("change", updateMode);
-e2eeHelp.addEventListener("click", () => e2eeDialog.showModal());
 input.addEventListener("input", showStrength);
 randomButton.addEventListener("click", () => {
   input.value = randomName();
@@ -129,11 +118,7 @@ try {
     pattern: new RegExp(config.namespace.pattern),
     reserved: new Set(config.namespace.reserved),
   };
-  if (!encryptionAvailable()) {
-    encrypted.disabled = true;
-    encrypted.checked = false;
-  }
-  updateMode();
+  setupNamespaceField(element("#namespace-field"), hint, config, modeChanged);
 } catch (error) {
   form.querySelector("button[type=submit]").disabled = true;
   status.error(`Could not load settings: ${error.message}`);

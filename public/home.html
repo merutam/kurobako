@@ -20,13 +20,14 @@
       <h2 id="namespace-title">Namespace</h2>
       <form id="namespace-form">
         <fieldset>
-          <div class="namespace-input">
-            <span id="namespace-prefix" aria-hidden="true">/e#</span>
+          <div id="namespace-field" class="namespace-input">
+            <span id="namespace-prefix" class="namespace-prefix" aria-hidden="true">/e#</span>
             <input
               id="namespace"
               name="namespace"
               type="text"
               placeholder="a long secret name"
+              maxlength="256"
               autocomplete="off"
               autocapitalize="none"
               spellcheck="false"
@@ -46,11 +47,11 @@
               <button id="e2ee-help" type="button" aria-haspopup="dialog" aria-controls="e2ee-dialog" title="End-to-end encryption: items are encrypted before they reach the server.">E2EE</button>
             </div>
           </div>
-          <p id="namespace-hint" class="hint"></p>
+          <p id="namespace-hint" class="hint">E2EE. Max 256 characters.</p>
           <p id="name-strength" class="hint" aria-live="polite" hidden></p>
           <p class="actions">
-            <button data-icon="random" id="random-name" type="button">Random name</button>
-            <button data-icon="open" type="submit" class="primary">Open</button>
+            <button data-icon="random" id="random-name" type="button"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><circle cx="5.5" cy="5.5" r=".6" /><circle cx="8" cy="8" r=".6" /><circle cx="10.5" cy="10.5" r=".6" /></svg>Random name</button>
+            <button data-icon="open" type="submit" class="primary"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.5 8h10M9 4.5L12.5 8 9 11.5" /></svg>Open</button>
           </p>
           <p
             id="home-status"
@@ -61,7 +62,7 @@
         </fieldset>
       </form>
     </section>
-    <dialog id="e2ee-dialog" aria-labelledby="e2ee-title">
+    <dialog id="e2ee-dialog" class="e2ee-dialog" aria-labelledby="e2ee-title">
       <h2 id="e2ee-title">End-to-end encryption</h2>
       <p>Your browser encrypts items before sending them. The server stores ciphertext and cannot read their contents.</p>
       <p>The secret name after <code>#</code> stays in the browser. Anyone with the full link can read the items; without that name, they cannot be recovered.</p>
@@ -96,6 +97,6 @@
           </tr>
         </tbody>
       </table>
-      <p><a data-icon="json" href="/stats.json">Full statistics</a></p>
+      <p><a data-icon="json" href="/stats.json"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 2.5H5a1.5 1.5 0 0 0-1.5 1.5v2A2 2 0 0 1 2 8a2 2 0 0 1 1.5 2v2A1.5 1.5 0 0 0 5 13.5h1M10 2.5h1a1.5 1.5 0 0 1 1.5 1.5v2A2 2 0 0 0 14 8a2 2 0 0 0-1.5 2v2a1.5 1.5 0 0 1-1.5 1.5h-1" /></svg>Full statistics</a></p>
     </section>
 </main>

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { element, request, SITE } from "./common.js";
+import { element, readConfig, request, SITE, setupNamespaceField } from "./common.js";
 import { describeOpened, describePlain, limitedItem } from "./items.js";
 import {
+  normalizeSecretName,
   openSealedSpace,
   openSharedItem,
   openViewEntry,
@@ -15,6 +16,8 @@ import { createItemList } from "./namespaces/item-list.js";
 import { createStatus } from "./status.js";
 
 const status = createStatus(element("#view-status"));
+const cloneConfig = readConfig();
+setupNamespaceField(element("#clone-field"), element("#clone-hint"), cloneConfig);
 let view = JSON.parse(element("#view-data").textContent);
 const viewKey = decodeURIComponent(window.location.hash.slice(1));
 let entriesById = new Map();
@@ -145,10 +148,11 @@ const clone = async (event) => {
   let skipped = 0;
   let destination = "";
   try {
-    const name = element("#clone-name").value.trim();
-    const encrypted = element("#clone-mode").value === "sealed";
+    const encrypted = element("#clone-encrypted").checked;
+    const typedName = element("#clone-name").value;
+    const name = encrypted ? normalizeSecretName(typedName) : typedName.trim().toLowerCase();
     if (encrypted) {
-      const problem = secretNameProblem(name);
+      const problem = secretNameProblem(name, cloneConfig.sealed.maxNameLength);
       if (problem) throw new Error(problem);
     }
     const space = encrypted ? await openSealedSpace(name) : null;

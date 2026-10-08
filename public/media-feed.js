@@ -4,52 +4,14 @@
 // A scrollable media page. Media loads near the viewport and stays loaded while
 // the page is open, so scrolling back never spends another read/rate-limit hit.
 import { el, element, storage } from "./common.js";
-import { icon } from "./icons.js";
 import { audioPlayer, itemSummary, videoPlayer } from "./items.js";
 
 const VIEW_KEY = "kurobako-media-view-v2";
 const VIEWS = ["list", "grid", "details"];
 const GRID_ROW_HEIGHT = 320;
 
-const mediaViewButton = (name, view, label, pressed) => {
-  const control = el("button", { type: "button" }, icon(name), label);
-  control.dataset.mediaView = view;
-  control.setAttribute("aria-pressed", String(pressed));
-  return control;
-};
-
-/** Both namespace and shared-view pages provide only the host section. */
-const fillMediaFeed = (page) => {
-  page.replaceChildren(
-    el("p", {}, el("a", { id: "media-feed-back", href: "." }, "← Back to items")),
-    el(
-      "div",
-      { className: "media-feed-heading" },
-      el("h1", { id: "media-feed-title" }, "Media"),
-      el(
-        "fieldset",
-        { className: "media-view-options" },
-        el("legend", { className: "visually-hidden" }, "Media view"),
-        mediaViewButton("image", "list", "List", true),
-        mediaViewButton("grid", "grid", "Grid", false),
-        mediaViewButton("list", "details", "Details", false),
-      ),
-      el(
-        "select",
-        { id: "media-filter", ariaLabel: "Filter media" },
-        el("option", { value: "all" }, "All media"),
-        el("option", { value: "images" }, "Images"),
-        el("option", { value: "videos" }, "Videos"),
-        el("option", { value: "audios" }, "Audio"),
-      ),
-    ),
-    el("div", { id: "media-feed-list", className: "media-feed-list" }),
-  );
-};
-
 export const createMediaFeed = (sourceOf) => {
   const page = element("#media-feed");
-  fillMediaFeed(page);
   const list = element("#media-feed-list");
   const back = element("#media-feed-back");
   const filterInput = element("#media-filter");

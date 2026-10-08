@@ -142,7 +142,7 @@ export const icon = (name, size = 16) => {
   return svg;
 };
 
-/** Decorate native HTML controls; calling it again will not duplicate icons. */
+/** Decorate controls made by JS; SVGs already in initial HTML are left alone. */
 export const decorateIcons = (root = document) => {
   for (const control of root.querySelectorAll("[data-icon]")) {
     if (control.firstElementChild?.localName !== "svg") {
