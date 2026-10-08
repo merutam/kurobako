@@ -278,17 +278,19 @@ describe("hub housekeeping", () => {
 });
 
 describe("live updates", () => {
-  /** A live connection: the queues it got, and the viewer counts. */
+  /** A live connection: readiness, queue deltas and viewer counts. */
   const watch = async (ns: string) => {
     const response = await call(`/${ns}/live`, { headers: { upgrade: "websocket" } });
     expect(response.status).toBe(101);
     const socket = defined(response.webSocket, "a WebSocket");
-    const queues: Item[][] = [];
+    const changes: Extract<LiveMessage, { type: "change" }>[] = [];
+    const ready: number[] = [];
     const viewers: number[] = [];
     let notify = () => {};
     socket.addEventListener("message", (event) => {
       const message = JSON.parse(event.data as string) as LiveMessage;
-      if (message.type === "items") queues.push(message.items);
+      if (message.type === "change") changes.push(message);
+      else if (message.type === "ready") ready.push(message.revision);
       else viewers.push(message.count);
       notify();
     });
@@ -296,17 +298,18 @@ describe("live updates", () => {
     const until = async (done: () => boolean) => {
       while (!done()) await new Promise<void>((resolve) => (notify = resolve));
     };
-    return { socket, queues, viewers, until };
+    return { socket, changes, ready, viewers, until };
   };
 
-  test("push the queue over a WebSocket on connect and after each change", async () => {
+  test("sends readiness without the queue, then only deltas", async () => {
     const ns = fresh();
     const live = await watch(ns);
-    await live.until(() => live.queues.length >= 1);
-    expect(live.queues[0]).toEqual([]);
+    await live.until(() => live.ready.length >= 1);
+    expect(live.ready[0]).toBe(0);
     await sendText(ns, "live");
-    await live.until(() => live.queues.length >= 2);
-    expect(live.queues[1]).toMatchObject([{ kind: "text", text: "live" }]);
+    await live.until(() => live.changes.length >= 1);
+    expect(live.changes[0]?.upserts).toMatchObject([{ kind: "text", text: "live" }]);
+    expect(live.changes[0]?.revision).toBe(1);
 
     const connected = (await stats()).liveConnections;
     live.socket.close(1000);
@@ -333,12 +336,12 @@ describe("live updates", () => {
   test("a device waiting on a namespace that does not exist yet gets its first item", async () => {
     const ns = fresh("wait");
     const live = await watch(ns);
-    await live.until(() => live.queues.length >= 1);
-    expect(live.queues[0]).toEqual([]);
+    await live.until(() => live.ready.length >= 1);
+    expect(live.ready[0]).toBe(0);
 
     await sendText(ns, "first one");
-    await live.until(() => live.queues.length >= 2);
-    expect(live.queues[1]).toMatchObject([{ kind: "text", text: "first one" }]);
+    await live.until(() => live.changes.length >= 1);
+    expect(live.changes[0]?.upserts).toMatchObject([{ kind: "text", text: "first one" }]);
     live.socket.close(1000);
   });
 });

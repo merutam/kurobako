@@ -95,7 +95,8 @@ export const mountNamespaces = (
     app.get(
       `${prefix}/ls`,
       inNamespace(async (c, ref) => {
-        const items = (await namespace(c, ref).list(visit(c))) as StoredItem[];
+        const { items, revision } = await namespace(c, ref).listState(visit(c));
+        c.header("X-Queue-Revision", String(revision));
         // Nothing here is what a name that does not exist answers too.
         if (!items.length) c.set("miss", true);
         // ?summary is what the page uses: long texts as previews.
@@ -121,7 +122,7 @@ export const mountNamespaces = (
       inNamespace((c) => jsonError(c, 503, "Namespace locks are not part of this protocol.")),
     );
 
-    /** The old lock lifecycle is not part of protocol v6. */
+    /** The old lock lifecycle is not part of the current protocol. */
     app.delete(
       `${prefix}/lock`,
       inNamespace((c) => jsonError(c, 503, "Namespace locks are not part of this protocol.")),
@@ -159,7 +160,7 @@ export const mountNamespaces = (
       if (c.req.header("upgrade")?.toLowerCase() !== "websocket") {
         return jsonError(c, 426, "Expected a WebSocket upgrade.");
       }
-      // The live queue shows what /ls does, so an empty one counts as a miss too.
+      // An empty namespace still counts as a miss; live itself has no snapshot.
       if (!((await namespace(c, ref).list()) as StoredItem[]).length) c.set("miss", true);
       return platformOf(c).live(c, ref, visit(c));
     });

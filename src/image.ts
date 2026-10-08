@@ -2,12 +2,27 @@
 // Copyright (C) 2026 Kurobako contributors
 
 /**
- * A file the browser can show: an image, or a video it may play. Anything
+ * A file the browser can show or play: image, video or audio. Anything
  * else is a plain download.
  */
 export type AcceptedMedia = {
-  kind: "image" | "video";
-  extension: "png" | "jpg" | "gif" | "webp" | "avif" | "heic" | "mp4" | "mov" | "webm" | "mkv";
+  kind: "image" | "video" | "audio";
+  extension:
+    | "png"
+    | "jpg"
+    | "gif"
+    | "webp"
+    | "avif"
+    | "heic"
+    | "mp4"
+    | "mov"
+    | "webm"
+    | "mkv"
+    | "mp3"
+    | "wav"
+    | "flac"
+    | "ogg"
+    | "m4a";
   mime: string;
 };
 
@@ -58,6 +73,11 @@ const video = (extension: AcceptedMedia["extension"], mime: string): AcceptedMed
   extension,
   mime,
 });
+const audio = (extension: AcceptedMedia["extension"], mime: string): AcceptedMedia => ({
+  kind: "audio",
+  extension,
+  mime,
+});
 
 /** What a file is, from its first SIGNATURE_BYTES bytes; never from its name. */
 export const detectMedia = (bytes: Uint8Array): AcceptedMedia | null => {
@@ -86,6 +106,21 @@ export const detectMedia = (bytes: Uint8Array): AcceptedMedia | null => {
   if (bytes.length >= 12 && ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 4) === "WEBP") {
     return image("webp", "image/webp");
   }
+  if (bytes.length >= 12 && ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 4) === "WAVE") {
+    return audio("wav", "audio/wav");
+  }
+  if (bytes.length >= 4 && ascii(bytes, 0, 4) === "fLaC") return audio("flac", "audio/flac");
+  if (bytes.length >= 3 && ascii(bytes, 0, 3) === "ID3") return audio("mp3", "audio/mpeg");
+  if (bytes.length >= 2 && bytes[0] === 0xff && ((bytes[1] ?? 0) & 0xe6) === 0xe2) {
+    return audio("mp3", "audio/mpeg");
+  }
+  if (
+    bytes.length >= 36 &&
+    ascii(bytes, 0, 4) === "OggS" &&
+    (ascii(bytes, 28, 8) === "OpusHead" || ascii(bytes, 29, 6) === "vorbis")
+  ) {
+    return audio("ogg", "audio/ogg");
+  }
 
   if (bytes.length >= 12 && ascii(bytes, 4, 4) === "ftyp") {
     const brand = ascii(bytes, 8, 4);
@@ -98,6 +133,7 @@ export const detectMedia = (bytes: Uint8Array): AcceptedMedia | null => {
     }
 
     if (brand === "qt  ") return video("mov", "video/quicktime");
+    if (brand === "M4A " || brand === "M4B ") return audio("m4a", "audio/mp4");
     if (MP4_BRANDS.includes(brand)) return video("mp4", "video/mp4");
   }
 

@@ -120,6 +120,13 @@ export class NamespaceCore {
       sql.exec(ACCESS_LOG_SCHEMA);
       for (const statement of VIEW_SCHEMA) sql.exec(statement);
       this.schemaReady = true;
+      if (!sql.exec("SELECT value FROM meta WHERE key = 'live_revision'").length) {
+        const baseline = JSON.stringify(this.queue.all().map(summaryItem));
+        sql.exec(
+          "INSERT OR REPLACE INTO meta (key, value) VALUES ('live_revision', '0'), ('live_snapshot', ?)",
+          baseline,
+        );
+      }
     }
     return sql;
   }
@@ -203,17 +210,46 @@ export class NamespaceCore {
     if (visit && this.exists()) this.log.record(visit);
   }
 
-  /** After any change: push the queue to live viewers, reschedule expiry, update stats. */
+  private revision(): number {
+    return Number(
+      this.sql.exec<{ value: string }>("SELECT value FROM meta WHERE key = 'live_revision'")[0]
+        ?.value ?? 0,
+    );
+  }
+
+  /** After any change: publish only the queue delta, then reschedule expiry and stats. */
   private async changed(): Promise<void> {
     const ref = this.ref();
     if (!ref) return;
     const items = this.queue.all();
-    const message = this.snapshot(items);
-    for (const socket of this.host.sockets()) {
-      try {
-        socket.send(message);
-      } catch {
-        // A socket closing right now gets the queue on its next connection.
+    const current = items.map(summaryItem);
+    const encoded = JSON.stringify(current);
+    const previous = this.sql.exec<{ value: string }>(
+      "SELECT value FROM meta WHERE key = 'live_snapshot'",
+    )[0]?.value;
+    if (previous !== encoded) {
+      const before = (previous ? JSON.parse(previous) : []) as ReturnType<typeof summaryItem>[];
+      const old = new Map(before.map((item) => [item.id, JSON.stringify(item)]));
+      const next = new Set(current.map((item) => item.id));
+      const revision = this.revision() + 1;
+      this.sql.exec(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('live_revision', ?), ('live_snapshot', ?)",
+        String(revision),
+        encoded,
+      );
+      const message = JSON.stringify({
+        type: "change",
+        revision,
+        upserts: current.filter((item) => old.get(item.id) !== JSON.stringify(item)),
+        removed: before.filter((item) => !next.has(item.id)).map((item) => item.id),
+        order: current.map((item) => item.id),
+      });
+      for (const socket of this.host.sockets()) {
+        try {
+          socket.send(message);
+        } catch {
+          // A dropped viewer reconciles against /ls on its next connection.
+        }
       }
     }
     await this.scheduleAlarm(items);
@@ -298,9 +334,14 @@ export class NamespaceCore {
   // --- Items ------------------------------------------------------------
 
   async list(visit?: AccessEvent): Promise<StoredItem[]> {
-    if (!this.exists()) return [];
+    return (await this.listState(visit)).items;
+  }
+
+  /** Queue and revision are read together for race-free WebSocket bootstrap. */
+  async listState(visit?: AccessEvent): Promise<{ items: StoredItem[]; revision: number }> {
+    if (!this.exists()) return { items: [], revision: 0 };
     await this.enter(visit);
-    return this.queue.all();
+    return { items: this.queue.all(), revision: this.revision() };
   }
 
   /** A writer's consistent item list, active view and historical view IDs. */
@@ -705,25 +746,18 @@ export class NamespaceCore {
 
   // --- Live updates -----------------------------------------------------
 
-  /** The message every viewer gets: { type: "items", items }. */
-  private snapshot(items: StoredItem[]): string {
-    return JSON.stringify({
-      type: "items",
-      items: items.map((item) => summaryItem(item)),
-    });
-  }
-
   canWatch(): boolean {
     return this.host.sockets().length < this.config.maxLiveConnections;
   }
 
   /**
-   * A new viewer: the queue to send it first. Watching stores nothing, so a
+   * A new viewer: a readiness marker, without the queue. Watching stores nothing, so a
    * device can wait on a namespace that does not exist yet and get its first
    * item the moment another device sends it.
    */
   async watch(visit?: AccessEvent): Promise<string> {
-    return this.snapshot(await this.list(visit));
+    const { revision } = await this.listState(visit);
+    return JSON.stringify({ type: "ready", revision });
   }
 
   /**

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// A scrollable media page. Only media near the viewport is loaded; decrypted
-// Blob URLs are released again as the reader scrolls away.
+// A scrollable media page. Media loads near the viewport and stays loaded while
+// the page is open, so scrolling back never spends another read/rate-limit hit.
 import { el, element, storage } from "./common.js";
-import { itemSummary, videoPlayer } from "./items.js";
+import { audioPlayer, itemSummary, videoPlayer } from "./items.js";
 
 const VIEW_KEY = "kurobako-media-view-v2";
 const VIEWS = ["list", "grid", "details"];
@@ -14,6 +14,7 @@ export const createMediaFeed = (sourceOf) => {
   const page = element("#media-feed");
   const list = element("#media-feed-list");
   const back = element("#media-feed-back");
+  const filterInput = element("#media-filter");
   const viewButtons = [...page.querySelectorAll("[data-media-view]")];
   const previousView = { large: "list", grid: "grid", list: "details" }[
     storage.get("kurobako-media-view")
@@ -25,6 +26,7 @@ export const createMediaFeed = (sourceOf) => {
   const aspects = new Map();
   let observer = null;
   let returnScroll = 0;
+  let filter = "all";
 
   list.dataset.view = view;
   for (const button of viewButtons) {
@@ -51,6 +53,21 @@ export const createMediaFeed = (sourceOf) => {
   for (const button of viewButtons) {
     button.addEventListener("click", () => setView(button.dataset.mediaView));
   }
+  const matchesFilter = (entry) =>
+    filter === "all" ||
+    (filter === "images" && entry.info.isImage) ||
+    (filter === "videos" && entry.info.isVideo) ||
+    (filter === "audios" && entry.info.isAudio);
+  const applyFilter = () => {
+    for (const card of cards.values()) {
+      card.figure.hidden = !matchesFilter(card.entry);
+      if (card.figure.hidden) card.slot.querySelector("video, audio")?.pause();
+    }
+  };
+  filterInput.addEventListener("change", () => {
+    filter = filterInput.value;
+    applyFilter();
+  });
   const mediaUrl = (id) => {
     const url = new URL(window.location.href);
     if (id) url.searchParams.set("media", id);
@@ -61,10 +78,10 @@ export const createMediaFeed = (sourceOf) => {
   const release = (card) => {
     card.generation += 1;
     card.loading = false;
-    const medium = card.slot.querySelector("img, video");
+    const medium = card.slot.querySelector("img, video, audio");
     if (medium) {
       card.slot.style.minHeight = `${card.slot.offsetHeight}px`;
-      if (medium.localName === "video") medium.pause();
+      if (medium.localName !== "img") medium.pause();
     }
     card.slot.replaceChildren(el("span", { className: "hint", textContent: "Scroll to load" }));
     card.source?.revoke?.();
@@ -92,12 +109,14 @@ export const createMediaFeed = (sourceOf) => {
       }
       const medium = card.entry.info.isVideo
         ? videoPlayer(source.src)
-        : el("img", {
-            src: source.src,
-            alt: card.entry.info.title,
-            loading: "lazy",
-            decoding: "async",
-          });
+        : card.entry.info.isAudio
+          ? audioPlayer(source.src)
+          : el("img", {
+              src: source.src,
+              alt: card.entry.info.title,
+              loading: "lazy",
+              decoding: "async",
+            });
       if (medium.localName === "video") {
         medium.controls = view !== "details";
         medium.addEventListener("loadedmetadata", () => {
@@ -106,7 +125,7 @@ export const createMediaFeed = (sourceOf) => {
           }
         });
         if (medium.videoWidth) rememberAspect(card, medium.videoWidth, medium.videoHeight);
-      } else {
+      } else if (medium.localName === "img") {
         medium.addEventListener("load", () => {
           if (generation === card.generation) {
             rememberAspect(card, medium.naturalWidth, medium.naturalHeight);
@@ -132,7 +151,7 @@ export const createMediaFeed = (sourceOf) => {
     cards = new Map();
     list.replaceChildren();
     if (!entries.length) {
-      list.append(el("p", { className: "hint", textContent: "No images or videos." }));
+      list.append(el("p", { className: "hint", textContent: "No media." }));
       return;
     }
     observer = new IntersectionObserver(
@@ -141,7 +160,7 @@ export const createMediaFeed = (sourceOf) => {
           const card = cards.get(change.target.dataset.mediaId);
           if (!card) continue;
           if (change.isIntersecting) void load(card);
-          else if (card.source || card.loading) release(card);
+          else card.slot.querySelector("video, audio")?.pause();
         }
       },
       { rootMargin: "800px 0px" },
@@ -181,6 +200,7 @@ export const createMediaFeed = (sourceOf) => {
       cards.set(entry.item.id, card);
       observer.observe(figure);
     }
+    applyFilter();
     const selected = new URL(window.location.href).searchParams.get("media");
     const first = cards.get(selected) ?? cards.values().next().value;
     if (selected) first?.slot.parentElement.scrollIntoView();

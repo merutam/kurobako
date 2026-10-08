@@ -42,6 +42,14 @@ const ICONS = {
     ["rect", { x: "1.5", y: "3.5", width: "13", height: "9", rx: "1" }],
     ["path", { d: "M6.5 6v4l3.5-2z" }],
   ],
+  audio: [
+    [
+      "path",
+      {
+        d: "M6 11V3l7-1v8M6 5l7-1M6 11a2 1.2 0 1 1-4 0 2 1.2 0 0 1 4 0zM13 10a2 1.2 0 1 1-4 0 2 1.2 0 0 1 4 0z",
+      },
+    ],
+  ],
   /** Deletes when opened. */
   burn: [
     [

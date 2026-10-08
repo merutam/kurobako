@@ -147,6 +147,17 @@ export const sharedTests = (harness: Harness) => {
       expect(new Uint8Array(await once.arrayBuffer())).toEqual(mp4);
     });
 
+    test("keeps recognized audio playable and ranged", async () => {
+      const ns = fresh("audio");
+      const bytes = new Uint8Array([73, 68, 51, 4, 0, 0, ...Array(128).fill(0)]);
+      const sent = await json<FileItem>(`/${ns}/song.bin`, { method: "PUT", body: bytes });
+      expect(sent).toMatchObject({ kind: "file", mime: "audio/mpeg", filename: "song.mp3" });
+      const part = await call(`/${ns}/${sent.id}`, { headers: { Range: "bytes=0-2" } });
+      expect(part.status).toBe(206);
+      expect(part.headers.get("content-type")).toBe("audio/mpeg");
+      expect(new Uint8Array(await part.arrayBuffer())).toEqual(bytes.slice(0, 3));
+    });
+
     test("takes what curl sends by hand", async () => {
       const ns = fresh();
       // curl -d "typed text" <site>/<ns>/new
@@ -1485,6 +1496,8 @@ export const sharedTests = (harness: Harness) => {
       expect(html).not.toContain("%CONFIG%");
       expect(html).toContain(`(build ${version})`);
       expect(html.match(/<k-file-field>/g)).toHaveLength(2);
+      expect(html).toContain('<select id="expires-in"></select>');
+      expect(html).not.toContain('id="reads-limit"');
       const home = await (await call("/")).text();
       expect(home).toContain('<span id="namespace-prefix" aria-hidden="true">/e#</span>');
       expect(home).toContain('aria-label="Enable end-to-end encryption"');

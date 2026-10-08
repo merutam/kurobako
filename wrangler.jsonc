@@ -95,6 +95,7 @@
       "!/admin.js",
       "!/login.js",
       "!/log.js",
+      "!/loading.js",
       "!/k.mjs",
       "!/status.js",
       "!/theme.js",

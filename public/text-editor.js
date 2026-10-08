@@ -129,6 +129,11 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   let frame = null;
   /** Whether coloring the whole text took too long to do on every keystroke. */
   let slow = false;
+  const updateWrapping = () => {
+    const markdown = /\.(?:md|markdown)$/i.test(title());
+    editor.classList.toggle("markdown", markdown);
+    textarea.setAttribute("wrap", markdown ? "soft" : "off");
+  };
 
   const paint = (colored) => {
     const text = textarea.value;
@@ -150,6 +155,7 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   };
 
   const refresh = ({ immediate = false } = {}) => {
+    updateWrapping();
     const starts = [0];
     for (
       let at = textarea.value.indexOf("\n");
@@ -257,7 +263,7 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   addResizeHandle(editor);
 
   textarea.spellcheck = false;
-  textarea.setAttribute("wrap", "off");
+  updateWrapping();
   textarea.addEventListener("input", () => refresh());
   textarea.addEventListener("scroll", () => {
     gutter.scrollTop = textarea.scrollTop;

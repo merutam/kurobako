@@ -56,6 +56,7 @@ export type NamespaceApi = Async<
   Pick<
     NamespaceCore,
     | "list"
+    | "listState"
     | "save"
     | "readText"
     | "claimObject"

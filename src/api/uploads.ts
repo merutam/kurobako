@@ -219,7 +219,7 @@ export const describePlainFile = (upload: Upload, filename: string | null): Obje
   const detected = detectMedia(upload.head);
   // A send without a name gets a default one, which never renames an item.
   const named = filename !== null;
-  // Recognized images are shown inline, and videos keep their type so pages
+  // Recognized images are shown inline; video and audio keep their type so pages
   // can play them (still a "file" in the queue); anything else is a download.
   if (detected) {
     return {

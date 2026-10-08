@@ -185,14 +185,14 @@ const typed = (ns: string, text: string, headers: Record<string, string> = {}) =
     headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
     body: text,
   });
-/** The next queue a live connection gets (viewer counts in between are skipped). */
-const nextMessage = (socket: WebSocket) =>
-  new Promise<Extract<LiveMessage, { type: "items" }>>((resolve) => {
+/** The next ready marker or queue delta (viewer counts in between are skipped). */
+const nextMessage = <T extends "ready" | "change">(socket: WebSocket, type: T) =>
+  new Promise<Extract<LiveMessage, { type: T }>>((resolve) => {
     const listener = (event: MessageEvent) => {
       const message = JSON.parse(String(event.data)) as LiveMessage;
-      if (message.type !== "items") return;
+      if (message.type !== type) return;
       socket.removeEventListener("message", listener);
-      resolve(message);
+      resolve(message as Extract<LiveMessage, { type: T }>);
     };
     socket.addEventListener("message", listener);
   });
@@ -549,10 +549,10 @@ describe("bun server", () => {
   test("pushes changes to live viewers", async () => {
     const ns = fresh();
     const socket = new WebSocket(`${base.replace("http", "ws")}/${ns}/live`);
-    expect((await nextMessage(socket)).items).toEqual([]);
-    const update = nextMessage(socket);
+    expect((await nextMessage(socket, "ready")).type).toBe("ready");
+    const update = nextMessage(socket, "change");
     await typed(ns, "live");
-    expect((await update).items[0]).toMatchObject({ text: "live" });
+    expect((await update).upserts[0]).toMatchObject({ text: "live" });
 
     const pong = new Promise((resolve) =>
       socket.addEventListener("message", (e) => resolve(e.data), { once: true }),
@@ -1079,6 +1079,9 @@ describe("rules kept in two places", () => {
         ...ascii("webm"),
       ),
       head(0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x82, 0x84, ...ascii("nope")),
+      head(...ascii("ID3"), 4, 0, 0),
+      head(...ascii("fLaC")),
+      head(...ascii("RIFF"), 0, 0, 0, 0, ...ascii("WAVE")),
       head(...ascii("%PDF-1.7")),
       new Uint8Array([0x89, 0x50]),
     ];
@@ -1093,10 +1096,13 @@ describe("rules kept in two places", () => {
       "mp4",
       "mp4",
       "mov",
-      null,
+      "m4a",
       "mkv",
       "webm",
       null,
+      "mp3",
+      "flac",
+      "wav",
       null,
       null,
     ]);
@@ -1227,10 +1233,10 @@ describe("several servers", () => {
   test("relays live updates both ways", async () => {
     const ns = fresh();
     const socket = new WebSocket(`${front.replace("http", "ws")}/${ns}/live`);
-    expect((await nextMessage(socket)).items).toEqual([]);
-    const update = nextMessage(socket);
+    expect((await nextMessage(socket, "ready")).type).toBe("ready");
+    const update = nextMessage(socket, "change");
     await send(ns, "live through the router");
-    expect((await update).items[0]).toMatchObject({ text: "live through the router" });
+    expect((await update).upserts[0]).toMatchObject({ text: "live through the router" });
     const pong = new Promise((resolve) =>
       socket.addEventListener("message", (event) => resolve(event.data), { once: true }),
     );
@@ -1435,8 +1441,11 @@ describe("under a base path", () => {
     expect(await (await fetch(`${described.shareUrl}/c`)).text()).toBe("under k");
 
     const socket = new WebSocket(`${origin.replace("http", "ws")}/k/notes/live`);
-    const first = await nextMessage(socket);
-    expect(first.items[0]?.id).toBe(sent.id);
+    const first = await nextMessage(socket, "ready");
+    expect(first.type).toBe("ready");
+    const listed = await at("/k/notes/ls");
+    expect(((await listed.json()) as Item[])[0]?.id).toBe(sent.id);
+    expect(Number(listed.headers.get("X-Queue-Revision"))).toBe(first.revision);
     socket.close();
   });
 
@@ -1593,7 +1602,7 @@ describe("a private instance", () => {
     // Live updates too: the browser sends the session with the WebSocket.
     const origin = open.server.url.origin.replace("http", "ws");
     const socket = new WebSocket(`${origin}/notes/live`, { headers: { cookie } } as never);
-    expect((await nextMessage(socket)).items).toHaveLength(1);
+    expect((await nextMessage(socket, "ready")).type).toBe("ready");
     socket.close();
   });
 

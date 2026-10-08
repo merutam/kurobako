@@ -4,21 +4,26 @@
 import { el, element, numberFormatter, request } from "../common.js";
 import { icon } from "../icons.js";
 
-export const LIVE_FIRST_QUEUE_MS = 3_000;
-
-export const createLive = ({ status, renderItems, isItemsShown }) => {
+export const createLive = ({ status, renderItems, isItemsShown, onReady, onError }) => {
   const refreshButton = element("#refresh");
   const liveStatus = element("#live-status");
   const viewersLabel = element("#viewers");
   let mode = null;
   let config = null;
+  let queue = [];
+  let revision = -1;
+  let pending = [];
+  let rendering = Promise.resolve();
+  const serialize = (work) => {
+    rendering = rendering.then(work).catch((error) => status.error(error.message));
+    return rendering;
+  };
   /**
-   * After a send, edit, delete or rename, the live connection brings the new queue to
-   * every open page, this one included; only without it is the queue fetched.
+   * After a mutation, live deltas update every open page; only without a live
+   * connection is the queue fetched again.
    */
   const isLive = () => socket?.readyState === WebSocket.OPEN;
   const refreshUnlessLive = () => (isLive() ? Promise.resolve() : loadItems());
-  /** How long the first queue may take over the live connection before it is fetched. */
 
   const loadItems = async () => {
     refreshButton.disabled = true;
@@ -26,20 +31,50 @@ export const createLive = ({ status, renderItems, isItemsShown }) => {
       const response = await request(`${mode.basePath}/ls?summary`, {
         cache: "no-store",
       });
-      await renderItems(await response.json());
+      const items = await response.json();
+      const nextRevision = Number(response.headers.get("X-Queue-Revision") ?? 0);
+      await serialize(async () => {
+        if (nextRevision < revision) return;
+        queue = items;
+        revision = nextRevision;
+        await renderItems(queue);
+        onReady?.();
+        const buffered = pending;
+        pending = [];
+        for (const change of buffered) await applyChange(change);
+      });
     } catch (error) {
       status.error(`Could not refresh: ${error.message}`);
+      if (!isItemsShown()) onError?.(`Could not load namespace: ${error.message}`);
     } finally {
       refreshButton.disabled = false;
     }
   };
 
-  // The server pushes the whole queue on connect and after every change, over
+  const applyChange = async (change) => {
+    if (change.revision <= revision) return;
+    if (change.revision !== revision + 1) {
+      void loadItems();
+      return;
+    }
+    const byId = new Map(queue.map((item) => [item.id, item]));
+    for (const id of change.removed) byId.delete(id);
+    for (const item of change.upserts) byId.set(item.id, item);
+    if (change.order.some((id) => !byId.has(id))) {
+      void loadItems();
+      return;
+    }
+    queue = change.order.map((id) => byId.get(id));
+    revision = change.revision;
+    await renderItems(queue);
+  };
+
+  // The server sends a ready marker and then queue deltas over
   // a WebSocket that the namespace keeps open while it sleeps. Pings stop
   // proxies from closing an idle connection (they are answered without waking
   // the server); a dropped connection is retried with a growing delay. A tab
   // hidden for a while closes its connection, since every connection and ping
-  // costs requests, and reconnects (getting the whole queue) when shown.
+  // costs requests, and reconnects with a fresh /ls when shown.
   const RECONNECT_FIRST_MS = 1_000;
   const RECONNECT_MAX_MS = 30_000;
   let socket = null;
@@ -74,6 +109,8 @@ export const createLive = ({ status, renderItems, isItemsShown }) => {
     clearInterval(pingTimer);
     pausedWhileHidden = false;
     socket?.close();
+    revision = -1;
+    pending = [];
 
     const url = new URL(`${mode.basePath}/live`, window.location.href);
     url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -90,8 +127,10 @@ export const createLive = ({ status, renderItems, isItemsShown }) => {
     current.addEventListener("message", (event) => {
       if (event.data === config.live.pong) return;
       const message = JSON.parse(event.data);
-      if (message.type === "items") {
-        void renderItems(message.items);
+      if (message.type === "ready") void loadItems();
+      if (message.type === "change") {
+        if (revision < 0) pending.push(message);
+        else void serialize(() => applyChange(message));
       }
       if (message.type === "viewers") showViewers(message.count);
     });
@@ -99,7 +138,7 @@ export const createLive = ({ status, renderItems, isItemsShown }) => {
       if (socket !== current) return;
       clearInterval(pingTimer);
       setLive(false);
-      // Never connected long enough to bring the queue: fetch it instead.
+      // A failed connection still loads the queue. A later reconnect reconciles.
       if (!isItemsShown()) void loadItems();
       // Hidden tabs reconnect when they come back instead.
       if (document.visibilityState !== "visible") return;

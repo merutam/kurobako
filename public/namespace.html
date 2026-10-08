@@ -9,7 +9,8 @@
   <!-- Filled in by the server: limits and rules, fixed for each deployment. -->
   <script type="application/json" id="config">"%CONFIG%"</script>
 </head>
-<main>
+<main data-loading>
+  <div id="page-loading" class="page-loading" role="status" aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span><span>Loading namespace…</span></div>
   <h1 id="page-title">Namespace</h1>
   <p class="intro">
     <span id="mode-label"></span><span id="expiry-label"></span><span id="page-links"></span>
@@ -33,6 +34,12 @@
         <button data-icon="grid" data-media-view="grid" type="button" aria-pressed="false">Grid</button>
         <button data-icon="list" data-media-view="details" type="button" aria-pressed="false">Details</button>
       </fieldset>
+      <select id="media-filter" aria-label="Filter media">
+        <option value="all">All media</option>
+        <option value="images">Images</option>
+        <option value="videos">Videos</option>
+        <option value="audios">Audio</option>
+      </select>
     </div>
     <div id="media-feed-list" class="media-feed-list"></div>
   </section>
@@ -45,17 +52,10 @@
           <input id="burn" type="checkbox" disabled />
           <span data-icon="burn">Delete after first open</span>
         </label>
-        <p id="burn-hint" class="hint">New items sent while enabled are deleted when first opened.</p>
       </div>
-      <div class="setting-row">
-        <label for="reads-limit">Reads allowed (optional)</label>
-        <input id="reads-limit" type="number" min="1" max="1000000" step="1" inputmode="numeric" placeholder="Unlimited" />
-        <p class="hint">Each explicit open uses one read; leave blank for unlimited.</p>
-      </div>
-      <div class="setting-row">
-        <label for="expires-in">Expires in seconds (optional)</label>
-        <input id="expires-in" type="number" min="1" step="1" inputmode="numeric" placeholder="Instance default" />
-        <p class="hint">Must not exceed this instance's item lifetime.</p>
+      <div class="setting-row expiry-setting">
+        <label for="expires-in">Expires after</label>
+        <select id="expires-in"></select>
       </div>
     </div>
   </section>

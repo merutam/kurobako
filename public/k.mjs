@@ -568,7 +568,7 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 /** This file's version, the same as the server it comes from (package.json). */
 export const VERSION = "0.7.3";
 /** The protocol this file speaks; a server says its own in /.well-known/kurobako. */
-export const PROTOCOL = 6;
+export const PROTOCOL = 7;
 // Everything below only runs when this file is executed directly. It reads
 // like curl: the same options and the same paths as the plain API, with
 // e#<name> in place of the namespace.
@@ -1019,12 +1019,13 @@ const MP4_BRANDS = [
 
 /**
  * What a file is, from its first bytes, as the server tells for plain files:
- * { kind: "image" | "video", extension, mime }, or null for anything else.
+ * { kind: "image" | "video" | "audio", extension, mime }, or null for anything else.
  */
 export const detectMedia = (bytes) => {
   const ascii = (start, length) => String.fromCharCode(...bytes.subarray(start, start + length));
   const image = (extension, mime) => ({ kind: "image", extension, mime });
   const video = (extension, mime) => ({ kind: "video", extension, mime });
+  const audio = (extension, mime) => ({ kind: "audio", extension, mime });
   const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (bytes.length >= 8 && PNG.every((byte, index) => bytes[index] === byte)) {
     return image("png", "image/png");
@@ -1038,6 +1039,21 @@ export const detectMedia = (bytes) => {
   if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
     return image("webp", "image/webp");
   }
+  if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WAVE") {
+    return audio("wav", "audio/wav");
+  }
+  if (bytes.length >= 4 && ascii(0, 4) === "fLaC") return audio("flac", "audio/flac");
+  if (bytes.length >= 3 && ascii(0, 3) === "ID3") return audio("mp3", "audio/mpeg");
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe6) === 0xe2) {
+    return audio("mp3", "audio/mpeg");
+  }
+  if (
+    bytes.length >= 36 &&
+    ascii(0, 4) === "OggS" &&
+    (ascii(28, 8) === "OpusHead" || ascii(29, 6) === "vorbis")
+  ) {
+    return audio("ogg", "audio/ogg");
+  }
   if (bytes.length >= 12 && ascii(4, 4) === "ftyp") {
     const brand = ascii(8, 4);
     if (brand === "avif" || brand === "avis") return image("avif", "image/avif");
@@ -1045,6 +1061,7 @@ export const detectMedia = (bytes) => {
       return image("heic", "image/heic");
     }
     if (brand === "qt  ") return video("mov", "video/quicktime");
+    if (brand === "M4A " || brand === "M4B ") return audio("m4a", "audio/mp4");
     if (MP4_BRANDS.includes(brand)) return video("mp4", "video/mp4");
   }
   // Matroska and WebM: an EBML header, whose DocType (element 0x4282, a
@@ -1966,8 +1983,8 @@ const isNamespace = async (url) => {
  * Stays on a namespace's live connection and prints a line per change, for
  * scripts (`while read -r event id name`): "new <id> <name>", "moved <id>
  * <name>" (the same contents sent again), "changed <id> <name>", "gone <id>"
- * (deleted, expired or burnt). It starts from the queue
- * as it is, reconnects by itself and, once back, prints only what changed
+ * (deleted, expired or burnt). It connects before fetching /ls, then consumes
+ * only queue deltas. It reconnects by itself and prints only what changed
  * meanwhile. `nameOf(item)` names an item (decrypting it if need be).
  */
 const watchLive = async (base, nameOf) => {
@@ -1982,8 +1999,10 @@ const watchLive = async (base, nameOf) => {
   const address = `${base.replace(/^http/, "ws")}/live`;
   const accessKey = globalThis.process?.env?.KUROBAKO_KEY;
   const print = (line) => process.stdout.write(`${line}\n`);
-  /** What was last seen, by item ID: { name, createdAt, updatedAt }; null until the first queue. */
+  /** What was last seen by item ID; null until the first /ls snapshot. */
   let known = null;
+  let revision = -1;
+  let pending = [];
   const names = new Map();
   const named = async (item) => {
     // Encrypted items change their sealed metadata when edited or renamed; plain ones, their name.
@@ -1992,7 +2011,7 @@ const watchLive = async (base, nameOf) => {
     return names.get(key);
   };
 
-  const apply = async ({ items }) => {
+  const apply = async (items, nextRevision) => {
     const seen = new Map();
     for (const item of items) {
       seen.set(item.id, {
@@ -2012,10 +2031,48 @@ const watchLive = async (base, nameOf) => {
       for (const id of known.keys()) if (!seen.has(id)) print(`gone ${id}`);
     }
     known = seen;
+    revision = nextRevision;
+  };
+
+  const bootstrap = async () => {
+    const response = await call(`${base}/ls?summary`);
+    const items = await response.json();
+    const nextRevision = Number(response.headers.get("X-Queue-Revision") ?? 0);
+    if (nextRevision >= revision) await apply(items, nextRevision);
+    const buffered = pending;
+    pending = [];
+    for (const change of buffered) await applyChange(change);
+  };
+
+  const applyChange = async (change) => {
+    if (change.revision <= revision) return;
+    if (change.revision !== revision + 1) return bootstrap();
+    const upserts = new Map(change.upserts.map((item) => [item.id, item]));
+    for (const id of [...change.order].reverse()) {
+      const item = upserts.get(id);
+      if (!item) continue;
+      const now = {
+        name: await named(item),
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt ?? null,
+      };
+      const before = known.get(id);
+      if (!before) print(`new ${id} ${now.name}`);
+      else if (before.createdAt !== now.createdAt) print(`moved ${id} ${now.name}`);
+      else if (before.updatedAt !== now.updatedAt || before.name !== now.name)
+        print(`changed ${id} ${now.name}`);
+      known.set(id, now);
+    }
+    for (const id of change.removed) {
+      if (known.delete(id)) print(`gone ${id}`);
+    }
+    revision = change.revision;
   };
 
   let delay = 1_000;
   while (true) {
+    revision = -1;
+    pending = [];
     await new Promise((resolve) => {
       const socket = new WebSocket(
         address,
@@ -2030,9 +2087,15 @@ const watchLive = async (base, nameOf) => {
       socket.addEventListener("message", (event) => {
         if (event.data === live.pong) return;
         const message = JSON.parse(String(event.data));
-        if (message.type !== "items") return;
-        // One queue at a time, in order: naming one may take a moment.
-        handled = handled.then(() => apply(message)).catch((error) => console.error(error.message));
+        if (message.type === "ready") {
+          handled = handled.then(bootstrap).catch((error) => console.error(error.message));
+        } else if (message.type === "change") {
+          if (revision < 0) pending.push(message);
+          else
+            handled = handled
+              .then(() => applyChange(message))
+              .catch((error) => console.error(error.message));
+        }
       });
       socket.addEventListener("close", () => {
         clearInterval(ping);

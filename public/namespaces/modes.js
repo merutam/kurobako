@@ -13,9 +13,8 @@ import {
 } from "../k.mjs";
 
 const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
-const sendHeaders = ({ burn, reads, expiresIn }) => ({
+const sendHeaders = ({ burn, expiresIn }) => ({
   ...burnHeaders(burn),
-  ...(reads ? { Reads: reads } : {}),
   ...(expiresIn ? { "Expires-In": expiresIn } : {}),
 });
 const versionOf = (item) => item.updatedAt ?? item.createdAt;

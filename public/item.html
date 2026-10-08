@@ -9,7 +9,8 @@
   <!-- Filled in by the server: the shared item, or null once it is gone. -->
   <script type="application/json" id="item-data">"%ITEM%"</script>
 </head>
-<main>
+<main data-loading>
+  <div id="page-loading" class="page-loading" role="status" aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span><span>Loading item…</span></div>
   <h1 id="item-title">Shared item</h1>
   <p id="item-meta" class="intro"></p>
 

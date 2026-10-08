@@ -18,6 +18,7 @@ import {
 } from "../common.js";
 import { icon } from "../icons.js";
 import {
+  audioPlayer,
   canCopyImages,
   copyImage,
   downloadBlob,
@@ -129,7 +130,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       : null;
 
   /**
-   * An image or video's browser address. Plain media stays streamed from the
+   * A medium's browser address. Plain media stays streamed from the
    * server. Decrypted media becomes a Blob URL, kept by its row or by the media
    * feed for only as long as it needs it.
    */
@@ -138,7 +139,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     if (!entry.opened && item.kind !== "sealed" && !limitedItem(item)) {
       return { src: `${mode.basePath}/${encodeURIComponent(item.id)}`, revoke: null };
     }
-    const streamed = info.isVideo ? await partsAddress(entry) : null;
+    const streamed = info.isVideo || info.isAudio ? await partsAddress(entry) : null;
     if (streamed) return { src: streamed, revoke: null };
     const blob = await blobOf(entry);
     if (preview) return { src: objectUrl(blob, item.id), revoke: null };
@@ -425,7 +426,9 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
             ? "image"
             : info.isVideo
               ? "video"
-              : "file";
+              : info.isAudio
+                ? "audio"
+                : "file";
     const title = el("span", { className: "item-title", textContent: info.title });
     const heading = [el("span", { className: "item-kind" }, icon(kind)), title];
     const age = el("span", { textContent: formatAge(item.createdAt) });
@@ -448,7 +451,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       const toggle = el("button", { type: "button", className: "item-toggle" }, ...heading);
       toggle.setAttribute("aria-controls", bodyId);
       const body = el("div", { className: "item-body", id: bodyId });
-      const previewable = info.kind === "text" || info.isImage || info.isVideo;
+      const previewable = info.kind === "text" || info.isImage || info.isVideo || info.isAudio;
       preview = el("div");
 
       let loaded = false;
@@ -466,6 +469,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
             const { src } = await mediaAddress(entry, { preview: true });
             if (info.isVideo) {
               preview.replaceChildren(videoPlayer(src));
+            } else if (info.isAudio) {
+              preview.replaceChildren(audioPlayer(src));
             } else {
               const image = el("img", { alt: info.title, src, draggable: false });
               const open = el(
@@ -556,10 +561,12 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
         ),
       );
     } else {
-      if (info.isImage || info.isVideo) {
+      if (info.isImage || info.isVideo || info.isAudio) {
         actions.append(
-          iconButton(info.isVideo ? "video" : "image", "Open media feed", () =>
-            mediaFeed.open(entry),
+          iconButton(
+            info.isVideo ? "video" : info.isAudio ? "audio" : "image",
+            "Open media feed",
+            () => mediaFeed.open(entry),
           ),
         );
       }
@@ -664,7 +671,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
 
     const mediaEntries = entries.filter(
       (entry) =>
-        (entry.info.isImage || entry.info.isVideo) &&
+        (entry.info.isImage || entry.info.isVideo || entry.info.isAudio) &&
         (!limitedItem(entry.item) || Boolean(entry.opened)),
     );
     mediaFeed.update(mediaEntries);
