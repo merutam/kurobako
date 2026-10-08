@@ -10,7 +10,7 @@
 <main class="prose">
   <h1>Protocol</h1>
   <p class="intro">
-    This page describes the current Kurobako server protocol, version 7, for
+    This page describes the current Kurobako server protocol, version 8, for
     plain and encrypted namespaces. With what is below, and nothing else, a client can
     read, write, edit, rename, delete, download and share items.
     <a href="/k.mjs"><code>k.mjs</code></a> is one such client; nothing in
@@ -43,7 +43,7 @@
     </li>
     <li>
       <code>version</code>, the server's own, and <code>protocol</code>, this
-      page's version (7): a client of another cannot open its encrypted
+      page's version (8): a client of another cannot open its encrypted
       items.
     </li>
     <li><code>protocolUrl</code> (this page) and <code>clientUrl</code> (<code>k.mjs</code>).</li>
@@ -237,7 +237,10 @@
             <code>application/x-www-form-urlencoded</code> (what
             <code>curl -d</code> sends) makes a UTF-8 text; any other
             type, a file, named by <code>X-Filename</code>
-            (percent-encoded). <code>201</code> with the item.
+            (percent-encoded). A text may use percent-encoded
+            <code>X-Text-Name</code> to set its safe filename in that same
+            send; limited-read texts cannot expose a name.
+            <code>201</code> with the item.
           </td>
         </tr>
         <tr>
@@ -280,8 +283,12 @@
       <code>application/octet-stream</code>.
     </li>
     <li>
-      <strong>Names</strong>: a text is named by its first words until
-      renamed (burn-after-reading texts have none). An
+      <strong>Names</strong>: a text without <code>X-Text-Name</code> is named
+      by its first words until renamed; the browser instead previews an
+      editable, normalized filename before sending. Its chosen extension
+      selects syntax highlighting and is kept by downloads and backups (an
+      extensionless legacy name downloads as <code>.txt</code>).
+      Burn-after-reading texts have no public name. An
       <code>&lt;item&gt;</code> may also be a name, exact or the start of
       one, ignoring case; the newest match wins
       (<code>/notes/report</code> finds <code>Report 2024.pdf</code>).
@@ -819,7 +826,7 @@
         </tr>
         <tr>
           <td><code>node k.mjs -O &lt;link&gt;</code></td>
-          <td>exports every item here, under its name (a text's with <code>.txt</code>)</td>
+          <td>exports every item under its safe filename; an extensionless text gets <code>.txt</code></td>
         </tr>
         <tr>
           <td><code>node k.mjs &lt;link&gt;/live</code></td>

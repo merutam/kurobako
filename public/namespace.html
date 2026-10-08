@@ -16,33 +16,9 @@
     <span id="mode-label"></span><span id="expiry-label"></span><span id="page-links"></span>
   </p>
 
-  <p><button id="create-view" data-icon="share" type="button" hidden>Create shared view</button></p>
-  <div id="view-link-row" class="copy-link" hidden>
-    <input id="view-link" type="text" readonly aria-label="Shared view link" />
-    <button id="copy-view-link" data-icon="copy" type="button">Copy link</button>
-  </div>
-
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
-  <section id="media-feed" class="media-feed" aria-labelledby="media-feed-title" hidden>
-    <p><a id="media-feed-back" href=".">← Back to namespace</a></p>
-    <div class="media-feed-heading">
-      <h1 id="media-feed-title">Media</h1>
-      <fieldset class="media-view-options">
-        <legend class="visually-hidden">Media view</legend>
-        <button data-icon="image" data-media-view="list" type="button" aria-pressed="true">List</button>
-        <button data-icon="grid" data-media-view="grid" type="button" aria-pressed="false">Grid</button>
-        <button data-icon="list" data-media-view="details" type="button" aria-pressed="false">Details</button>
-      </fieldset>
-      <select id="media-filter" aria-label="Filter media">
-        <option value="all">All media</option>
-        <option value="images">Images</option>
-        <option value="videos">Videos</option>
-        <option value="audios">Audio</option>
-      </select>
-    </div>
-    <div id="media-feed-list" class="media-feed-list"></div>
-  </section>
+  <section id="media-feed" class="media-feed" aria-labelledby="media-feed-title" hidden></section>
 
   <section id="access-options" class="namespace-settings" aria-labelledby="settings-title">
     <h2 id="settings-title">Settings</h2>
@@ -71,6 +47,13 @@
             <option value="">Plain text</option>
           </select>
           <p id="text-limit" class="hint"></p>
+        </div>
+        <div id="text-name-row" class="text-name-row">
+          <label for="text-name">File name</label>
+          <div class="text-name-control">
+            <input id="text-name" type="text" value="text" maxlength="100" autocomplete="off" spellcheck="false" aria-describedby="text-extension" />
+            <span id="text-extension">.txt</span>
+          </div>
         </div>
         <div class="form-footer">
           <button data-icon="send" type="submit" class="primary">Send</button>
@@ -116,6 +99,11 @@
     <div class="copy-link">
       <input id="page-url" type="text" readonly aria-label="Link to this page" />
       <button data-icon="copy" id="copy-link" type="button">Copy link</button>
+    </div>
+    <p><button id="create-view" data-icon="share" type="button" hidden>Create shared view</button></p>
+    <div id="view-link-row" class="copy-link" hidden>
+      <input id="view-link" type="text" readonly aria-label="Shared view link" />
+      <button id="copy-view-link" data-icon="copy" type="button">Copy link</button>
     </div>
   </section>
 

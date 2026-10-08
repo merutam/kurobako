@@ -183,3 +183,9 @@ export const safeFileName = (value: string): string => {
   const base = safeBase(lastSegment.replace(/\.[^.]+$/, ""), "file");
   return extension ? `${base}.${extension}` : base;
 };
+
+/** A text's named download/backup keeps its extension; old extensionless names get .txt. */
+export const safeTextFileName = (name: string): string => {
+  const safe = safeFileName(name);
+  return /\.[\p{L}\p{N}]{1,10}$/u.test(safe) ? safe : `${safe}.txt`;
+};

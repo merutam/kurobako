@@ -100,6 +100,46 @@ export const sharedTests = (harness: Harness) => {
       expect(await (await call(`/${ns}/1`)).text()).toBe("café from the phone");
     });
 
+    test("keeps a text's chosen filename through edits and downloads", async () => {
+      const ns = fresh("named-text");
+      const sent = await parse<Item>(
+        sendText(ns, "const answer = 42", {
+          "X-Text-Name": encodeURIComponent("Notes / code.js"),
+        }),
+      );
+      expect(sent).toMatchObject({ kind: "text", name: "Notes - code.js" });
+      expect((await call(`/${ns}/${sent.id}/d`)).headers.get("content-disposition")).toContain(
+        'filename="Notes - code.js"',
+      );
+      const edited = await parse<Item>(
+        call(`/${ns}/${sent.id}/e`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "If-Match": JSON.stringify(sent.createdAt),
+          },
+          body: "const answer = 43",
+        }),
+      );
+      expect(edited).toMatchObject({ name: "Notes - code.js" });
+      expect((await call(`/${ns}/${sent.id}/d`)).headers.get("content-disposition")).toContain(
+        'filename="Notes - code.js"',
+      );
+      const resent = await parse<Item>(
+        sendText(ns, "const answer = 43", { "X-Text-Name": "renamed.js" }),
+      );
+      expect(resent).toMatchObject({ id: sent.id, name: "renamed.js", existing: true });
+      expect((await sendText(ns, "secret", { Burn: "1", "X-Text-Name": "secret.js" })).status).toBe(
+        400,
+      );
+      const long = "a".repeat(config.inlineTextBytes + 1);
+      const external = await parse<Item>(sendText(ns, long, { "X-Text-Name": "large.rs" }));
+      expect(external).toMatchObject({ name: "large.rs" });
+      expect((await call(`/${ns}/${external.id}/d`)).headers.get("content-disposition")).toContain(
+        'filename="large.rs"',
+      );
+    });
+
     test("keeps videos playable: their type, their extension, and parts of them", async () => {
       const ns = fresh();
       // An MP4's first box, then made-up contents.

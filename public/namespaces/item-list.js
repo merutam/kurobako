@@ -29,7 +29,7 @@ import {
   streamAddress,
   videoPlayer,
 } from "../items.js";
-import { defaultTextName } from "../k.mjs";
+import { defaultTextName, textDownloadName } from "../k.mjs";
 import { createMediaFeed } from "../media-feed.js";
 import {
   createTextEditor,
@@ -137,7 +137,10 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
   const mediaAddress = async (entry, { preview = false } = {}) => {
     const { item, info } = entry;
     if (!entry.opened && item.kind !== "sealed" && !limitedItem(item)) {
-      return { src: `${mode.basePath}/${encodeURIComponent(item.id)}`, revoke: null };
+      return {
+        src: mode.mediaUrl?.(item) ?? `${mode.basePath}/${encodeURIComponent(item.id)}`,
+        revoke: null,
+      };
     }
     const streamed = info.isVideo || info.isAudio ? await partsAddress(entry) : null;
     if (streamed) return { src: streamed, revoke: null };
@@ -163,7 +166,12 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
         window.location.assign(`${address}?download`);
         return;
       }
-      downloadBlob(await blobOf(entry), entry.info.filename);
+      if (entry.info.kind === "text") {
+        const name = textDownloadName(entry.opened ? "" : entry.info.title, entry.item.id);
+        downloadBlob(new Blob([await textOf(entry)], { type: "text/plain;charset=utf-8" }), name);
+      } else {
+        downloadBlob(await blobOf(entry), entry.info.filename);
+      }
     } catch (error) {
       status.error(error.message);
     }
@@ -332,14 +340,15 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       ariaLabel: "Text contents",
     });
     const initialExtension = extensionOf(entry.info.title);
+    const initialLanguage = initialExtension === "txt" ? "" : initialExtension;
     const language = el(
       "select",
       { ariaLabel: "Syntax language" },
-      ...languageOptions(initialExtension),
+      ...languageOptions(initialLanguage),
     );
-    language.value = initialExtension;
+    language.value = initialLanguage;
     const editor = createTextEditor(textarea, {
-      title: () => (language.value ? withExtension(entry.info.title, language.value) : ""),
+      title: () => `source.${language.value || "txt"}`,
     });
     language.addEventListener("change", () => editor.refresh({ immediate: true }));
     const size = el("span", { className: "hint" });
@@ -386,9 +395,9 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
         return;
       }
       const title =
-        language.value === initialExtension
+        language.value === initialLanguage
           ? null
-          : withExtension(entry.info.title, language.value);
+          : withExtension(entry.info.title, language.value || "txt");
       setBusy(form, true);
       status.progress("Saving…");
       try {
@@ -594,7 +603,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       if (info.kind === "text" || (info.isImage && canCopyImages())) {
         actions.append(iconButton("copy", "Copy", () => copyItem(entry)));
       }
-      if (info.kind === "file") {
+      if (info.kind === "file" || info.kind === "text") {
         const href = !entry.opened && mode.downloadUrl?.(item);
         if (href) {
           const download = el(
@@ -609,6 +618,15 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
           actions.append(iconButton("download", "Download", () => downloadItem(entry)));
         }
       }
+    }
+    if (!entry.opened && info.itemUrl) {
+      const link = el(
+        "a",
+        { href: info.itemUrl, className: "icon-button", title: "Open item" },
+        icon("external"),
+      );
+      link.setAttribute("aria-label", "Open item");
+      actions.append(link);
     }
     // Sharing makes a link on the server: like deleting, it is writing.
     if (!entry.opened && info.kind !== "unreadable" && !unopenedBurn && canWrite()) {
@@ -644,7 +662,9 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     if (renaming || editing) return;
     const serverIds = new Set(items.map((item) => item.id));
     const openedOnly = [...opened.values()].filter((entry) => !serverIds.has(entry.item.id));
-    itemCount.textContent = `${items.length}/${config.maxItems}`;
+    itemCount.textContent = config?.maxItems
+      ? `${items.length}/${config.maxItems}`
+      : String(items.length);
     emptyMessage.hidden = items.length + openedOnly.length > 0;
 
     // Refreshing must not rebuild an unchanged list: that would steal focus and

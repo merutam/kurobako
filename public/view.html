@@ -8,11 +8,30 @@
   <script type="module" src="/view.js"></script>
   <script type="application/json" id="view-data">"%VIEW%"</script>
 </head>
-<main>
+<main data-loading>
+  <div id="page-loading" class="page-loading" role="status" aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span><span>Loading shared view…</span></div>
   <h1>Shared view</h1>
   <p class="intro">Read-only. New items appear here while this view is active; existing items stay live after it freezes.</p>
   <p id="view-status" class="status" role="status" aria-live="polite"></p>
-  <ol id="view-items" class="stack"></ol>
+
+  <section id="media-feed" class="media-feed" aria-labelledby="media-feed-title" hidden></section>
+
+  <section id="items-section" class="page-section stack" aria-labelledby="queue-title">
+    <div class="section-heading">
+      <h2 id="queue-title">Items <small id="item-count"></small></h2>
+      <span class="actions">
+        <a class="media-link" data-icon="image" id="open-media" href="?media" hidden>Media</a>
+        <select id="expand-mode" aria-label="Show contents">
+          <option value="one">One at a time</option>
+          <option value="several">Several at once</option>
+          <option value="all">All</option>
+        </select>
+        <button class="icon-button" data-icon="refresh" id="refresh" type="button" aria-label="Refresh items" title="Refresh items"></button>
+      </span>
+    </div>
+    <ol id="items" class="items"></ol>
+    <p id="empty" class="empty" hidden>No items.</p>
+  </section>
 
   <section class="page-section" aria-labelledby="clone-title">
     <h2 id="clone-title">Clone into a new namespace</h2>

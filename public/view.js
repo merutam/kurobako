@@ -1,47 +1,139 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { el, element, formatBytes, request, SITE } from "./common.js";
+import { element, request, SITE } from "./common.js";
 import { describeOpened, describePlain, limitedItem } from "./items.js";
-import { openSealedSpace, openSharedItem, openViewEntry, secretNameProblem } from "./k.mjs";
+import {
+  openSealedSpace,
+  openSharedItem,
+  openViewEntry,
+  secretNameProblem,
+  textDownloadName,
+} from "./k.mjs";
+import { failPage, revealPage } from "./loading.js";
+import { createItemList } from "./namespaces/item-list.js";
 import { createStatus } from "./status.js";
 
 const status = createStatus(element("#view-status"));
-const list = element("#view-items");
-const view = JSON.parse(element("#view-data").textContent);
+let view = JSON.parse(element("#view-data").textContent);
 const viewKey = decodeURIComponent(window.location.hash.slice(1));
+let entriesById = new Map();
+const openedItems = new Map();
+
+const entryFor = (item) => {
+  const entry = entriesById.get(item.id);
+  if (!entry) throw new Error("This item is no longer in the shared view.");
+  return entry;
+};
 
 const describeEntry = async (entry) => {
   if (entry.item.kind !== "sealed")
-    return { info: describePlain(entry.item), itemKey: "", open: null };
+    return { info: describePlain(entry.item), itemKey: "", open: null, bodyKey: null };
   if (!viewKey) throw new Error("Incomplete link: its view key is missing after #.");
+  const signature = JSON.stringify([
+    view.viewId,
+    entry.envelope,
+    entry.item.metadata,
+    entry.item.size,
+  ]);
+  const cached = openedItems.get(entry.url);
+  if (cached?.signature === signature) return cached.value;
   const itemKey = await openViewEntry(view.viewId, viewKey, entry.envelope);
   const opened = await openSharedItem(itemKey, entry.item.metadata, entry.item.size);
-  return { info: describeOpened(opened.metadata), itemKey, open: opened.open };
+  const value = {
+    info: describeOpened(opened.metadata),
+    itemKey,
+    open: opened.open,
+    bodyKey: opened.bodyKey,
+  };
+  openedItems.set(entry.url, { signature, value });
+  return value;
 };
 
-const show = async () => {
-  if (!view) throw new Error("This shared view is no longer available.");
-  if (!view.entries.length) {
-    status.progress("No available items in this view.");
-    return;
-  }
-  for (const entry of view.entries) {
+const contentBytes = async (item) => {
+  const entry = entryFor(item);
+  const response = await request(`${entry.url}/c`, { cache: "no-store" });
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const { open } = await describeEntry(entry);
+  return open ? open(bytes) : bytes;
+};
+
+const mode = {
+  basePath: "",
+  describe: async (item) => {
+    const entry = entryFor(item);
     const { info, itemKey } = await describeEntry(entry);
-    const href = `${entry.url}${itemKey ? `#${itemKey}` : ""}`;
-    list.append(
-      el(
-        "li",
-        {},
-        el("a", { href }, info.title || "Untitled"),
-        el("span", { className: "hint" }, ` · ${formatBytes(info.size)}`),
-      ),
-    );
-  }
+    return { ...info, itemUrl: `${entry.url}${itemKey ? `#${itemKey}` : ""}` };
+  },
+  loadText: async (item) =>
+    item.kind === "text" && item.text !== undefined
+      ? item.text
+      : new TextDecoder().decode(await contentBytes(item)),
+  loadBlob: async (item) => {
+    const entry = entryFor(item);
+    const { info } = await describeEntry(entry);
+    return new Blob([await contentBytes(item)], { type: info.mime || "application/octet-stream" });
+  },
+  mediaUrl: (item) => `${entryFor(item).url}/c`,
+  downloadUrl: (item) => (item.kind === "sealed" ? null : `${entryFor(item).url}/d`),
+  streamOf: async (item) => {
+    const entry = entryFor(item);
+    const { info, bodyKey } = await describeEntry(entry);
+    return {
+      url: `${window.location.origin}${entry.url}/c`,
+      key: await bodyKey(),
+      sealedSize: item.size,
+      size: info.size,
+      mime: info.mime || "application/octet-stream",
+      filename:
+        info.kind === "text" ? textDownloadName(info.title, item.id) : info.filename || "file",
+    };
+  },
+};
+
+let itemList;
+const show = async (current) => {
+  if (!current) throw new Error("This shared view is no longer available.");
+  if (view && current.viewId !== view.viewId) throw new Error("The shared view changed.");
+  view = current;
+  // Share responses hide namespace item IDs. Their opaque URL tokens identify
+  // rows locally without revealing those IDs to readers of the view.
+  const entries = current.entries.map((entry) => ({
+    ...entry,
+    item: { ...entry.item, id: entry.url.split("/").pop() },
+  }));
+  entriesById = new Map(entries.map((entry) => [entry.item.id, entry]));
+  await itemList.renderItems(entries.map((entry) => entry.item));
   status.clear();
 };
-
-show().catch((error) => status.error(error.message));
+const refresh = async () => {
+  const current = await (
+    await request(`${window.location.pathname}.json`, { cache: "no-store" })
+  ).json();
+  await show(current);
+};
+itemList = createItemList({
+  status,
+  access: { canWrite: () => false, writeHeaders: () => ({}) },
+  refreshUnlessLive: refresh,
+  loadItems: refresh,
+});
+itemList.setMode(mode);
+const refreshButton = element("#refresh");
+refreshButton.addEventListener("click", async () => {
+  refreshButton.disabled = true;
+  try {
+    await refresh();
+  } catch (error) {
+    status.error(error.message);
+  } finally {
+    refreshButton.disabled = false;
+  }
+});
+show(view)
+  .then(revealPage)
+  .catch((error) => failPage(error.message));
+setInterval(itemList.updateExpiries, 30_000);
 
 /** Each item is checked again before copying: a live view is not an atomic snapshot. */
 const clone = async (event) => {

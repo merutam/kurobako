@@ -10,6 +10,7 @@ import {
   newViewId,
   openReadOnlySpace,
   openSealedSpace,
+  textDownloadName,
 } from "../k.mjs";
 
 const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
@@ -68,6 +69,9 @@ export const plainMode = (namespace, writeHeaders) => {
         method: "POST",
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
+          ...(!settings.burn && settings.name
+            ? { "X-Text-Name": encodeURIComponent(settings.name) }
+            : {}),
           ...sendHeaders(settings),
           ...writeHeaders(),
         },
@@ -214,14 +218,17 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
         sealedSize: item.size,
         size: opened.metadata.size,
         mime: opened.metadata.mime || "application/octet-stream",
-        filename: opened.metadata.filename || "file",
+        filename:
+          opened.metadata.kind === "text"
+            ? textDownloadName(opened.metadata.title, item.id)
+            : opened.metadata.filename || "file",
       };
     },
     /** The item's own key, for the part of a share link the server never sees. */
     shareKey: async (item) => (await openItem(item))?.keyText ?? null,
     sendText: (text, settings) => {
       const bytes = new TextEncoder().encode(text);
-      const title = settings.burn || settings.reads ? "" : defaultTextName(text);
+      const title = settings.burn || settings.reads ? "" : (settings.name ?? defaultTextName(text));
       return send(bytes, { kind: "text", title, size: bytes.byteLength }, settings);
     },
     sendFile: async (file, settings) => {

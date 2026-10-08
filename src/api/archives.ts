@@ -16,7 +16,7 @@
 // in the manifest), so a backup needs no secret and reveals none. Items that
 // burn after reading are left out: reading them would consume them.
 import { type ArchiveEntry, type ArchiveFormat, readArchive, writeArchive } from "../archive";
-import { SIGNATURE_BYTES, safeFileName } from "../image";
+import { SIGNATURE_BYTES, safeTextFileName } from "../image";
 import {
   ITEM_ID_LENGTH,
   type NamespaceRef,
@@ -116,8 +116,7 @@ const compare = (a: string[], b: string[]) => {
 /** An item's file in the archive: its own name, or one made from its ID. */
 const fileNameOf = (item: StoredItem) => {
   if (item.kind === "sealed") return `${item.id}.sealed`;
-  if (item.kind === "text")
-    return item.name ? safeFileName(`${item.name}.txt`) : `text-${item.id}.txt`;
+  if (item.kind === "text") return item.name ? safeTextFileName(item.name) : `text-${item.id}.txt`;
   return item.filename;
 };
 

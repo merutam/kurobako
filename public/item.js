@@ -18,7 +18,7 @@ import {
   streamAddress,
   videoPlayer,
 } from "./items.js";
-import { openSharedItem } from "./k.mjs";
+import { openSharedItem, textDownloadName } from "./k.mjs";
 import { revealPage } from "./loading.js";
 import { createStatus } from "./status.js";
 
@@ -57,7 +57,7 @@ const loadContent = async (item, info) => {
   return { blob: new Blob([bytes], { type: info.mime || "application/octet-stream" }) };
 };
 
-const showContent = (info, content) => {
+const showContent = (item, info, content) => {
   if (content.text !== undefined) {
     body.replaceChildren(highlightedText(content.text, info.title));
     title.textContent = compactText(content.text).slice(0, 120);
@@ -86,6 +86,16 @@ const showContent = (info, content) => {
         },
         undefined,
         "copy",
+      ),
+      button(
+        "Download",
+        () =>
+          downloadBlob(
+            new Blob([content.text], { type: "text/plain;charset=utf-8" }),
+            textDownloadName(limitedItem(item) ? "" : info.title, item.id),
+          ),
+        undefined,
+        "download",
       ),
     );
   }
@@ -145,7 +155,7 @@ try {
           try {
             const content = await loadContent(item, info);
             describeMeta(item, info, true);
-            showContent(info, content);
+            showContent(item, info, content);
             status.success(
               item.burn || item.readsLeft === 1
                 ? "Opened and deleted from the server."
@@ -194,7 +204,7 @@ try {
         el("a", { className: "button", href: `${address}?download` }, icon("download"), "Download"),
       );
     } else {
-      showContent(info, await loadContent(item, info));
+      showContent(item, info, await loadContent(item, info));
     }
   }
 } catch (error) {

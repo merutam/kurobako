@@ -1,4 +1,4 @@
-# After protocol v7
+# After protocol v8
 
 The namespace-address write capability, shared views and browser-side cloning
 were implemented in protocol v6; the details and current encrypted-import
@@ -6,12 +6,14 @@ limitation are in [`sharing.md`](sharing.md). One active view gains new items,
 while older views retain frozen membership but live item content. The earlier
 ownership/lock proposal is superseded.
 
-Protocol v7 is built and described on the protocol page
+Protocol v8 is built and described on the protocol page
 (`public/protocol.html`): one derivation for every key, write capabilities
 and read-only links, contents sealed in segments with a revision, the routes
 (the first path segment is the protocol's, the server's own things live under
-`/k`) and `"protocol": 7` in `/.well-known/kurobako`. The v4 key derivation
-and sealed-item formats are unchanged from v6; v7 changes live queue framing.
+`/k`) and `"protocol": 8` in `/.well-known/kurobako`. The v4 key derivation
+and sealed-item formats are unchanged from v6; v7 changed live queue framing,
+and v8 lets an initial text send choose a filename whose extension is used for
+highlighting, downloads and archives.
 The browser plays and
 downloads encrypted contents in parts through a Service Worker
 (`public/sw.js`, at `/k/stream/<token>`, never seen by the server).
