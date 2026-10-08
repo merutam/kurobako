@@ -25,9 +25,16 @@
 main[data-loading] > :not(.site-header, #page-loading) {
   display: none;
 }
+/* Keep the footer below the viewport until the first complete render. */
+main[data-loading] {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+}
 .page-loading {
   display: flex;
-  min-height: 35dvh;
+  min-height: 0;
+  flex: 1;
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
