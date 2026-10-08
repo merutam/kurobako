@@ -4,7 +4,7 @@
  */
 
 /* Design tokens: every color, space, type size and shape the styles use.
-   styles.css imports this file; restyling the site starts here. */
+   layout.html loads this before styles.css; restyling the site starts here. */
 :root {
   color-scheme: light dark;
   --text: light-dark(#202122, #eaecf0);

@@ -1554,6 +1554,9 @@ export const sharedTests = (harness: Harness) => {
       expect(home).toContain('aria-label="Enable end-to-end encryption"');
       expect(home).toContain('id="e2ee-help"');
       expect(home).toContain('id="e2ee-dialog" class="e2ee-dialog"');
+      expect(home).toMatch(
+        /href="\/tokens\.css\?v=[0-9a-f]+"[\s\S]*href="\/styles\.css\?v=[0-9a-f]+"[\s\S]*src="\/theme\.js\?v=[0-9a-f]+"/,
+      );
       expect(home).toMatch(/id="random-name"[^>]*><svg[^>]*>/);
       expect(home).toMatch(/data-icon="json" href="\/stats\.json"><svg[^>]*>/);
       expect(home).toMatch(/>Source<svg[^>]*>/);
