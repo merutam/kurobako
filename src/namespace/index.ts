@@ -8,13 +8,16 @@ import type { AppConfig } from "../config";
 import {
   hasObject,
   type InlineTextItem,
+  lastRead,
   type NamespaceRef,
   type ObjectItem,
+  readLimitedItem,
   type StoredItem,
   summaryItem,
 } from "../model";
 import type { BlobStore, HubApi, LiveSocket, Sql } from "../platform";
 import type { AccessEvent, AccessLogEntry } from "../request-info";
+import { slotOf, slotPrefix } from "../routing";
 import { ACCESS_LOG_SCHEMA, AccessLog } from "./access-log";
 import {
   type ItemRef,
@@ -26,17 +29,22 @@ import {
   replacedItem,
   type SaveInput,
 } from "./queue";
+import { VIEW_SCHEMA, type ViewEntry, Views } from "./views";
 
 export type { ItemRef, Rename, SaveInput };
 
-/**
- * Whether a write may go: "open" (the namespace is not locked), "ok" (locked,
- * and the key is its write key), "missing" or "wrong" (locked, and it is not).
- */
+/** Whether a write has the namespace's capability. */
 export type WriteCheck = "open" | "ok" | "missing" | "wrong";
 
-/** What a lock did: "locked", or why not: a plain namespace locks only empty. */
-export type LockResult = "locked" | "not-empty" | "wrong";
+/** The first 128 bits of SHA-256(base64url(write key)), encoded as a namespace ID. */
+const sealedIdOfVerifier = (verifier: string): string | null => {
+  if (!/^[a-f0-9]{64}$/.test(verifier)) return null;
+  const first = verifier.slice(0, 32).match(/../g) ?? [];
+  return btoa(String.fromCharCode(...first.map((part) => Number.parseInt(part, 16))))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+};
 
 /** What a send did: a new item, or the same contents already there, moved to the top. */
 export type Saved = { item: StoredItem; existing: boolean };
@@ -91,6 +99,7 @@ export class NamespaceCore {
   private schemaReady = false;
   private readonly queue = new Queue(() => this.sql);
   private readonly log = new AccessLog(() => this.sql);
+  private readonly views = new Views(() => this.sql);
 
   /** A version newer than an item's, even when two changes share a millisecond. */
   private nextUpdate(item: StoredItem): string {
@@ -109,6 +118,7 @@ export class NamespaceCore {
       sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
       sql.exec(QUEUE_SCHEMA);
       sql.exec(ACCESS_LOG_SCHEMA);
+      for (const statement of VIEW_SCHEMA) sql.exec(statement);
       this.schemaReady = true;
     }
     return sql;
@@ -138,13 +148,6 @@ export class NamespaceCore {
       : null;
   }
 
-  private metaValue(key: string): string | null {
-    return (
-      this.sql.exec<{ value: string }>("SELECT value FROM meta WHERE key = ?", key)[0]?.value ??
-      null
-    );
-  }
-
   private remember(ref: NamespaceRef): void {
     this.sql.exec(
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('space', ?), ('name', ?)",
@@ -155,65 +158,23 @@ export class NamespaceCore {
 
   // --- Write access -----------------------------------------------------
 
-  /**
-   * The SHA-256 (hex) of the key that writes here once locked; null while
-   * anyone may. The key itself is never stored.
-   */
-  private writeVerifier(): string | null {
-    return this.exists() ? this.metaValue("write") : null;
-  }
-
-  async isLocked(): Promise<boolean> {
-    return this.writeVerifier() !== null;
-  }
-
-  /** Whether a write with the key whose SHA-256 is `verifier` may go. */
-  async checkWrite(verifier: string | null): Promise<WriteCheck> {
-    const expected = this.writeVerifier();
-    if (expected === null) return "open";
+  /** An encrypted write key must match the public namespace ID even before first send. */
+  async checkWrite(ref: NamespaceRef, verifier: string | null): Promise<WriteCheck> {
+    if (ref.space === "plain") return "open";
     if (verifier === null) return "missing";
-    return verifier === expected ? "ok" : "wrong";
+    return sealedIdOfVerifier(verifier) === ref.name ? "ok" : "wrong";
   }
 
-  /**
-   * Locks the namespace: from now on only the key whose SHA-256 is
-   * `verifier` writes here, while anyone may still read. A locked namespace
-   * takes a new key only from its current one (`current`). With
-   * `onlyEmpty`, an open namespace with items is refused: whoever knows a
-   * plain name could otherwise take a namespace others use.
-   */
-  async lock(
-    ref: NamespaceRef,
-    verifier: string,
-    current: string | null,
-    onlyEmpty: boolean,
-  ): Promise<LockResult> {
-    const expected = this.writeVerifier();
-    if (expected !== null && current !== expected) return "wrong";
-    if (expected === null && onlyEmpty && this.exists() && this.queue.all().length) {
-      return "not-empty";
-    }
-    // A namespace locked before its first item exists from now on (and is
-    // cleaned up like any empty one if nothing comes).
-    this.remember(ref);
-    this.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('write', ?)", verifier);
-    await this.changed();
-    return "locked";
-  }
-
-  /** Opens a locked namespace to every writer again, given its key. */
-  async unlock(verifier: string | null): Promise<boolean> {
-    const expected = this.writeVerifier();
-    if (expected === null || verifier !== expected) return false;
-    this.sql.exec("DELETE FROM meta WHERE key = 'write'");
-    await this.changed();
-    return true;
+  private async assertWrite(ref: NamespaceRef, verifier: string | null): Promise<void> {
+    if ((await this.checkWrite(ref, verifier)) === "ok" || ref.space === "plain") return;
+    throw new Error("Write access denied.");
   }
 
   // --- Upkeep -----------------------------------------------------------
 
-  private expiryFrom(now: number): string | null {
-    return this.config.itemTtlMs ? new Date(now + this.config.itemTtlMs).toISOString() : null;
+  private expiryFrom(now: number, expiresInSeconds: number | null = null): string | null {
+    const duration = expiresInSeconds === null ? this.config.itemTtlMs : expiresInSeconds * 1000;
+    return duration ? new Date(now + duration).toISOString() : null;
   }
 
   private async deleteFiles(items: StoredItem[]): Promise<void> {
@@ -342,6 +303,94 @@ export class NamespaceCore {
     return this.queue.all();
   }
 
+  /** A writer's consistent item list, active view and historical view IDs. */
+  async viewsStatus(ref: NamespaceRef, verifier: string | null) {
+    await this.assertWrite(ref, verifier);
+    if (!this.exists()) return { items: [] as StoredItem[], views: [] as ReturnType<Views["all"]> };
+    await this.enter(undefined);
+    return { items: this.queue.all(), views: this.views.all() };
+  }
+
+  /** A new view freezes the old membership. A stale item list never rotates. */
+  async createView(
+    ref: NamespaceRef,
+    viewId: string,
+    entries: ViewEntry[],
+    previousToken: string | null,
+    verifier: string | null,
+  ): Promise<ReturnType<Views["rotate"]>> {
+    await this.assertWrite(ref, verifier);
+    // A canonical unpadded base64url encoding of exactly 16 bytes ends in
+    // A, Q, g or w; accepting another spelling would derive a different key.
+    if (!/^[A-Za-z0-9_-]{21}[AQgw]$/.test(viewId)) throw new Error("Invalid view ID.");
+    if (this.exists()) await this.enter(undefined);
+    const current = this.exists() ? this.queue.all() : [];
+    if ((this.exists() ? (this.views.active()?.token ?? null) : null) !== previousToken) {
+      throw new Error("View changed.");
+    }
+    if (
+      entries.length !== current.length ||
+      entries.some((entry, i) => entry.id !== current[i]?.id)
+    ) {
+      throw new Error("View changed.");
+    }
+    if (
+      ref.space === "sealed" &&
+      entries.some((entry) => !/^[A-Za-z0-9_-]{59}$/.test(entry.envelope ?? ""))
+    ) {
+      throw new Error("Missing or invalid view envelope.");
+    }
+    if (this.exists() && this.views.all().some((view) => view.viewId === viewId)) {
+      throw new Error("View changed.");
+    }
+    if (this.exists() && this.views.all().length >= 100) throw new Error("Too many views.");
+    const bytes = crypto.getRandomValues(new Uint8Array(9));
+    const token = `${slotPrefix(slotOf(ref))}${btoa(String.fromCharCode(...bytes))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/, "")}`;
+    // Route registration precedes publication. A losing rotation removes it.
+    await this.host.hub().registerView(ref, token);
+    let published = false;
+    try {
+      await this.assertWrite(ref, verifier);
+      const latest = this.exists() ? this.queue.all() : [];
+      if ((this.exists() ? (this.views.active()?.token ?? null) : null) !== previousToken) {
+        throw new Error("View changed.");
+      }
+      if (this.views.all().some((view) => view.viewId === viewId)) throw new Error("View changed.");
+      if (
+        entries.length !== latest.length ||
+        entries.some((entry, i) => entry.id !== latest[i]?.id)
+      ) {
+        throw new Error("View changed.");
+      }
+      this.remember(ref);
+      const created = this.views.rotate(token, viewId, entries);
+      published = true;
+      await this.changed();
+      return created;
+    } finally {
+      if (!published) await this.host.hub().forgetView(token);
+    }
+  }
+
+  /** Only live members are returned; their names and bytes stay at item shares. */
+  async viewContents(token: string, visit?: AccessEvent) {
+    if (!this.exists()) return null;
+    await this.enter(visit);
+    const view = this.views.get(token);
+    if (!view) return null;
+    const items = new Map(this.queue.all().map((item) => [item.id, item]));
+    return {
+      ...view,
+      entries: this.views.entries(token).flatMap(({ id, envelope }) => {
+        const item = items.get(id);
+        return item ? [{ item, ...(envelope ? { envelope } : {}) }] : [];
+      }),
+    };
+  }
+
   /**
    * Adds an item under a new ID, unique in this namespace. Contents already
    * in the queue (same kind and SHA-256, neither burning after reading) are
@@ -353,15 +402,33 @@ export class NamespaceCore {
     input: SaveInput,
     burn: boolean,
     visit?: AccessEvent,
+    expiresInSeconds: number | null = null,
+    reads: number | null = null,
+    verifier: string | null = null,
+    view?: { token: string; envelope?: string },
+    deduplicate = true,
   ): Promise<Saved> {
+    await this.assertWrite(ref, verifier);
     this.remember(ref);
     this.recordVisit(visit);
     await this.expire();
+    const active = this.views.active();
+    if (ref.space === "sealed") {
+      if (
+        active?.token !== view?.token ||
+        (active && !/^[A-Za-z0-9_-]{59}$/.test(view?.envelope ?? ""))
+      ) {
+        throw new Error("View changed.");
+      }
+    }
 
     // Never the same millisecond as the newest item: an item's time alone
     // then tells its place in the queue, as backups rely on.
     const now = Math.max(Date.now(), this.queue.newestTime() + 1);
-    const same = !burn && input.sha256 ? this.queue.sameContents(input.kind, input.sha256) : null;
+    const same =
+      deduplicate && !burn && reads === null && input.sha256
+        ? this.queue.sameContents(input.kind, input.sha256)
+        : null;
     if (same) {
       // Sent again: now the newest, expiring as if just sent, under the new
       // name if the send gave one.
@@ -370,9 +437,10 @@ export class NamespaceCore {
         ...same,
         ...(rename ? { filename: rename } : {}),
         createdAt: new Date(now).toISOString(),
-        expiresAt: this.expiryFrom(now),
+        expiresAt: this.expiryFrom(now, expiresInSeconds),
       };
       this.queue.push(moved);
+      if (active) this.views.moveToFront(active.token, moved.id);
       // Its share link lives as long as the item.
       await this.host.hub().extendShare(ref, moved.id, moved.expiresAt);
       await this.changed();
@@ -384,9 +452,11 @@ export class NamespaceCore {
       input,
       burn,
       new Date(now).toISOString(),
-      this.expiryFrom(now),
+      this.expiryFrom(now, expiresInSeconds),
+      reads,
     );
     this.queue.push(item);
+    if (active) this.views.append(active.token, item.id, view?.envelope);
     await this.deleteFiles(this.queue.trimTo(this.config.maxItems));
     await this.changed();
     return { item, existing: false };
@@ -404,9 +474,17 @@ export class NamespaceCore {
   async restore(
     ref: NamespaceRef,
     items: Restored[],
+    verifier?: string | null,
   ): Promise<{ restored: number; skipped: string[] }> {
+    if (verifier !== undefined) await this.assertWrite(ref, verifier);
     this.remember(ref);
     await this.expire();
+    const active = this.views.active();
+    if (ref.space === "sealed" && active && items.length) {
+      throw new Error(
+        "Import into an encrypted namespace with an active view needs view envelopes.",
+      );
+    }
     const now = Date.now();
     const latest = this.expiryFrom(now);
     const skipped: string[] = [];
@@ -483,6 +561,12 @@ export class NamespaceCore {
     // whatever order the parts of a backup come back.
     if (restored) this.queue.sortByDate();
     await this.deleteFiles([...replacedFiles, ...this.queue.trimTo(this.config.maxItems)]);
+    if (ref.space === "plain" && active) {
+      this.views.syncPlain(
+        active.token,
+        this.queue.all().map((item) => item.id),
+      );
+    }
     await this.changed();
     return { restored, skipped };
   }
@@ -496,8 +580,9 @@ export class NamespaceCore {
     await this.enter(visit);
     const item = this.queue.find(ref);
     if (item?.kind !== "text" || hasObject(item)) return null;
-    if (item.burn) {
-      this.queue.remove(item.id);
+    if (readLimitedItem(item)) {
+      if (!lastRead(item)) this.queue.update({ ...item, readsLeft: (item.readsLeft ?? 1) - 1 });
+      else this.queue.remove(item.id);
       await this.changed();
     }
     return item;
@@ -513,8 +598,9 @@ export class NamespaceCore {
     await this.enter(visit);
     const item = this.queue.find(ref);
     if (!item || !hasObject(item)) return null;
-    if (item.burn) {
-      this.queue.remove(item.id);
+    if (readLimitedItem(item)) {
+      if (!lastRead(item)) this.queue.update({ ...item, readsLeft: (item.readsLeft ?? 1) - 1 });
+      else this.queue.remove(item.id);
       await this.changed();
     }
     return item;
@@ -544,9 +630,12 @@ export class NamespaceCore {
     change: Rename,
     expected: string | null,
     visit?: AccessEvent,
+    verifier: string | null = null,
   ): Promise<{ item: StoredItem } | { error: string; conflict?: true } | null> {
     if (!this.exists()) return null;
     await this.enter(visit);
+    const own = this.ref();
+    if (own) await this.assertWrite(own, verifier);
     const item = this.queue.find(ref);
     if (!item) return null;
     if (expected !== null && expected !== (item.updatedAt ?? item.createdAt)) {
@@ -571,9 +660,12 @@ export class NamespaceCore {
     input: SaveInput,
     expected: string,
     visit?: AccessEvent,
+    verifier: string | null = null,
   ): Promise<{ item: StoredItem } | { error: string; conflict?: true } | null> {
     if (!this.exists()) return null;
     await this.enter(visit);
+    const own = this.ref();
+    if (own) await this.assertWrite(own, verifier);
     const item = this.queue.find(ref);
     if (!item) return null;
     if (expected !== (item.updatedAt ?? item.createdAt)) {
@@ -589,8 +681,13 @@ export class NamespaceCore {
     return { item: replaced };
   }
 
-  async remove(ref: ItemRef, visit?: AccessEvent): Promise<boolean> {
+  async remove(
+    ref: ItemRef,
+    visit?: AccessEvent,
+    write?: { ref: NamespaceRef; verifier: string | null },
+  ): Promise<boolean> {
     if (!this.exists()) return false;
+    if (write) await this.assertWrite(write.ref, write.verifier);
     this.recordVisit(visit);
     const item = this.queue.find(ref);
     if (!item) return false;
@@ -608,12 +705,11 @@ export class NamespaceCore {
 
   // --- Live updates -----------------------------------------------------
 
-  /** The message every viewer gets: { type: "items", items, locked }. */
+  /** The message every viewer gets: { type: "items", items }. */
   private snapshot(items: StoredItem[]): string {
     return JSON.stringify({
       type: "items",
       items: items.map((item) => summaryItem(item)),
-      locked: this.writeVerifier() !== null,
     });
   }
 

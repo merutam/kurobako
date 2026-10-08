@@ -83,6 +83,7 @@
       "!/namespaces/access.js",
       "!/home.js",
       "!/item.js",
+      "!/view.js",
       "!/common.js",
       "!/components.js",
       "!/items.js",

@@ -3,7 +3,13 @@
 
 // Serving an item's contents, for namespace routes and share links alike.
 import { safeFileName } from "../image";
-import type { NamespaceRef, ObjectItem, StoredItem } from "../model";
+import {
+  lastRead,
+  type NamespaceRef,
+  type ObjectItem,
+  readLimitedItem,
+  type StoredItem,
+} from "../model";
 import type { ItemRef } from "../namespace";
 import type { ByteRange } from "../platform";
 import type { Api, AppContext } from "./context";
@@ -81,7 +87,7 @@ const objectResponse = (
       ...(range
         ? { "Content-Range": `bytes ${range.offset}-${range.offset + range.length - 1}/${size}` }
         : {}),
-      ...(item.burn ? {} : { "Accept-Ranges": "bytes" }),
+      ...(readLimitedItem(item) ? {} : { "Accept-Ranges": "bytes" }),
       "Content-Disposition": disposition,
       "Cache-Control": "no-store",
       "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -93,7 +99,7 @@ export const createContents = (api: Api) => {
   const { namespace, platformOf, later, record, visit } = api;
 
   const noteRead = (c: AppContext, item: StoredItem) => {
-    if (item.burn) record(c, "openedOnce");
+    if (lastRead(item)) record(c, "openedOnce");
   };
 
   /**
@@ -113,7 +119,7 @@ export const createContents = (api: Api) => {
     const { blobs } = platformOf(c);
     // Players ask for parts of a video (to start and to seek): any item but
     // a burn-after-reading one may be read in parts.
-    const range = item.burn ? null : requestedRange(c.req.header("range"), item.size);
+    const range = readLimitedItem(item) ? null : requestedRange(c.req.header("range"), item.size);
     if (range === "unsatisfiable") {
       return new Response(null, {
         status: 416,
@@ -122,11 +128,11 @@ export const createContents = (api: Api) => {
     }
     const object = await blobs.get(item.object, range ?? undefined);
     if (!object) {
-      if (!item.burn) await ns.remove(item.id);
+      await ns.remove(item.id);
       return null;
     }
     noteRead(c, item);
-    if (item.burn) {
+    if (lastRead(item)) {
       // The only read: once the file has been streamed out, or the client
       // gave up halfway, delete it.
       const { readable, writable } = new TransformStream();

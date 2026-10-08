@@ -10,7 +10,7 @@
 <main class="prose">
   <h1>Protocol</h1>
   <p class="intro">
-    This page is the complete protocol of a Kurobako server, version 5, for
+    This page describes the current Kurobako server protocol, version 6, for
     plain and encrypted namespaces. With what is below, and nothing else, a client can
     read, write, edit, rename, delete, download and share items.
     <a href="/k.mjs"><code>k.mjs</code></a> is one such client; nothing in
@@ -43,7 +43,7 @@
     </li>
     <li>
       <code>version</code>, the server's own, and <code>protocol</code>, this
-      page's version (5): a client of another cannot open its encrypted
+      page's version (6): a client of another cannot open its encrypted
       items.
     </li>
     <li><code>protocolUrl</code> (this page) and <code>clientUrl</code> (<code>k.mjs</code>).</li>
@@ -132,7 +132,7 @@
         </tr>
         <tr>
           <td><code>GET &lt;ns&gt;/&lt;item&gt;</code></td>
-          <td>its contents (<code>/c</code> too, as on a share link); <code>/d</code> as a download, under its name (an encrypted item's is sealed, so it is <code>&lt;id&gt;.sealed</code>). A file takes one <code>Range: bytes=…</code> and answers <code>206</code> with that part, as players ask to start and seek; a burn-after-reading item is always read whole</td>
+          <td>its contents (<code>/c</code> too, as on a share link); <code>/d</code> as a download, under its name (an encrypted item's is sealed, so it is <code>&lt;id&gt;.sealed</code>). An unlimited-read file takes one <code>Range: bytes=…</code> and answers <code>206</code> with that part; a limited-read item is always read whole</td>
         </tr>
         <tr>
           <td><code>GET &lt;ns&gt;/&lt;item&gt;.json</code></td>
@@ -199,10 +199,15 @@
     (<code>null</code> without expiry). Its contents are at
     <code>&lt;ns&gt;/&lt;id&gt;/c</code> and a download at
     <code>&lt;ns&gt;/&lt;id&gt;/d</code>, as on a share link; the JSON
-    carries no links. <code>burn: true</code> marks one deleted by its first read. Sending
-    with the header <code>Burn: 1</code> makes one; reading its contents
-    consumes it, while <code>ls</code>, <code>.json</code> and
-    <code>/s</code> read nothing.
+    carries no links. <code>Expires-In: &lt;seconds&gt;</code> on a send chooses
+    a shorter lifetime than the instance default (at most 30 days when the
+    instance has no default). <code>Reads: &lt;count&gt;</code> limits consuming
+    reads to 1–1,000,000; <code>Burn: 1</code> is its one-read spelling and
+    appears as <code>burn: true</code>. More than one remaining read appears
+    as <code>readsLeft</code>. Content requests through the namespace or an
+    item-share link consume one read; <code>ls</code>, <code>.json</code> and
+    <code>/s</code> do not. Limited items have no text preview or archive
+    entry, and do not support byte ranges.
   </p>
 
   <h2>Plain namespaces</h2>
@@ -335,15 +340,15 @@
     <li>
       From K, with HKDF-SHA256 (an empty salt; the info is the label, in
       UTF-8), 16 bytes each:
-      <strong>namespace ID</strong>, info <code>kurobako/v4/id</code>, in
-      base64url (22 characters): the namespace lives at
-      <code>/e/&lt;id&gt;/…</code>;
       <strong>write key</strong>, info <code>kurobako/v4/write</code>, in
-      base64url: the <code>Write-Key</code> of a locked namespace (see
-      Locked namespaces), so its owner never handles a key;
+      base64url: the <code>Write-Key</code> sent with every encrypted
+      mutation;
       <strong>namespace key</strong>, info <code>kurobako/v4/namespace</code>,
       an AES-128 key that only wraps item keys, with AES-KW
       (<a class="external-link" href="https://www.rfc-editor.org/rfc/rfc3394" target="_blank" rel="noopener">RFC 3394</a>).
+      The 16-byte <strong>namespace ID</strong> is the first 16 bytes of
+      SHA-256(UTF-8(base64url(write key))), encoded in base64url (22
+      characters). The namespace lives at <code>/e/&lt;id&gt;/…</code>.
     </li>
     <li>
       A <strong>read-only link</strong>, <code>/e#/&lt;token&gt;</code>,
@@ -533,7 +538,7 @@
         </tr>
         <tr>
           <th scope="row">Namespace ID</th>
-          <td><code data-vector="id">a9mixDomFWzTt57iw4CHaQ</code> (base64url)</td>
+          <td><code data-vector="id">aTMsG4JlDfcMrK8Kuh1trQ</code> (base64url)</td>
         </tr>
         <tr>
           <th scope="row">Namespace key</th>
@@ -545,7 +550,7 @@
         </tr>
         <tr>
           <th scope="row">Read-only link</th>
-          <td><code>/e#/</code><code data-vector="read-token">a9mixDomFWzTt57iw4CHaRKMlDCqOiHX24tfozQsQlo</code></td>
+          <td><code>/e#/</code><code data-vector="read-token">aTMsG4JlDfcMrK8Kuh1trRKMlDCqOiHX24tfozQsQlo</code></td>
         </tr>
         <tr>
           <th scope="row">Item key</th>
@@ -658,49 +663,15 @@
   </table>
   </div>
 
-  <h2>Locked namespaces</h2>
+  <h2>Write access</h2>
   <p>
-    A locked namespace is read by anyone who reaches it and written only with
-    its <strong>write key</strong>, sent as the <code>Write-Key</code> header.
-    The server keeps only the key's SHA-256. Every write needs it:
-    <code>new</code>, <code>PUT</code>, <code>/e</code>, <code>/n</code>, <code>DELETE</code>,
-    <code>import</code> and <code>/s</code> (a share link is made, and kept,
-    on the server); <code>.json</code> leaves out <code>shareUrl</code> for a
-    reader. Without the key a write gets <code>401</code>, with a wrong one
-    <code>403</code>, which counts as a miss. A locked namespace takes no
-    burn-after-reading items (<code>400</code>): its readers are many, and
-    the first would delete one for all. <code>ls</code> answers with the
-    header <code>Locked: 1</code>, and the live queue carries
-    <code>"locked": true</code>.
-  </p>
-  <div class="table-scroll">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Request</th>
-          <th>Does</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>POST &lt;ns&gt;/lock</code></td>
-          <td>
-            temporarily disabled for both kinds of namespace, including
-            changing an existing lock's key (<code>503</code>)
-          </td>
-        </tr>
-        <tr>
-          <td><code>DELETE &lt;ns&gt;/lock</code></td>
-          <td>with the key, opens it to every writer again: <code>{"locked": false}</code></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <p>
-    A lock lasts as long as its namespace: one locked and left empty is
-    cleaned up like any other. The page keeps a plain namespace's key on the
-    device; <code>/&lt;name&gt;#w=&lt;key&gt;</code> brings it to another
-    one, in the fragment the server never sees.
+    A plain namespace's name is its write capability. An encrypted namespace
+    requires <code>Write-Key</code> for every mutation, including its first
+    upload. The server hashes that header and compares its first 16 bytes with
+    the ID in the path; it stores no separate owner claim or lock. A missing
+    key gets <code>401</code>; a wrong one gets <code>403</code> and counts as
+    a miss. A read-only link carrying the namespace key cannot derive the
+    write key. The old <code>/lock</code> endpoint is disabled.
   </p>
 
   <h2>Share links</h2>
@@ -722,6 +693,52 @@
     The first part, the item key sealed with the namespace key, is not
     needed. <code>GET /i/&lt;token&gt;/c</code> returns the sealed contents,
     which open with the same key.
+  </p>
+
+  <h2>Shared namespace views</h2>
+  <p>
+    A view link, <code>/v/&lt;token&gt;</code>, lists individual item-share
+    links without disclosing the source namespace. One view per namespace is
+    active: new sends join it. Creating another freezes the old view's member
+    IDs, but edits and renames of those items remain visible through their
+    existing share links. Deleted, consumed or expired items disappear. A view
+    is not an immutable backup. Each namespace keeps at most 100 views.
+  </p>
+  <p>
+    A writer reads <code>GET &lt;ns&gt;/views</code> for the current items
+    (newest first), historical views and active token. To rotate, it sends
+    <code>POST &lt;ns&gt;/views</code> with JSON
+    <code>{"viewId":"&lt;22-character base64url&gt;","previousToken":null or "&lt;active token&gt;","entries":[{"id":"&lt;item ID&gt;"}]}</code>.
+    Entries must match the current item IDs and order exactly; a stale list
+    or active token returns <code>409</code>. An encrypted writer also sends
+    <code>Write-Key</code> and an <code>envelope</code> in every entry. Its
+    new sends include <code>View-Token</code> and
+    <code>View-Envelope</code>; a missing or stale envelope returns
+    <code>409</code> before the item is committed. Plain sends join the active
+    view automatically.
+  </p>
+  <p>
+    An encrypted view link is
+    <code>/v/&lt;token&gt;#&lt;base64url(view key)&gt;</code>. Its random,
+    public <code>viewId</code> is 16 bytes in base64url. Derive the 16-byte
+    view key from K with HKDF-SHA-256, empty salt and info
+    <code>kurobako/v6/view/&lt;viewId&gt;</code>. An envelope is base64url
+    of a random 12-byte IV followed by AES-128-GCM ciphertext and tag for
+    the item's 16-byte key, with AAD
+    <code>kurobako/v6/view-entry/&lt;viewId&gt;</code>. The server stores
+    neither key. <code>GET /v/&lt;token&gt;.json</code> returns
+    <code>viewId</code>, active state and entries with an individual
+    <code>/i/&lt;token&gt;</code> URL, item metadata and (for encrypted
+    items) its envelope. The HTML page can clone available items into a new
+    namespace without linking future changes. Cloning read-limited items
+    requires explicit consent and consumes a read. Encrypted backup import
+    into a namespace with an active view currently returns <code>409</code>
+    because an old backup has no envelope for that view.
+  </p>
+  <p>
+    A plain clone sends <code>No-Dedup: 1</code> so two source items with
+    identical bytes remain two new items instead of the usual deduplication
+    moving one item to the top.
   </p>
 
   <h2>Command line</h2>
@@ -773,6 +790,10 @@
           <td>sends an item deleted by its first read</td>
         </tr>
         <tr>
+          <td><code>node k.mjs -H Reads:3 -H Expires-In:3600 -d &quot;text&quot; &lt;link&gt;/new</code></td>
+          <td>sends an item with three reads, expiring after an hour</td>
+        </tr>
+        <tr>
           <td><code>node k.mjs -d &quot;changed&quot; &lt;link&gt;/1/e</code></td>
           <td>edits a text if it has not changed since the client read it</td>
         </tr>
@@ -798,7 +819,7 @@
         </tr>
         <tr>
           <td><code>node k.mjs &lt;link&gt;/live</code></td>
-          <td>a line per change until stopped (<code>new &lt;id&gt; &lt;name&gt;</code>, <code>moved</code>, <code>changed</code>, <code>gone &lt;id&gt;</code>, <code>locked</code>, <code>unlocked</code>), names decrypted; reconnects by itself</td>
+          <td>a line per change until stopped (<code>new &lt;id&gt; &lt;name&gt;</code>, <code>moved</code>, <code>changed</code>, <code>gone &lt;id&gt;</code>), names decrypted; reconnects by itself</td>
         </tr>
         <tr>
           <td><code>node k.mjs https://&lt;site&gt;/i/&lt;token&gt;#&lt;key&gt;</code></td>

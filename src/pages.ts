@@ -17,6 +17,7 @@ export type WebAssets = {
   adminHtml: string;
   /** The page for one shared item, /i/<token>. */
   itemHtml: string;
+  viewHtml: string;
   /** The protocol, plain and encrypted, /k/protocol. */
   protocolHtml: string;
   /** The project and dependency licenses, /k/licenses. */
@@ -32,6 +33,7 @@ const PAGES = {
   homeHtml: "home.html",
   adminHtml: "admin.html",
   itemHtml: "item.html",
+  viewHtml: "view.html",
   protocolHtml: "protocol.html",
   licensesHtml: "licenses.html",
   loginHtml: "login.html",
@@ -47,6 +49,7 @@ export const STATIC_FILES = [
   "namespaces/access.js",
   "home.js",
   "item.js",
+  "view.js",
   "common.js",
   "components.js",
   "items.js",
@@ -114,6 +117,7 @@ export const loadAssets = async (read: (path: string) => Promise<string>): Promi
     homeHtml: page("homeHtml"),
     adminHtml: page("adminHtml"),
     itemHtml: page("itemHtml"),
+    viewHtml: page("viewHtml"),
     protocolHtml: page("protocolHtml"),
     licensesHtml: page("licensesHtml"),
     loginHtml: page("loginHtml"),

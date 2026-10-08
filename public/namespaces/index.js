@@ -3,7 +3,7 @@
 
 // Namespace page entry point. Each feature owns its DOM and state; this file
 // only wires them together and starts the selected plain or encrypted mode.
-import { element, iconLink, readConfig, SITE, setBusy } from "../common.js";
+import { copyText, element, iconLink, readConfig, SITE, setBusy } from "../common.js";
 import { ignoreStrayDrops } from "../components.js";
 import { secretNameProblem, splitFragment } from "../k.mjs";
 import { createStatus } from "../status.js";
@@ -20,11 +20,7 @@ const pageLinks = element("#page-links");
 const qrImage = element("#qr");
 
 let items;
-const access = createAccess({
-  status,
-  renderItems: (...args) => items.renderItems(...args),
-  getServerItems: () => items.getServerItems(),
-});
+const access = createAccess();
 let live;
 items = createItemList({
   status,
@@ -35,7 +31,6 @@ items = createItemList({
 live = createLive({
   status,
   renderItems: items.renderItems,
-  setLocked: access.setLocked,
   isItemsShown: items.isItemsShown,
 });
 const forms = createForms({
@@ -64,6 +59,7 @@ const showPage = (mode) => {
   qrImage.src = `data:image/svg+xml,${encodeURIComponent(renderSVG(mode.shareUrl, { ecc: "M", border: 2 }))}`;
   forms.showPage();
   access.showAccess();
+  element("#create-view").hidden = !access.canWrite();
 };
 
 const disableAll = (message) => {
@@ -108,16 +104,30 @@ try {
   items.setMode(mode);
   live.setMode(mode);
   forms.setMode(mode);
-  if (path !== "/e") {
-    // An owner's link: keep its key here, then remove it from the address.
-    const ownerKey = /^#w=(.+)$/.exec(window.location.hash)?.[1];
-    if (ownerKey) {
-      access.storeOwnerKey(decodeURIComponent(ownerKey));
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    }
-  }
-
   showPage(mode);
+  element("#create-view").addEventListener("click", async () => {
+    const create = element("#create-view");
+    create.disabled = true;
+    status.progress("Creating a shared view…");
+    try {
+      const url = await mode.createView();
+      element("#view-link").value = url;
+      element("#view-link-row").hidden = false;
+      status.success("Shared view created. The previous view, if any, is now frozen.");
+    } catch (error) {
+      status.error(error.message);
+    } finally {
+      create.disabled = false;
+    }
+  });
+  element("#copy-view-link").addEventListener("click", async () => {
+    try {
+      await copyText(element("#view-link").value);
+      status.success("Shared view link copied.");
+    } catch (error) {
+      status.error(error.message);
+    }
+  });
   // The live connection brings the queue; the fetch is the fallback.
   live.connectLive();
   setTimeout(() => {

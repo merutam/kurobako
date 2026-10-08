@@ -20,7 +20,7 @@ export const LICENSES_PATH = "/k/licenses";
  * The protocol's version, in /.well-known/kurobako: a client of another one
  * cannot open this server's encrypted items (k.mjs has it too, as PROTOCOL).
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 /** The admin dashboard and its API: the server's own, so under /k, not the protocol's. */
 export const ADMIN_PATH = "/k/a";
 /** The client for encrypted namespaces, served from public/. */
@@ -83,7 +83,7 @@ export const routeOf = (pathname: string): number | null => {
     const name = sealedName(second);
     return name ? slotOf({ space: "sealed", name }) : null;
   }
-  if (first === "i") {
+  if (first === "i" || first === "v") {
     const token = /^[A-Za-z0-9_-]+/.exec(second)?.[0] ?? "";
     return SHARE_TOKEN_PATTERN.test(token) ? tokenSlot(token) : null;
   }

@@ -67,7 +67,7 @@ export const jsonError = (
 
 export const TOO_MANY_SENDS = "Too many sends from this address. Try again in a minute.";
 
-/** The header that carries a locked namespace's write key. */
+/** The header that proves authority to mutate an encrypted namespace. */
 export const WRITE_KEY_HEADER = "write-key";
 
 /** SHA-256 in hex: what a namespace keeps of its write key. */
@@ -157,6 +157,7 @@ export const createContext = (
     namespace: build(assets.namespaceHtml),
     admin: build(assets.adminHtml),
     item: build(assets.itemHtml),
+    view: build(assets.viewHtml),
     protocol: build(assets.protocolHtml),
     licenses: build(assets.licensesHtml),
     login: build(assets.loginHtml),
@@ -201,24 +202,19 @@ export const createContext = (
 
   /**
    * Why this write to a namespace cannot go, as the answer to give; null
-   * when it can. A locked namespace takes writes only with its key, and no
-   * burn-after-reading items: its readers are many, and the first would
-   * delete one for everyone. A wrong key counts as a miss, so keys cannot
-   * be guessed at speed.
+   * when it can. Plain names are write capabilities; an encrypted namespace
+   * requires the key bound to its ID, including on its first send. A wrong
+   * key counts as a miss, so keys cannot be guessed at speed.
    */
-  const refuseWrite = async (c: AppContext, ref: NamespaceRef, { burn = false } = {}) => {
-    const check = (await namespace(c, ref).checkWrite(await writeVerifier(c))) as WriteCheck;
+  const refuseWrite = async (c: AppContext, ref: NamespaceRef) => {
+    const check = (await namespace(c, ref).checkWrite(ref, await writeVerifier(c))) as WriteCheck;
     if (check === "open") return null;
-    c.header("Locked", "1");
     if (check === "missing") {
-      return jsonError(c, 401, "This namespace is read-only: writing needs its key (Write-Key).");
+      return jsonError(c, 401, "Writing to an encrypted namespace needs its Write-Key.");
     }
     if (check === "wrong") {
       c.set("miss", true);
       return jsonError(c, 403, "Wrong write key for this namespace.");
-    }
-    if (burn) {
-      return jsonError(c, 400, "A locked namespace has no items that delete when opened.");
     }
     return null;
   };

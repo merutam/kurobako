@@ -14,6 +14,8 @@ import {
 } from "./common.js";
 import hljs from "./vendor/highlight.js";
 
+export const limitedItem = (item) => Boolean(item.burn || item.readsLeft !== undefined);
+
 export const extensionOf = (title) => /\.([A-Za-z0-9_+-]+)$/.exec(title)?.[1]?.toLowerCase() ?? "";
 export const languageOf = (title) => {
   const extension = extensionOf(title);
@@ -73,7 +75,8 @@ export const describePlain = (item) =>
     ? {
         kind: "text",
         title:
-          item.name ?? (item.burn ? HIDDEN_TITLE : compactText(item.text ?? item.preview ?? "")),
+          item.name ??
+          (limitedItem(item) ? HIDDEN_TITLE : compactText(item.text ?? item.preview ?? "")),
         size: item.size,
         isImage: false,
         isVideo: false,

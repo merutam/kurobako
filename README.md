@@ -46,11 +46,12 @@ node k.mjs "$BOX/e#secret name/1"              # an item's contents
 node k.mjs -d 'hello' "$BOX/e#secret name/new"
 node k.mjs -d 'changed' "$BOX/e#secret name/1/e" # edit if unchanged meanwhile
 node k.mjs -O "$BOX/e#secret name"             # export every item here (overwrites)
+node k.mjs -X POST "$BOX/e#secret name/views"   # create a read-only shared view
 node k.mjs "$BOX/e#secret name/live"           # a line per change, until stopped
 ```
 
 `/live` stays connected and prints `new <id> <name>`, `moved`, `changed`,
-`gone <id>`, `locked` or `unlocked` as they happen, for scripts; it works on
+`gone <id>` as they happen, for scripts; it works on
 plain namespaces too, and reconnects by itself (Node 22+ or Bun):
 
 ```sh
@@ -77,11 +78,18 @@ encrypted, is at `/k/protocol` on every instance. Every instance describes itsel
 - **File types** come from the bytes: PNG, JPEG, GIF, WebP, AVIF and HEIC are
   shown as images; anything else is a download.
 - **Burn after reading** (`Burn: 1`): only one reader gets the item.
+- **Per-send limits:** `Reads: 3` permits three explicit content reads;
+  `Expires-In: 3600` expires an item after an hour, within the instance limit.
 - **No copies:** sending contents already in a plain queue moves that item to
-  the top (`200` with `"existing": true`).
+  the top (`200` with `"existing": true`); a clone uses `No-Dedup: 1` to
+  preserve distinct source items with identical bytes.
 - **Share links** (`/i/<token>`) open one item without revealing its
   namespace, and die with it. Encrypted ones carry the item's key after the
   `#`.
+- **Shared views** (`/v/<token>`) list item links without revealing the source
+  namespace. The active view gains new items; older views keep their member
+  list but show edits to those items. The view page can clone available items
+  into a new, independent plain or encrypted namespace.
 - **Live:** open pages get every change over a WebSocket.
 - **Access log** at `<ns>/log`. The home page shows aggregate stats only,
   counted from page views, whose address and country are kept for a day.
@@ -137,13 +145,12 @@ for part in kurobako-*-part*.zip; do
 done
 ```
 
-## Locked namespaces
+## Write access
 
-Creating locks and changing lock keys are temporarily disabled. Existing
-locked namespaces still require their write key for changes and can be
-unlocked; `k.mjs` takes a plain namespace's key in `KUROBAKO_WRITE_KEY`.
-An encrypted namespace derives its write key from its secret name. Locking
-will return after the server can verify ownership before accepting a lock.
+A plain namespace's name lets anyone who knows it write. An encrypted
+namespace requires the write key derived from its complete secret name on
+every mutation, including the first upload. Share links never carry that key.
+The old lock endpoint is disabled.
 
 ## A private instance
 

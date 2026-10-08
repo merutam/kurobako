@@ -15,6 +15,12 @@
     <span id="mode-label"></span><span id="expiry-label"></span><span id="page-links"></span>
   </p>
 
+  <p><button id="create-view" data-icon="share" type="button" hidden>Create shared view</button></p>
+  <div id="view-link-row" class="copy-link" hidden>
+    <input id="view-link" type="text" readonly aria-label="Shared view link" />
+    <button id="copy-view-link" data-icon="copy" type="button">Copy link</button>
+  </div>
+
   <p id="status" class="status" role="status" aria-live="polite"></p>
 
   <section id="media-feed" class="media-feed" aria-labelledby="media-feed-title" hidden>
@@ -41,23 +47,15 @@
         </label>
         <p id="burn-hint" class="hint">New items sent while enabled are deleted when first opened.</p>
       </div>
-      <div id="lock-section" class="setting-row" hidden>
-        <p id="lock-actions" class="actions">
-          <button data-icon="unlock" id="unlock-button" type="button" hidden>Unlock</button>
-          <button data-icon="logout" id="forget-key" type="button" hidden>Forget the key here</button>
-        </p>
-        <p id="lock-hint" class="hint"></p>
-        <div id="lock-link-row" class="copy-link" hidden>
-          <input id="lock-link" type="text" readonly aria-label="Link that writes here" />
-          <button data-icon="copy" id="copy-lock-link" type="button">Copy link</button>
-        </div>
-        <form id="key-form" hidden>
-          <label for="key-input">Write key</label>
-          <div class="copy-link">
-            <input id="key-input" type="text" autocomplete="off" spellcheck="false" required />
-            <button data-icon="login" type="submit">Use key</button>
-          </div>
-        </form>
+      <div class="setting-row">
+        <label for="reads-limit">Reads allowed (optional)</label>
+        <input id="reads-limit" type="number" min="1" max="1000000" step="1" inputmode="numeric" placeholder="Unlimited" />
+        <p class="hint">Each explicit open uses one read; leave blank for unlimited.</p>
+      </div>
+      <div class="setting-row">
+        <label for="expires-in">Expires in seconds (optional)</label>
+        <input id="expires-in" type="number" min="1" step="1" inputmode="numeric" placeholder="Instance default" />
+        <p class="hint">Must not exceed this instance's item lifetime.</p>
       </div>
     </div>
   </section>

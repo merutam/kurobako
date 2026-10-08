@@ -67,10 +67,10 @@ export type NamespaceApi = Async<
     | "accessLog"
     | "cleanUpIfEmpty"
     | "restore"
-    | "isLocked"
     | "checkWrite"
-    | "lock"
-    | "unlock"
+    | "viewsStatus"
+    | "createView"
+    | "viewContents"
   >
 >;
 export type HubApi = Async<
@@ -81,9 +81,13 @@ export type HubApi = Async<
     | "recordActivity"
     | "recordVisitor"
     | "createShare"
+    | "createShares"
     | "extendShare"
     | "resolveShare"
     | "forgetShare"
+    | "registerView"
+    | "resolveView"
+    | "forgetView"
     | "loginLockedOut"
     | "loginFailed"
     | "loginSucceeded"

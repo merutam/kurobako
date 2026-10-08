@@ -35,7 +35,7 @@ export const mountAccess = (app: App, api: Api, key: string) => {
     path === "/k/healthz" ||
     path === ADMIN_PATH ||
     path.startsWith(`${ADMIN_PATH}/`) ||
-    (config.publicShares && path.startsWith("/i/"));
+    (config.publicShares && (path.startsWith("/i/") || path.startsWith("/v/")));
 
   const allowed = (c: AppContext) =>
     sessions.valid(getCookie(c, SESSION_COOKIE)) || hasBearer(c, key);

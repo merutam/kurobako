@@ -24,6 +24,7 @@ import {
   extensionOf,
   highlightedText,
   itemSummary,
+  limitedItem,
   streamAddress,
   videoPlayer,
 } from "../items.js";
@@ -123,7 +124,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
    * which must be read whole, once).
    */
   const partsAddress = async (entry) =>
-    mode.streamOf && !entry.opened && !entry.item.burn
+    mode.streamOf && !entry.opened && !limitedItem(entry.item)
       ? streamAddress(await mode.streamOf(entry.item))
       : null;
 
@@ -134,7 +135,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
    */
   const mediaAddress = async (entry, { preview = false } = {}) => {
     const { item, info } = entry;
-    if (!entry.opened && item.kind !== "sealed" && !item.burn) {
+    if (!entry.opened && item.kind !== "sealed" && !limitedItem(item)) {
       return { src: `${mode.basePath}/${encodeURIComponent(item.id)}`, revoke: null };
     }
     const streamed = info.isVideo ? await partsAddress(entry) : null;
@@ -219,7 +220,11 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       const title = content.text === undefined ? info.title : compactText(content.text);
       opened.set(item.id, { item, info: { ...info, title }, ...content });
       expandedItems.add(item.id);
-      status.success("Opened and deleted from the server.");
+      status.success(
+        item.burn || item.readsLeft === 1
+          ? "Opened and deleted from the server."
+          : "Opened; one read used.",
+      );
       await renderItems(serverItems, { force: true });
     } catch (error) {
       status.error(
@@ -405,7 +410,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
    */
   const renderItem = (entry, position) => {
     const { item, info } = entry;
-    const unopenedBurn = item.burn && !entry.opened;
+    const unopenedBurn = limitedItem(item) && !entry.opened;
     const listItem = el("li", { className: unopenedBurn ? "item burn" : "item" });
     const row = el("div", { className: "item-row" });
     row.append(el("span", { className: "item-position" }, position ? String(position) : ""));
@@ -525,7 +530,10 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
 
       const details = el("p", { className: "item-meta", textContent: itemSummary(item, info) });
       if (entry.opened) {
-        details.append(" · ", noteSpan("deleted from the server"));
+        details.append(
+          " · ",
+          noteSpan(item.burn || item.readsLeft === 1 ? "deleted from the server" : "one read used"),
+        );
       } else if (item.expiresAt) {
         const expiry = el("span", { textContent: formatExpiry(item.expiresAt) });
         expiry.dataset.expiresAt = item.expiresAt;
@@ -539,7 +547,14 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
 
     const actions = el("span", { className: "item-actions" });
     if (unopenedBurn) {
-      actions.append(button("Open once", () => openOnce(entry), undefined, "burn"));
+      actions.append(
+        button(
+          item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once",
+          () => openOnce(entry),
+          undefined,
+          "burn",
+        ),
+      );
     } else {
       if (info.isImage || info.isVideo) {
         actions.append(
@@ -649,7 +664,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
 
     const mediaEntries = entries.filter(
       (entry) =>
-        (entry.info.isImage || entry.info.isVideo) && (!entry.item.burn || Boolean(entry.opened)),
+        (entry.info.isImage || entry.info.isVideo) &&
+        (!limitedItem(entry.item) || Boolean(entry.opened)),
     );
     mediaFeed.update(mediaEntries);
     openMediaLink.hidden = mediaEntries.length === 0;

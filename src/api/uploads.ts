@@ -13,7 +13,7 @@ import {
   TEXT_PREVIEW_CHARS,
 } from "../model";
 import type { ItemRef, Saved, SaveInput } from "../namespace";
-import { type Api, type AppContext, jsonError, readLimited } from "./context";
+import { type Api, type AppContext, jsonError, readLimited, writeVerifier } from "./context";
 
 /** A file-backed item before its bytes are in the blob store. */
 export type ObjectInput = DistributiveOmit<
@@ -23,6 +23,8 @@ export type ObjectInput = DistributiveOmit<
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 const BURN_HEADER_VALUES = new Set(["1", "true", "yes"]);
+const MAX_EXPIRES_IN_SECONDS = 30 * 24 * 60 * 60;
+const MAX_READS = 1_000_000;
 /** Request types stored as text: what the page sends, and what `curl -d` sends. */
 const TEXT_TYPES = new Set(["text/plain", "application/x-www-form-urlencoded"]);
 export const TEXT_MIME = "text/plain; charset=utf-8";
@@ -70,6 +72,38 @@ export const decodeFilename = (value: string | undefined): string | null => {
 /** `Burn: 1` on a send: the item is deleted by its first read. Short to type: `-H burn:1`. */
 export const burnRequested = (c: AppContext) =>
   BURN_HEADER_VALUES.has((c.req.header("burn") ?? "").trim().toLowerCase());
+
+/** A send's requested lifetime, or a validation response. Null means the instance default. */
+const requestedExpiry = (c: AppContext, itemTtlMs: number): number | null | Response => {
+  const raw = c.req.header("expires-in");
+  if (raw === undefined) return null;
+  if (!/^[1-9]\d*$/.test(raw.trim())) {
+    return jsonError(c, 400, "Expires-In must be a positive integer of seconds.");
+  }
+  const seconds = Number(raw.trim());
+  const max = itemTtlMs ? itemTtlMs / 1000 : MAX_EXPIRES_IN_SECONDS;
+  if (!Number.isSafeInteger(seconds) || seconds > max) {
+    return jsonError(c, 400, `Expires-In must be at most ${max} seconds.`);
+  }
+  return seconds;
+};
+
+/** `Burn: 1` is the one-read spelling of `Reads: 1`. */
+const requestedReads = (c: AppContext): number | null | Response => {
+  const raw = c.req.header("reads");
+  if (raw === undefined) return null;
+  if (!/^[1-9]\d*$/.test(raw.trim())) {
+    return jsonError(c, 400, "Reads must be a positive integer.");
+  }
+  const count = Number(raw.trim());
+  if (!Number.isSafeInteger(count) || count > MAX_READS) {
+    return jsonError(c, 400, `Reads must be at most ${MAX_READS}.`);
+  }
+  if (burnRequested(c) && count !== 1) {
+    return jsonError(c, 400, "Burn: 1 conflicts with Reads greater than one.");
+  }
+  return count;
+};
 
 /**
  * A file upload, streamed to the blob store without holding it in memory.
@@ -211,6 +245,12 @@ const sentResponse = (c: AppContext, saved: Saved) =>
 
 export const createUploads = (api: Api) => {
   const { config, namespace, platformOf, later, record, visit } = api;
+  const viewOf = (c: AppContext) => {
+    const token = c.req.header("view-token");
+    const envelope = c.req.header("view-envelope");
+    return token ? { token, ...(envelope ? { envelope } : {}) } : undefined;
+  };
+  const deduplicate = (c: AppContext) => c.req.header("no-dedup") !== "1";
 
   /** Streams contents into the blob store, then records their key in the namespace. */
   const saveObject = async (
@@ -219,6 +259,8 @@ export const createUploads = (api: Api) => {
     upload: Upload,
     input: ObjectInput,
     validate?: () => void,
+    expiresInSeconds: number | null = null,
+    reads: number | null = null,
   ): Promise<Saved> => {
     // The file's own key, never shown: the item's ID is picked by the namespace.
     const object = objectKey(ref);
@@ -240,6 +282,11 @@ export const createUploads = (api: Api) => {
         { ...input, object, size: upload.size, ...(hashed ? { sha256: hashed.digest() } : {}) },
         burnRequested(c),
         visit(c),
+        expiresInSeconds,
+        reads,
+        await writeVerifier(c),
+        viewOf(c),
+        deduplicate(c),
       )) as Saved;
       // Already there: the file just uploaded is a copy nothing points at.
       if (saved.existing) later(c, blobs.delete([object]));
@@ -252,14 +299,30 @@ export const createUploads = (api: Api) => {
   };
 
   const uploadFile = async (c: AppContext, ref: NamespaceRef, filename: string | null) => {
+    const expiresIn = requestedExpiry(c, config.itemTtlMs);
+    if (expiresIn instanceof Response) return expiresIn;
+    const reads = requestedReads(c);
+    if (reads instanceof Response) return reads;
     const upload = await streamedBody(c, config.maxFileBytes);
     if (upload instanceof Response) return upload;
-    const saved = await saveObject(c, ref, upload, describePlainFile(upload, filename));
+    const saved = await saveObject(
+      c,
+      ref,
+      upload,
+      describePlainFile(upload, filename),
+      undefined,
+      expiresIn,
+      reads,
+    );
     record(c, "sentFile");
     return sentResponse(c, saved);
   };
 
   const uploadPlain = async (c: AppContext, ref: NamespaceRef) => {
+    const expiresIn = requestedExpiry(c, config.itemTtlMs);
+    if (expiresIn instanceof Response) return expiresIn;
+    const reads = requestedReads(c);
+    if (reads instanceof Response) return reads;
     const contentType = (c.req.header("content-type") || "").split(";", 1)[0]?.trim().toLowerCase();
     if (!TEXT_TYPES.has(contentType ?? "")) {
       return uploadFile(c, ref, decodeFilename(c.req.header("x-filename")));
@@ -274,7 +337,15 @@ export const createUploads = (api: Api) => {
       if (upload instanceof Response) return upload;
       const external = validatedText(upload);
       try {
-        const saved = await saveObject(c, ref, external.upload, external.input, external.validate);
+        const saved = await saveObject(
+          c,
+          ref,
+          external.upload,
+          external.input,
+          external.validate,
+          expiresIn,
+          reads,
+        );
         record(c, "sentText");
         return sentResponse(c, saved);
       } catch (error) {
@@ -300,6 +371,9 @@ export const createUploads = (api: Api) => {
         ref,
         { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
         { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS) },
+        undefined,
+        expiresIn,
+        reads,
       );
     } else {
       saved = (await namespace(c, ref).save(
@@ -312,6 +386,11 @@ export const createUploads = (api: Api) => {
         },
         burnRequested(c),
         visit(c),
+        expiresIn,
+        reads,
+        await writeVerifier(c),
+        viewOf(c),
+        deduplicate(c),
       )) as Saved;
     }
     record(c, "sentText");
@@ -319,6 +398,10 @@ export const createUploads = (api: Api) => {
   };
 
   const uploadSealed = async (c: AppContext, ref: NamespaceRef) => {
+    const expiresIn = requestedExpiry(c, config.itemTtlMs);
+    if (expiresIn instanceof Response) return expiresIn;
+    const reads = requestedReads(c);
+    if (reads instanceof Response) return reads;
     const metadata = c.req.header("x-sealed-metadata") ?? "";
     if (!SEALED_METADATA_PATTERN.test(metadata)) {
       return jsonError(c, 400, "Missing or invalid X-Sealed-Metadata header.");
@@ -326,7 +409,15 @@ export const createUploads = (api: Api) => {
     // The browser checks that ciphertext (contents plus IV and tag) fits.
     const upload = await streamedBody(c, config.maxFileBytes);
     if (upload instanceof Response) return upload;
-    const saved = await saveObject(c, ref, upload, { kind: "sealed", metadata });
+    const saved = await saveObject(
+      c,
+      ref,
+      upload,
+      { kind: "sealed", metadata },
+      undefined,
+      expiresIn,
+      reads,
+    );
     record(c, "sentEncrypted");
     return sentResponse(c, saved);
   };
@@ -359,6 +450,7 @@ export const createUploads = (api: Api) => {
       { ...input, object, size: upload.size, ...(hashed ? { sha256: hashed.digest() } : {}) },
       expected,
       visit(c),
+      await writeVerifier(c),
     )) as ReplaceResult;
     // A null or error answer guarantees the namespace did not commit. A thrown
     // RPC does not: leave the blob, since the committed row may point at it.
@@ -444,6 +536,7 @@ export const createUploads = (api: Api) => {
             { kind: "text", text, size: bytes.byteLength, sha256: sha256Of(bytes) },
             expected,
             visit(c),
+            await writeVerifier(c),
           )) as ReplaceResult);
     return editResponse(c, result);
   };

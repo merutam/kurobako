@@ -2,16 +2,22 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { request, SITE } from "../common.js";
-import { describeOpened, describePlain } from "../items.js";
+import { describeOpened, describePlain, limitedItem } from "../items.js";
 import {
   contentSize,
   defaultTextName,
   fileMetadata,
+  newViewId,
   openReadOnlySpace,
   openSealedSpace,
 } from "../k.mjs";
 
 const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
+const sendHeaders = ({ burn, reads, expiresIn }) => ({
+  ...burnHeaders(burn),
+  ...(reads ? { Reads: reads } : {}),
+  ...(expiresIn ? { "Expires-In": expiresIn } : {}),
+});
 const versionOf = (item) => item.updatedAt ?? item.createdAt;
 
 /*
@@ -35,6 +41,21 @@ export const plainMode = (namespace, writeHeaders) => {
     /** The largest file a send takes, in bytes of its own contents. */
     fileLimit: (maxFileBytes) => maxFileBytes,
     shareUrl: `${window.location.origin}${basePath}`,
+    createView: async () => {
+      const { items, views } = await (await request(`${basePath}/views`)).json();
+      const created = await (
+        await request(`${basePath}/views`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            viewId: newViewId(),
+            previousToken: views.find((view) => view.active)?.token ?? null,
+            entries: items.map((item) => ({ id: item.id })),
+          }),
+        })
+      ).json();
+      return `${window.location.origin}${created.url}`;
+    },
     describe: async (item) => describePlain(item),
     loadText: async (item) =>
       item.text ?? (await request(`${basePath}/${item.id}`, { cache: "no-store" })).text(),
@@ -43,17 +64,17 @@ export const plainMode = (namespace, writeHeaders) => {
     downloadUrl: (item) => `${basePath}/${item.id}/d`,
     /** Plain share links need nothing besides the token. */
     shareKey: async () => null,
-    sendText: (text, { burn }) =>
+    sendText: (text, settings) =>
       request(`${basePath}/new`, {
         method: "POST",
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
-          ...burnHeaders(burn),
+          ...sendHeaders(settings),
           ...writeHeaders(),
         },
         body: text,
       }),
-    sendFile: (file, { burn }) =>
+    sendFile: (file, settings) =>
       request(`${basePath}/new`, {
         method: "POST",
         // The server detects images from the bytes; never let a picked .txt
@@ -61,7 +82,7 @@ export const plainMode = (namespace, writeHeaders) => {
         headers: {
           "Content-Type": "application/octet-stream",
           "X-Filename": encodeURIComponent(file.name),
-          ...burnHeaders(burn),
+          ...sendHeaders(settings),
           ...writeHeaders(),
         },
         body: file,
@@ -109,14 +130,24 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
     const response = await request(`${basePath}/${item.id}`, { cache: "no-store" });
     return opened.open(await response.arrayBuffer());
   };
-  const send = async (bytes, metadata, burn) => {
-    const { header, body } = await space.sealItem(bytes, metadata);
+  const send = async (bytes, metadata, settings) => {
+    const viewStatus = await (
+      await request(`${basePath}/views`, { headers: writeHeaders() })
+    ).json();
+    const active = viewStatus.views.find((view) => view.active);
+    const { header, body, keyText } = await space.sealItem(bytes, metadata);
     return request(`${basePath}/new`, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
         "X-Sealed-Metadata": header,
-        ...burnHeaders(burn),
+        ...(active
+          ? {
+              "View-Token": active.token,
+              "View-Envelope": await space.sealViewEntry(active.viewId, keyText),
+            }
+          : {}),
+        ...sendHeaders(settings),
         ...writeHeaders(),
       },
       body,
@@ -133,9 +164,34 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
     shareUrl: readToken
       ? readOnlyUrl
       : `${window.location.origin}${SITE}/e#${encodeURIComponent(secretName)}`,
-    /** The key that writes here even locked: the name's; none by a read-only link. */
+    /** The name-derived write key; none by a read-only link. */
     writeKey: space.writeKey,
     readOnlyUrl,
+    createView: async () => {
+      const { items, views } = await (
+        await request(`${basePath}/views`, { headers: writeHeaders() })
+      ).json();
+      const viewId = newViewId();
+      const entries = await Promise.all(
+        items.map(async (item) => {
+          const opened = await openItem(item);
+          if (!opened) throw new Error("An item could not be decrypted for this view.");
+          return { id: item.id, envelope: await space.sealViewEntry(viewId, opened.keyText) };
+        }),
+      );
+      const created = await (
+        await request(`${basePath}/views`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...writeHeaders() },
+          body: JSON.stringify({
+            viewId,
+            previousToken: views.find((view) => view.active)?.token ?? null,
+            entries,
+          }),
+        })
+      ).json();
+      return `${window.location.origin}${created.url}#${await space.viewKey(viewId)}`;
+    },
     describe: async (item) => {
       const opened = await openItem(item);
       if (!opened) return { kind: "unreadable", title: "(could not decrypt)", size: item.size };
@@ -164,15 +220,15 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
     },
     /** The item's own key, for the part of a share link the server never sees. */
     shareKey: async (item) => (await openItem(item))?.keyText ?? null,
-    sendText: (text, { burn }) => {
+    sendText: (text, settings) => {
       const bytes = new TextEncoder().encode(text);
-      const title = burn ? "" : defaultTextName(text);
-      return send(bytes, { kind: "text", title, size: bytes.byteLength }, burn);
+      const title = settings.burn || settings.reads ? "" : defaultTextName(text);
+      return send(bytes, { kind: "text", title, size: bytes.byteLength }, settings);
     },
-    sendFile: async (file, { burn }) => {
+    sendFile: async (file, settings) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       // The same rules as the server's for plain files: images by their bytes.
-      return send(bytes, fileMetadata(bytes, file.name), burn);
+      return send(bytes, fileMetadata(bytes, file.name), settings);
     },
     editText: async (item, text, { original, title }) => {
       const opened = await openItem(item);
@@ -209,7 +265,9 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
       let changes = { title: name, ...(isText ? {} : { filename: name }) };
       if (isText && !name) {
         changes = {
-          title: item.burn ? "" : defaultTextName(new TextDecoder().decode(await loadBytes(item))),
+          title: limitedItem(item)
+            ? ""
+            : defaultTextName(new TextDecoder().decode(await loadBytes(item))),
         };
       } else if (!name) {
         throw new Error("A file needs a name.");

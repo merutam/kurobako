@@ -19,6 +19,13 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const textLanguage = element("#text-language");
   const fileInput = element("#file");
   const burnInput = element("#burn");
+  const readsInput = element("#reads-limit");
+  const expiresInput = element("#expires-in");
+  const sendSettings = () => ({
+    burn: burnInput.checked,
+    reads: burnInput.checked ? null : readsInput.value || null,
+    expiresIn: expiresInput.value || null,
+  });
   const textLimit = element("#text-limit");
   const fileLimitLabel = element("#file-limit");
   const backupZip = element("#backup-zip");
@@ -52,7 +59,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     setBusy(textForm, true);
     status.progress("Sending…");
     try {
-      const response = await mode.sendText(text, { burn: burnInput.checked });
+      const response = await mode.sendText(text, sendSettings());
       textInput.value = "";
       mainTextEditor.refresh({ immediate: true });
       showTextSize();
@@ -114,7 +121,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
         status.progress(files.length > 1 ? `Sending ${sent + 1} of ${files.length}…` : "Sending…");
         let response;
         try {
-          response = await mode.sendFile(queue[index], { burn: burnInput.checked });
+          response = await mode.sendFile(queue[index], sendSettings());
         } catch (error) {
           // Past the sends allowed a minute: wait as the server asks, then go
           // on with the same file. Three waits in a row without a send: stop.

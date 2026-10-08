@@ -16,15 +16,8 @@ import {
   summaryItem,
 } from "../model";
 import { renderLogPage } from "../pages";
-import {
-  type Api,
-  type App,
-  type AppContext,
-  jsonError,
-  sha256Hex,
-  WRITE_KEY_HEADER,
-} from "./context";
-import { burnRequested, type createUploads, decodeFilename } from "./uploads";
+import { type Api, type App, type AppContext, jsonError } from "./context";
+import { type createUploads, decodeFilename } from "./uploads";
 
 export type Space = {
   kind: SpaceKind;
@@ -95,28 +88,14 @@ export const mountNamespaces = (
         // Nothing is stored until something is sent.
         const ref = resolve(c);
         if (!ref) return jsonError(c, 404, "Invalid namespace.");
-        // A locked one's page comes as a reader's, so its send forms are
-        // never shown, then hidden (a key kept on the device brings them back).
-        const locked = (await namespace(c, ref).isLocked()) as boolean;
-        return pageView(
-          c,
-          // The tag itself, at the start of its line (the layout's comments name it too).
-          locked
-            ? pages.namespace.replace(/^(\s*)<main(?=[\s>])/m, "$1<main data-locked")
-            : pages.namespace,
-        );
+        return pageView(c, pages.namespace);
       });
     }
 
     app.get(
       `${prefix}/ls`,
       inNamespace(async (c, ref) => {
-        const ns = namespace(c, ref);
-        const [items, locked] = (await Promise.all([ns.list(visit(c)), ns.isLocked()])) as [
-          StoredItem[],
-          boolean,
-        ];
-        if (locked) c.header("Locked", "1");
+        const items = (await namespace(c, ref).list(visit(c))) as StoredItem[];
         // Nothing here is what a name that does not exist answers too.
         if (!items.length) c.set("miss", true);
         // ?summary is what the page uses: long texts as previews.
@@ -128,8 +107,7 @@ export const mountNamespaces = (
     app.post(
       `${prefix}/new`,
       inNamespace(async (c, ref) => {
-        const refused =
-          (await refuseSend(c)) ?? (await refuseWrite(c, ref, { burn: burnRequested(c) }));
+        const refused = (await refuseSend(c)) ?? (await refuseWrite(c, ref));
         if (refused) return refused;
         const full = await storageFull(c, declaredSize(c));
         if (full) return full;
@@ -137,23 +115,16 @@ export const mountNamespaces = (
       }),
     );
 
-    // New locks and key rotation are paused until encrypted ownership can be
-    // verified. Keep the route explicit so older clients get a clear answer.
+    // Keep the retired route explicit so older clients get a clear answer.
     app.post(
       `${prefix}/lock`,
-      inNamespace((c) => jsonError(c, 503, "Creating or changing locks is temporarily disabled.")),
+      inNamespace((c) => jsonError(c, 503, "Namespace locks are not part of this protocol.")),
     );
 
-    /** Opens a locked namespace to every writer again, given its key. */
+    /** The old lock lifecycle is not part of protocol v6. */
     app.delete(
       `${prefix}/lock`,
-      inNamespace(async (c, ref) => {
-        const given = c.req.header(WRITE_KEY_HEADER)?.trim();
-        const unlocked = given && (await namespace(c, ref).unlock(await sha256Hex(given)));
-        if (unlocked) return c.json({ locked: false });
-        c.set("miss", true);
-        return jsonError(c, 403, "Wrong write key for this namespace, or it is not locked.");
-      }),
+      inNamespace((c) => jsonError(c, 503, "Namespace locks are not part of this protocol.")),
     );
 
     app.get(
@@ -202,8 +173,7 @@ export const mountNamespaces = (
     if (!name) return jsonError(c, 404, "Invalid namespace.");
     c.header("Cache-Control", "no-store");
     const ref = { space: "plain", name } as const;
-    const refused =
-      (await refuseSend(c)) ?? (await refuseWrite(c, ref, { burn: burnRequested(c) }));
+    const refused = (await refuseSend(c)) ?? (await refuseWrite(c, ref));
     if (refused) return refused;
     const full = await storageFull(c, declaredSize(c));
     if (full) return full;

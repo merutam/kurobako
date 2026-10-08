@@ -376,6 +376,7 @@ describe("site", () => {
       "e",
       "i",
       "k",
+      "v",
     ]);
     expect((await call("/protocol")).status).toBe(200);
     expect((await call("/healthz")).status).toBe(200);

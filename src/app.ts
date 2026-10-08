@@ -31,6 +31,7 @@ import { mountNamespaces } from "./api/namespaces";
 import { mountShares } from "./api/shares";
 import { mountSite } from "./api/site";
 import { createUploads } from "./api/uploads";
+import { mountViews } from "./api/views";
 import type { AppConfig } from "./config";
 import { logError } from "./log";
 import type { WebAssets } from "./pages";
@@ -85,6 +86,7 @@ export const createApp = (
   mountSite(app, api);
   if (config.adminKey) mountAdmin(app, api, config.adminKey);
   mountShares(app, api, contents);
+  mountViews(app, api);
   mountArchives(app, api);
   const uploads = createUploads(api);
   mountNamespaces(app, api, uploads);
@@ -92,6 +94,22 @@ export const createApp = (
 
   app.notFound((c) => jsonError(c, 404, "Not found."));
   app.onError((error, c) => {
+    if (error.message === "Write access denied.") return jsonError(c, 403, error.message);
+    if (error.message === "View changed." || error.message === "Too many views.") {
+      return jsonError(c, 409, error.message);
+    }
+    if (
+      error.message ===
+      "Import into an encrypted namespace with an active view needs view envelopes."
+    ) {
+      return jsonError(c, 409, error.message);
+    }
+    if (
+      error.message === "Invalid view ID." ||
+      error.message === "Missing or invalid view envelope."
+    ) {
+      return jsonError(c, 400, error.message);
+    }
     logError("Request failed", error, { method: c.req.method, path: c.req.path });
     return jsonError(c, 500, "Internal error.");
   });

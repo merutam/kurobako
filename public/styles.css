@@ -13,8 +13,7 @@
 
 /* A namespace page known, before its first paint, to be a reader's (see
    access.js): no send forms to show and then hide. namespaces/access.js takes over. */
-:where(:root:not([data-write-key]) main[data-locked], :root[data-read-link])
-:is(#send-section, #restore-form) {
+:root[data-read-link] :is(#send-section, #restore-form) {
   display: none;
 }
 
@@ -165,7 +164,7 @@ p {
   }
   /* A column hidden (Send, on a read-only namespace): the other takes it all. */
   .columns:has(> [hidden]),
-  :where(:root:not([data-write-key]) main[data-locked], :root[data-read-link]) .columns {
+  :root[data-read-link] .columns {
     grid-template-columns: minmax(0, 1fr);
   }
 }

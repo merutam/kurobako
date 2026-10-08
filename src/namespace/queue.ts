@@ -8,6 +8,7 @@ import {
   defaultTextName,
   nameOf,
   newItemId,
+  readLimitedItem,
   SEALED_METADATA_PATTERN,
   type StoredItem,
   TEXT_NAME_MAX_CHARS,
@@ -111,7 +112,9 @@ export class Queue {
   /** The same contents already here, to move instead of storing them twice. */
   sameContents(kind: StoredItem["kind"], sha256: string): StoredItem | null {
     return (
-      this.all().find((item) => !item.burn && item.kind === kind && item.sha256 === sha256) ?? null
+      this.all().find(
+        (item) => !readLimitedItem(item) && item.kind === kind && item.sha256 === sha256,
+      ) ?? null
     );
   }
 
@@ -197,13 +200,16 @@ export const newItem = (
   burn: boolean,
   createdAt: string,
   expiresAt: string | null,
+  reads: number | null = null,
 ): StoredItem => {
-  const sha256 = burn ? undefined : input.sha256;
+  const limited = burn || reads !== null;
+  const sha256 = limited ? undefined : input.sha256;
   const common = {
     id,
     createdAt,
     expiresAt,
-    ...(burn ? { burn: true as const } : {}),
+    ...(burn || reads === 1 ? { burn: true as const } : {}),
+    ...(reads !== null && reads > 1 ? { readsLeft: reads } : {}),
     ...(sha256 ? { sha256 } : {}),
   };
   if (input.kind === "text") {
@@ -215,9 +221,9 @@ export const newItem = (
       size: input.size,
       ...("text" in input
         ? { text: input.text }
-        : { object: input.object, ...(burn ? {} : { preview: input.preview }) }),
+        : { object: input.object, ...(limited ? {} : { preview: input.preview }) }),
       // Its start names it, which would give away a burn-after-reading text.
-      ...(burn ? {} : { name: defaultTextName(start) }),
+      ...(limited ? {} : { name: defaultTextName(start) }),
     };
   }
   if (input.kind === "sealed") {
@@ -252,7 +258,7 @@ export const replacedItem = (
   input: SaveInput,
   updatedAt: string,
 ): StoredItem | { error: string } => {
-  if (item.burn) return { error: "An item that deletes when opened cannot be edited." };
+  if (readLimitedItem(item)) return { error: "An item with limited reads cannot be edited." };
   if (item.kind === "sealed") {
     if (input.kind !== "sealed" || !SEALED_METADATA_PATTERN.test(input.metadata)) {
       return { error: "Missing or invalid X-Sealed-Metadata header." };
@@ -293,7 +299,7 @@ export const renamedItem = (item: StoredItem, change: Rename): StoredItem | { er
   const name = change.name.replace(/\s+/g, " ").trim();
   if (item.kind === "text") {
     const { name: _old, ...rest } = item;
-    const fallback = item.burn
+    const fallback = readLimitedItem(item)
       ? ""
       : defaultTextName("text" in item ? item.text : (item.preview ?? ""));
     const chosen = name ? name.slice(0, TEXT_NAME_MAX_CHARS) : fallback;
