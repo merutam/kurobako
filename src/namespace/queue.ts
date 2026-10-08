@@ -20,8 +20,8 @@ import type { Sql } from "../platform";
  * request handler uploads them to the blob store and hands over the key.
  */
 export type SaveInput = (
-  | { kind: "text"; text: string; size: number }
-  | { kind: "text"; preview: string; object: string; size: number }
+  | { kind: "text"; text: string; size: number; name?: string }
+  | { kind: "text"; preview: string; object: string; size: number; name?: string }
   | {
       kind: "image" | "file";
       mime: string;
@@ -222,8 +222,8 @@ export const newItem = (
       ...("text" in input
         ? { text: input.text }
         : { object: input.object, ...(limited ? {} : { preview: input.preview }) }),
-      // Its start names it, which would give away a burn-after-reading text.
-      ...(limited ? {} : { name: defaultTextName(start) }),
+      // Use the chosen filename, or its start; neither is exposed for limited reads.
+      ...(limited ? {} : { name: input.name ?? defaultTextName(start) }),
     };
   }
   if (input.kind === "sealed") {

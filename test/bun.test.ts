@@ -33,6 +33,9 @@ import {
   openSegments,
   openSharedItem,
   safeName,
+  suggestedTextFileBase,
+  textDownloadName,
+  textFileBase,
 } from "../public/k.mjs";
 import type { Manifest } from "../src/api/archives";
 import { readArchive, writeArchive } from "../src/archive";
@@ -486,6 +489,24 @@ describe("bun server", () => {
       name: "plain name",
     });
 
+    const source = new TextEncoder().encode("export const answer = 42;\n");
+    const namedText = await space.sealItem(source, {
+      kind: "text",
+      title: "answer.js",
+      size: source.byteLength,
+    });
+    await call(`/e/${space.id}/new`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-sealed-metadata": namedText.header,
+        "write-key": space.writeKey,
+      },
+      body: namedText.body,
+    });
+    await k("-OJ", `${link}/1/d`);
+    expect(readFileSync(join(workDir, "answer.js"), "utf8")).toBe("export const answer = 42;\n");
+
     // A link without its site, and a site that is no Kurobako server, say so.
     expect((await run(["/e#name"])).error).toContain("has no site in front");
     const other = Bun.serve({
@@ -831,6 +852,12 @@ describe("rules kept in two places", () => {
       "no-extension",
     ];
     for (const name of names) expect(safeName(name, "file")).toBe(safeFileName(name));
+    expect(suggestedTextFileBase('import x from "./lib/x.js";')).toBe("import x from lib x js");
+    expect(suggestedTextFileBase(" ")).toBe("text");
+    expect(textFileBase("Notes / code")).toBe("Notes - code");
+    expect(textDownloadName("answer.js", "abc")).toBe("answer.js");
+    expect(textDownloadName("old title", "abc")).toBe("old title.txt");
+    expect(textDownloadName("", "abc")).toBe("text-abc.txt");
   });
 
   test("files Cloudflare serves without the Worker: those the pages load", async () => {
@@ -1789,6 +1816,32 @@ describe("backups", () => {
     const again = await (await to(`/${copy}/import`, { method: "PUT", body: tar })).json();
     expect(again).toMatchObject({ restored: 0, skipped: 3 });
     expect(await (await to(`/${copy}/ls`)).json()).toHaveLength(3);
+  });
+
+  test("a named source text keeps its extension in archives and imports", async () => {
+    const ns = fresh();
+    const contents = "export const answer = 42;\n";
+    const sent = (await (
+      await from(`/${ns}/new`, {
+        ...text(contents),
+        headers: { "Content-Type": "text/plain; charset=utf-8", "X-Text-Name": "answer.js" },
+      })
+    ).json()) as Item;
+    expect(sent).toMatchObject({ kind: "text", name: "answer.js" });
+    for (const format of ["zip", "tar"]) {
+      const { manifest, files } = await unpack(await from(`/${ns}/${format}`));
+      const path = `plain/${ns}/answer.js`;
+      expect(manifest.namespaces[0]?.items[0]?.path).toBe(path);
+      expect(new TextDecoder().decode(files.get(path))).toBe(contents);
+    }
+    const imported = await to(`/${ns}/import`, {
+      method: "POST",
+      body: await (await from(`/${ns}/tar`)).arrayBuffer(),
+    });
+    expect(imported.status).toBe(200);
+    expect((await to(`/${ns}/${sent.id}/d`)).headers.get("content-disposition")).toContain(
+      'filename="answer.js"',
+    );
   });
 
   test("since=: only what was sent or changed after", async () => {

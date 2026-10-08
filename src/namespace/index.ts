@@ -473,10 +473,15 @@ export class NamespaceCore {
     if (same) {
       // Sent again: now the newest, expiring as if just sent, under the new
       // name if the send gave one.
-      const rename = "named" in input && input.named && "filename" in same ? input.filename : null;
+      const rename =
+        input.kind === "text" && same.kind === "text"
+          ? input.name
+          : "named" in input && input.named && "filename" in same
+            ? input.filename
+            : null;
       const moved: StoredItem = {
         ...same,
-        ...(rename ? { filename: rename } : {}),
+        ...(rename ? (same.kind === "text" ? { name: rename } : { filename: rename }) : {}),
         createdAt: new Date(now).toISOString(),
         expiresAt: this.expiryFrom(now, expiresInSeconds),
       };

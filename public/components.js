@@ -53,16 +53,6 @@ class KFileField extends HTMLElement {
           row.append(name, size);
           selected.append(row);
         }
-        if (files.length) {
-          const total = document.createElement("li");
-          total.className = "file-selection-total";
-          const label = document.createElement("span");
-          label.textContent = `${files.length} file${files.length === 1 ? "" : "s"} total`;
-          const size = document.createElement("span");
-          size.textContent = megabytes(files.reduce((sum, file) => sum + file.size, 0));
-          total.append(label, size);
-          selected.append(total);
-        }
         selected.hidden = files.length === 0;
       }
     };

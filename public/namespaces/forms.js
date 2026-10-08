@@ -11,6 +11,7 @@ import {
   setBusy,
   storage,
 } from "../common.js";
+import { safeName, suggestedTextFileBase, textFileBase } from "../k.mjs";
 import { createTextEditor, languageOptions, MAX_HIGHLIGHT_CHARACTERS } from "../text-editor.js";
 
 export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
@@ -18,6 +19,9 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const fileForm = element("#file-form");
   const textInput = element("#text");
   const textLanguage = element("#text-language");
+  const textName = element("#text-name");
+  const textNameRow = element("#text-name-row");
+  const textExtension = element("#text-extension");
   const fileInput = element("#file");
   const burnInput = element("#burn");
   const expiresInput = element("#expires-in");
@@ -42,15 +46,55 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const savedLanguage = storage.get(languageKey) ?? "";
   textLanguage.replaceChildren(...languageOptions(savedLanguage));
   textLanguage.value = savedLanguage;
+  let automaticName = true;
+  let nameTimer = null;
+  const suggestName = () => {
+    if (automaticName) textName.value = suggestedTextFileBase(textInput.value);
+  };
+  const applyLanguage = () => {
+    storage.set(languageKey, textLanguage.value);
+    textExtension.textContent = `.${textLanguage.value || "txt"}`;
+    mainTextEditor.refresh({ immediate: true });
+  };
+  const normalizeEnteredName = () => {
+    const match = /\.([A-Za-z0-9_+-]+)$/.exec(textName.value);
+    if (match) {
+      const extension = match[1].toLowerCase();
+      const language = extension === "txt" ? "" : extension;
+      if ([...textLanguage.options].some((option) => option.value === language)) {
+        textName.value = textName.value.slice(0, -match[0].length);
+        if (textLanguage.value !== language) {
+          textLanguage.value = language;
+          applyLanguage();
+        }
+      }
+    }
+    textName.value = textFileBase(textName.value);
+  };
+  const selectedFileName = () => {
+    normalizeEnteredName();
+    return safeName(`${textName.value}.${textLanguage.value || "txt"}`, "text");
+  };
+  textExtension.textContent = `.${textLanguage.value || "txt"}`;
+  textName.addEventListener("input", () => {
+    automaticName = false;
+  });
+  textName.addEventListener("blur", normalizeEnteredName);
+  suggestName();
+  textInput.addEventListener("input", () => {
+    clearTimeout(nameTimer);
+    nameTimer = setTimeout(suggestName, 200);
+  });
   const mainTextEditor = createTextEditor(textInput, {
     title: () => (textLanguage.value ? `source.${textLanguage.value}` : ""),
   });
   textInputParent.insertBefore(mainTextEditor.editor, textInputNext);
   // The caret's line and column, with the language, below the text.
   textLanguage.parentElement.append(mainTextEditor.position);
-  textLanguage.addEventListener("change", () => {
-    storage.set(languageKey, textLanguage.value);
-    mainTextEditor.refresh({ immediate: true });
+  textLanguage.addEventListener("change", applyLanguage);
+  textNameRow.hidden = burnInput.checked;
+  burnInput.addEventListener("change", () => {
+    textNameRow.hidden = burnInput.checked;
   });
 
   textForm.addEventListener("submit", async (event) => {
@@ -64,8 +108,11 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     setBusy(textForm, true);
     status.progress("Sending…");
     try {
-      const response = await mode.sendText(text, sendSettings());
+      const response = await mode.sendText(text, { ...sendSettings(), name: selectedFileName() });
       textInput.value = "";
+      clearTimeout(nameTimer);
+      automaticName = true;
+      suggestName();
       mainTextEditor.refresh({ immediate: true });
       showTextSize();
       status.success(await sentMessage(response));

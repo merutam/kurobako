@@ -327,6 +327,12 @@ export const createUploads = (api: Api) => {
     if (!TEXT_TYPES.has(contentType ?? "")) {
       return uploadFile(c, ref, decodeFilename(c.req.header("x-filename")));
     }
+    const requestedName = decodeFilename(c.req.header("x-text-name"));
+    const name =
+      requestedName === null ? undefined : safeFileName(requestedName.replace(/[\\/]/g, "-"));
+    if (name && (burnRequested(c) || reads !== null)) {
+      return jsonError(c, 400, "A limited-read text cannot have a public name.");
+    }
 
     const declared = Number(c.req.header("content-length") ?? Number.NaN);
     if (Number.isSafeInteger(declared) && declared > config.maxTextBytes) {
@@ -341,7 +347,7 @@ export const createUploads = (api: Api) => {
           c,
           ref,
           external.upload,
-          external.input,
+          { ...external.input, ...(name ? { name } : {}) },
           external.validate,
           expiresIn,
           reads,
@@ -370,7 +376,7 @@ export const createUploads = (api: Api) => {
         c,
         ref,
         { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
-        { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS) },
+        { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS), ...(name ? { name } : {}) },
         undefined,
         expiresIn,
         reads,
@@ -383,6 +389,7 @@ export const createUploads = (api: Api) => {
           text,
           size: bytes.byteLength,
           sha256: sha256Of(bytes),
+          ...(name ? { name } : {}),
         },
         burnRequested(c),
         visit(c),

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 // Serving an item's contents, for namespace routes and share links alike.
-import { safeFileName } from "../image";
+import { safeTextFileName } from "../image";
 import {
   lastRead,
   type NamespaceRef,
@@ -74,7 +74,7 @@ const objectResponse = (
             `${unnamed(item.id)}.sealed`
           : item.kind === "text"
             ? item.name
-              ? safeFileName(`${item.name}.txt`)
+              ? safeTextFileName(item.name)
               : `text-${unnamed(item.id)}.txt`
             : item.filename,
       );
@@ -173,7 +173,7 @@ export const createContents = (api: Api) => {
           ? {}
           : {
               "Content-Disposition": attachment(
-                text.name ? safeFileName(`${text.name}.txt`) : `text-${unnamed(text.id)}.txt`,
+                text.name ? safeTextFileName(text.name) : `text-${unnamed(text.id)}.txt`,
               ),
             }),
       });

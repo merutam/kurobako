@@ -20,7 +20,7 @@ export const LICENSES_PATH = "/k/licenses";
  * The protocol's version, in /.well-known/kurobako: a client of another one
  * cannot open this server's encrypted items (k.mjs has it too, as PROTOCOL).
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 /** The admin dashboard and its API: the server's own, so under /k, not the protocol's. */
 export const ADMIN_PATH = "/k/a";
 /** The client for encrypted namespaces, served from public/. */

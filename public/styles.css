@@ -506,11 +506,6 @@ button.destructive {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.file-selection-total {
-  border-top: 1px solid var(--border-subtle);
-  font-weight: bold;
-}
-
 /* --- Header and footer ---------------------------------------------------- */
 
 .site-header {
@@ -778,7 +773,7 @@ button.media-preview:focus-visible {
 }
 
 /* A scrollable page of native images and videos. */
-main.media-feed-open > :not(.site-header, #media-feed) {
+main.media-feed-open > :not(.site-header, #media-feed, #page-loading) {
   display: none;
 }
 .media-feed {
@@ -1050,6 +1045,38 @@ a.icon-button:hover {
   flex: 0 1 auto;
   width: auto;
   max-width: 16rem;
+}
+.text-name-row {
+  margin-top: var(--space-2);
+}
+.text-name-row label {
+  margin-bottom: 4px;
+}
+.text-name-control {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+}
+.text-name-control:focus-within {
+  border-color: var(--focus);
+  outline: 1px solid var(--focus);
+}
+.text-name-control input {
+  width: min(24rem, 70vw);
+  min-width: 0;
+  padding: 6px var(--space-2);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+}
+.text-name-control span {
+  flex: none;
+  padding-right: var(--space-2);
+  color: var(--text-subtle);
 }
 .editor-toolbar .hint,
 .form-footer .hint {

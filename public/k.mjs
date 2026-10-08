@@ -568,7 +568,7 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 /** This file's version, the same as the server it comes from (package.json). */
 export const VERSION = "0.8.0";
 /** The protocol this file speaks; a server says its own in /.well-known/kurobako. */
-export const PROTOCOL = 7;
+export const PROTOCOL = 8;
 // Everything below only runs when this file is executed directly. It reads
 // like curl: the same options and the same paths as the plain API, with
 // e#<name> in place of the namespace.
@@ -1129,6 +1129,22 @@ export const safeName = (name, fallback) => {
   return extension ? `${safe}.${extension}` : safe;
 };
 
+/** A text's suggested filename base: keep its whole first phrase, not a path segment. */
+export const textFileBase = (value) =>
+  safeName(`${value.replace(/[\\/]/g, "-")}.txt`, "text")
+    .replace(/\.txt$/u, "")
+    .replace(/[ ._-]+$/u, "") || "text";
+export const suggestedTextFileBase = (text) =>
+  textFileBase(defaultTextName(text).replace(/[^\p{L}\p{N} ]+/gu, " "));
+
+/** A text's download name, including old names that have no extension. */
+export const textDownloadName = (title, id = "shared") => {
+  const fallback = `text-${id}.txt`;
+  if (!title) return fallback;
+  const safe = safeName(title, fallback);
+  return /\.[\p{L}\p{N}]{1,10}$/u.test(safe) ? safe : `${safe}.txt`;
+};
+
 // --- Encrypted namespaces -----------------------------------------------------
 
 /** The namespace's items, newest first, with their metadata decrypted. */
@@ -1216,13 +1232,12 @@ const inlineLimitOf = async (url) => (await kurobakoConfig(url))?.inlineTextByte
 
 /**
  * What -O and -J call an item, as the server names plain downloads: its file
- * name, a text's name with .txt, or text-<id>.txt for a text without one.
+ * name, a text's safe name (or .txt if extensionless), or text-<id>.txt.
  */
 const ownName = (entry) => {
   const { kind, title, filename } = entry.opened.metadata;
-  const fallback = `text-${entry.item.id ?? "shared"}.txt`;
   if (kind !== "text") return safeName(filename, "file");
-  return title ? safeName(`${title}.txt`, fallback) : fallback;
+  return textDownloadName(title, entry.item.id);
 };
 
 const contentsOf = async (entry) =>
