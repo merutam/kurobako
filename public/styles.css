@@ -73,14 +73,12 @@ main {
 
 a {
   color: var(--link);
-  text-decoration: none;
 }
 a:visited {
   color: var(--link-visited);
 }
 a:hover {
   color: var(--link-hover);
-  text-decoration: underline;
 }
 /* Navigation shortcuts (See JSON, Access log, Back, Download) are reopened
    all the time; "already visited" tells nothing there. */
@@ -234,7 +232,6 @@ fieldset {
   margin: 0;
   padding: var(--space-3) var(--space-4) var(--space-4);
   border: 1px solid var(--border-subtle);
-  background: var(--surface);
 }
 legend {
   padding: 0 6px;
@@ -259,6 +256,11 @@ label.checkbox-label {
   width: 18px;
   height: 18px;
   margin: 0;
+}
+.setting-check span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* Text fields: the same box wherever they are. */
@@ -336,10 +338,10 @@ input[type="search"]:focus {
   flex: none;
   white-space: nowrap;
 }
-#namespace-prefix {
+.namespace-prefix {
   color: var(--text-subtle);
 }
-#e2ee-dialog {
+.e2ee-dialog {
   width: min(32rem, calc(100% - 2 * var(--page-gutter)));
   max-height: calc(100dvh - 2 * var(--page-gutter));
   padding: var(--space-4);
@@ -348,7 +350,7 @@ input[type="search"]:focus {
   background: var(--surface);
   color: var(--text);
 }
-#e2ee-dialog::backdrop {
+.e2ee-dialog::backdrop {
   background: rgb(0 0 0 / 45%);
 }
 .e2ee-dialog-actions {
@@ -1549,28 +1551,20 @@ button.media-preview img {
   margin-bottom: var(--space-6);
 }
 .settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-3) var(--space-5);
-}
-.setting-row {
-  max-width: var(--prose-width);
 }
 .expiry-setting {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
-  max-width: none;
 }
 .expiry-setting label {
   margin: 0;
   white-space: nowrap;
-}
-@media (min-width: 800px) {
-  .expiry-setting {
-    grid-column: span 2;
-  }
 }
 #expires-in {
   width: fit-content;
@@ -1579,11 +1573,6 @@ button.media-preview img {
 .setting-row label.setting-check {
   min-height: var(--control-height);
   margin: 0;
-}
-.setting-check span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 .setting-check:has(input:disabled) {
   cursor: default;

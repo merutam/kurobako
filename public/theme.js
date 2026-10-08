@@ -6,16 +6,12 @@
 // module, it cannot import common.js, so it guards localStorage itself.
 (() => {
   const storageKey = "kurobako-theme";
-  const themes = [
-    { value: "auto", label: "Automatic" },
-    { value: "light", label: "Light" },
-    { value: "dark", label: "Dark" },
-  ];
+  const themes = ["auto", "light", "dark"];
 
   const readTheme = () => {
     try {
       const saved = localStorage.getItem(storageKey);
-      return themes.some((theme) => theme.value === saved) ? saved : "auto";
+      return themes.includes(saved) ? saved : "auto";
     } catch {
       return "auto";
     }
@@ -28,47 +24,24 @@
 
   applyTheme(readTheme());
 
-  const renderPicker = () => {
-    const container = document.querySelector("#theme-picker");
-    if (!container) return;
-
-    // A plain group rather than a fieldset: browsers draw a <legend> on the
-    // fieldset's border, which no flex layout can line up with the options.
-    const group = document.createElement("div");
-    group.className = "theme-picker";
-    group.setAttribute("role", "radiogroup");
-    group.setAttribute("aria-labelledby", "theme-picker-label");
-    const title = document.createElement("span");
-    title.id = "theme-picker-label";
-    title.className = "theme-picker-label";
-    title.textContent = "Theme";
-    group.append(title);
-
+  const attachPicker = () => {
     const current = readTheme();
-    for (const theme of themes) {
-      const label = document.createElement("label");
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = "theme";
-      input.value = theme.value;
-      input.checked = theme.value === current;
+    for (const input of document.querySelectorAll('input[name="theme"]')) {
+      input.checked = input.value === current;
       input.addEventListener("change", () => {
-        applyTheme(theme.value);
+        applyTheme(input.value);
         try {
-          localStorage.setItem(storageKey, theme.value);
+          localStorage.setItem(storageKey, input.value);
         } catch {
           // The choice still applies for this page view.
         }
       });
-      label.append(input, ` ${theme.label}`);
-      group.append(label);
     }
-    container.replaceChildren(group);
   };
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", renderPicker);
+    document.addEventListener("DOMContentLoaded", attachPicker);
   } else {
-    renderPicker();
+    attachPicker();
   }
 })();

@@ -80,6 +80,7 @@ export const isPublicFile = (path: string) =>
   STATIC_FILES.includes(path.slice(1)) || ICON_FILES.includes(path.slice(1));
 
 const LAYOUT = "layout.html";
+const MEDIA_FEED = "media-feed.html";
 
 /**
  * A whole page: the layout with a page's own <head> tags and its <main>
@@ -100,17 +101,19 @@ export const composePage = (layout: string, page: string): string => {
     .replace("<!--%MAIN%-->", () => main.trim());
 };
 
-/** Reads the pages and static files with `read(path)`, a path inside public/. */
+/** Reads pages, their shared media fragment and static files from public/. */
 export const loadAssets = async (read: (path: string) => Promise<string>): Promise<WebAssets> => {
   const readAll = async (paths: readonly string[]) =>
     Object.fromEntries(await Promise.all(paths.map(async (path) => [path, await read(path)])));
-  const [pages, files, layout] = await Promise.all([
+  const [pages, files, layout, mediaFeed] = await Promise.all([
     readAll(Object.values(PAGES)),
     readAll(STATIC_FILES),
     read(LAYOUT),
+    read(MEDIA_FEED),
   ]);
   // Put together once, at start: each request gets a finished string.
-  const page = (key: keyof typeof PAGES) => composePage(layout, pages[PAGES[key]] ?? "");
+  const page = (key: keyof typeof PAGES) =>
+    composePage(layout, (pages[PAGES[key]] ?? "").replace("<!--%MEDIA_FEED%-->", mediaFeed));
   return {
     version: packageJson.version,
     layout,

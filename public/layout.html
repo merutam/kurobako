@@ -24,14 +24,19 @@
         <p class="site-name">
           <a href="/"><img src="/logo.png" alt="" width="32" height="32" />Kurobako</a>
         </p>
-        <div id="theme-picker"></div>
+        <div class="theme-picker" role="radiogroup" aria-labelledby="theme-picker-label">
+          <span id="theme-picker-label" class="theme-picker-label">Theme</span>
+          <label><input type="radio" name="theme" value="auto" checked /> Automatic</label>
+          <label><input type="radio" name="theme" value="light" /> Light</label>
+          <label><input type="radio" name="theme" value="dark" /> Dark</label>
+        </div>
       </header>
       <!--%MAIN%-->
     </main>
     <footer class="site-footer">
       Kurobako %APP_VERSION% · <a href="/k/protocol">Protocol</a> ·
       <a href="/k/licenses">Licenses</a> ·
-      <a class="external-link" href="https://github.com/merutam/kurobako" target="_blank" rel="noopener">Source</a>
+      <a class="external-link" href="https://github.com/merutam/kurobako" target="_blank" rel="noopener">Source<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4" /></svg></a>
     </footer>
     <button id="scroll-top" type="button" hidden>↑ Top</button>
   </body>
