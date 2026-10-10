@@ -3,7 +3,14 @@
 
 // Shared items: /i/<token>. A token stands for one item. Its pages and links
 // never mention the namespace; visits still show in that namespace's access log.
-import { type NamespaceRef, SHARE_TOKEN_PATTERN, type StoredItem, sharedItem } from "../model";
+import {
+  type NamespaceRef,
+  readLimitedItem,
+  SHARE_TOKEN_PATTERN,
+  type StoredItem,
+  sharedItem,
+} from "../model";
+import { renderSharedItemPage } from "../views/shared-item";
 import type { createContents } from "./contents";
 import { type Api, type App, type AppContext, jsonError } from "./context";
 
@@ -21,7 +28,7 @@ export const mountShares = (
   api: Api,
   { serveItem }: ReturnType<typeof createContents>,
 ) => {
-  const { hub, namespace, later, visit, countVisitor, pages } = api;
+  const { hub, namespace, later, visit, countVisitor, platformOf, config, siteView } = api;
   const shareCache = new Map<string, { expires: number; ref: NamespaceRef; itemId: string }>();
 
   const resolveShare = async (c: AppContext, token: string) => {
@@ -57,7 +64,7 @@ export const mountShares = (
       forgetShare(c, token);
       return null;
     }
-    return sharedItem(item);
+    return item;
   };
 
   // /i/<token> is the page, with the item embedded so it needs no request
@@ -68,13 +75,20 @@ export const mountShares = (
     const token = asJson ? param.slice(0, -".json".length) : param;
     // Per request (the item can expire or be read once), so never cached.
     c.header("Cache-Control", "no-store");
-    const item = await peekShared(c, token);
-    if (asJson) return item ? c.json(item) : jsonError(c, 404, SHARE_GONE);
+    const stored = await peekShared(c, token);
+    if (asJson) return stored ? c.json(sharedItem(stored)) : jsonError(c, 404, SHARE_GONE);
     countVisitor(c);
+    let content: string | null = null;
+    if (stored?.kind === "text" && !readLimitedItem(stored)) {
+      if ("text" in stored) content = stored.text;
+      else {
+        const object = await platformOf(c).blobs.get(stored.object);
+        if (object) content = await new Response(object.body).text();
+      }
+    }
     return c.html(
-      // A function, so "$&" and the like in the item stay literal.
-      pages.item.replace('"%ITEM%"', () => JSON.stringify(item).replaceAll("<", "\\u003c")),
-      item ? 200 : 404,
+      renderSharedItemPage(siteView, stored, content, `${config.basePath}/i/${token}`),
+      stored ? 200 : 404,
     );
   });
 

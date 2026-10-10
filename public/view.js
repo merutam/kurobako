@@ -11,7 +11,6 @@ import {
   secretNameProblem,
   textDownloadName,
 } from "./k.mjs";
-import { failPage, revealPage } from "./loading.js";
 import { createItemList } from "./namespaces/item-list.js";
 import { createStatus } from "./status.js";
 
@@ -133,9 +132,7 @@ refreshButton.addEventListener("click", async () => {
     refreshButton.disabled = false;
   }
 });
-show(view)
-  .then(revealPage)
-  .catch((error) => failPage(error.message));
+show(view).catch((error) => status.error(error.message));
 setInterval(itemList.updateExpiries, 30_000);
 
 /** Each item is checked again before copying: a live view is not an atomic snapshot. */

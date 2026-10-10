@@ -8,3 +8,5 @@ coverage/
 clients/
 # nix build
 /result*
+# Rendered by ops/pages.ts
+/public/k/

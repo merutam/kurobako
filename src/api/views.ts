@@ -3,6 +3,7 @@
 
 import { publicItem, SHARE_TOKEN_PATTERN, type StoredItem, sharedItem } from "../model";
 import type { ViewEntry } from "../namespace/views";
+import { renderSharedViewPage } from "../views/shared-view";
 import {
   type Api,
   type App,
@@ -17,7 +18,7 @@ const MAX_VIEW_BODY = 100_000;
 
 /** Writer-side rotation and the opaque, read-only view index. */
 export const mountViews = (app: App, api: Api) => {
-  const { namespace, hub, refuseWrite, config, visit, pages, pageView } = api;
+  const { namespace, hub, refuseWrite, config, visit, siteView, pageView } = api;
   for (const space of SPACES) {
     const { inNamespace } = namespaceOf(space);
     app.get(
@@ -112,9 +113,6 @@ export const mountViews = (app: App, api: Api) => {
     c.header("Cache-Control", "no-store");
     const view = await describeView(c, c.req.param("token"));
     if (!view) return jsonError(c, 404, "Shared view not found.");
-    return pageView(
-      c,
-      pages.view.replace('"%VIEW%"', () => JSON.stringify(view).replaceAll("<", "\\u003c")),
-    );
+    return pageView(c, renderSharedViewPage(siteView, view));
   });
 };

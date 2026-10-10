@@ -38,6 +38,7 @@ import {
   textFileBase,
 } from "../public/k.mjs";
 import type { Manifest } from "../src/api/archives";
+import { SECURITY_HEADERS } from "../src/app";
 import { readArchive, writeArchive } from "../src/archive";
 import { startRouter } from "../src/bun/router";
 import { startServer } from "../src/bun/server";
@@ -45,7 +46,7 @@ import { type AppConfig, loadConfig } from "../src/config";
 import { detectMedia, safeFileName, safeMediaName } from "../src/image";
 import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/model";
 import { isAutomatedNetwork, networkKey } from "../src/networks";
-import { ICON_FILES, STATIC_FILES } from "../src/pages";
+import { ICON_FILES, STATIC_FILES, STATIC_PAGES } from "../src/pages";
 import type { BlobStore } from "../src/platform";
 import { clientKey } from "../src/request-info";
 import {
@@ -860,11 +861,28 @@ describe("rules kept in two places", () => {
     expect(textDownloadName("", "abc")).toBe("text-abc.txt");
   });
 
-  test("files Cloudflare serves without the Worker: those the pages load", async () => {
+  test("files Cloudflare serves without the Worker: those the pages load, and fixed pages", async () => {
     const wrangler = await Bun.file(join(import.meta.dir, "..", "wrangler.jsonc")).text();
     const list = /"run_worker_first":\s*\[([^\]]*)\]/.exec(wrangler)?.[1] ?? "";
     const skipped = [...list.matchAll(/"!\/([^"]+)"/g)].map((match) => match[1]);
-    expect([...skipped].sort()).toEqual([...STATIC_FILES, ...ICON_FILES].sort());
+    expect([...skipped].sort()).toEqual([...STATIC_FILES, ...ICON_FILES, ...STATIC_PAGES].sort());
+  });
+
+  test("pages Cloudflare serves without the Worker get the Worker's security headers", async () => {
+    const headers = await Bun.file(join(import.meta.dir, "..", "public", "_headers")).text();
+    const block = /^\/k\/\*\n((?: {2}.+\n?)+)/m.exec(headers)?.[1] ?? "";
+    const parsed = Object.fromEntries(
+      block
+        .trim()
+        .split("\n")
+        .map((line) =>
+          line
+            .trim()
+            .split(/: (.*)/s)
+            .slice(0, 2),
+        ),
+    );
+    expect(parsed).toEqual(SECURITY_HEADERS);
   });
 
   test("the send limit Cloudflare enforces is the one clients are told", async () => {
@@ -907,7 +925,9 @@ describe("rules kept in two places", () => {
   });
 
   test("the protocol page's test vectors: computed here, and opened by k.mjs", async () => {
-    const page = await Bun.file(join(import.meta.dir, "..", "public", "protocol.html")).text();
+    const page = await Bun.file(
+      join(import.meta.dir, "..", "src", "views", "templates", "protocol.html"),
+    ).text();
     const vector = (name: string) => {
       const value = new RegExp(`data-vector="${name}">([^<]*)<`).exec(page)?.[1];
       return defined(value, `the ${name} vector`).replaceAll("&quot;", '"');

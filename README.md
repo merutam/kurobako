@@ -347,7 +347,13 @@ bun pm version minor # new version, in package.json and public/k.mjs
 - `src/app.ts` puts together the routes in `src/api/`.
 - `src/namespace/` and `src/hub.ts` hold the logic, on the interfaces in
   `src/platform.ts`, which `src/cloudflare/` and `src/bun/` implement.
-- `public/` has the pages (put in `layout.html`) and their scripts.
+- `src/views/*.tsx` renders every page on the server with Hono JSX, data
+  included: plain namespace, shared-item, view, log and admin pages arrive
+  with their initial data; encrypted pages wait for decryption in the browser.
+  `public/` has browser scripts, styles and images. The protocol and the
+  licenses (`src/views/templates/`) never change, so on Cloudflare
+  `ops/pages.ts` renders them into `public/k/` at build time and they are
+  served as static assets, without the Worker.
 - `test/shared.ts` runs on both platforms.
 - After changing `wrangler.jsonc`, run `bun run types`; after changing
   `assets/icon.png`, run `ops/icons.sh`.

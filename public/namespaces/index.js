@@ -6,8 +6,8 @@
 import { copyText, element, iconLink, readConfig, SITE, setBusy } from "../common.js";
 import { ignoreStrayDrops } from "../components.js";
 import { secretNameProblem, splitFragment } from "../k.mjs";
-import { failPage, revealPage } from "../loading.js";
 import { createStatus } from "../status.js";
+import { failUnlocking, finishUnlocking } from "../unlocking.js";
 import { renderSVG } from "../vendor/uqr.js";
 import { createAccess } from "./access.js";
 import { createForms } from "./forms.js";
@@ -33,8 +33,8 @@ live = createLive({
   status,
   renderItems: items.renderItems,
   isItemsShown: items.isItemsShown,
-  onReady: revealPage,
-  onError: failPage,
+  onReady: finishUnlocking,
+  onError: failUnlocking,
 });
 const forms = createForms({
   status,
@@ -137,5 +137,5 @@ try {
   setInterval(items.updateExpiries, 30_000);
 } catch (error) {
   disableAll(error.message);
-  failPage(error.message);
+  failUnlocking(error.message);
 }

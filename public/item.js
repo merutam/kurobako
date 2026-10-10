@@ -19,7 +19,6 @@ import {
   videoPlayer,
 } from "./items.js";
 import { openSharedItem, textDownloadName } from "./k.mjs";
-import { revealPage } from "./loading.js";
 import { createStatus } from "./status.js";
 
 const title = element("#item-title");
@@ -145,7 +144,50 @@ try {
   describeMeta(item, info, false);
   section.hidden = false;
 
-  if (limitedItem(item)) {
+  if (section.dataset.ssrRendered && item.kind !== "sealed" && !limitedItem(item)) {
+    // Keep the server's native media elements and text in place. In particular,
+    // do not fetch an image or a large text a second time during startup.
+    if (info.kind === "text") {
+      const displayed = body.textContent;
+      body.replaceChildren(highlightedText(displayed, info.title));
+      actions.prepend(
+        button(
+          "Copy",
+          async () => {
+            try {
+              // HTML parsing may normalize line endings. Read the original
+              // bytes only when copying a text that was stored externally.
+              const text =
+                item.text ?? (await (await request(`${here}/c`, { cache: "no-store" })).text());
+              await copyText(text);
+              status.success("Copied.");
+            } catch (error) {
+              status.error(error.message);
+            }
+          },
+          undefined,
+          "copy",
+        ),
+      );
+    } else if (info.isImage && canCopyImages()) {
+      actions.prepend(
+        button(
+          "Copy",
+          async () => {
+            try {
+              const blob = new Blob([await fetchBytes(`${here}/c`, info)], { type: info.mime });
+              await copyImage(blob);
+              status.success("Copied.");
+            } catch (error) {
+              status.error(error.message);
+            }
+          },
+          undefined,
+          "copy",
+        ),
+      );
+    }
+  } else if (limitedItem(item)) {
     // Never on page load: link previews and accidental visits must not burn it.
     body.replaceChildren();
     actions.replaceChildren(
@@ -207,9 +249,8 @@ try {
       showContent(item, info, await loadContent(item, info));
     }
   }
+  status.clear();
 } catch (error) {
   title.textContent = "Shared item";
   status.error(error.message);
-} finally {
-  revealPage();
 }

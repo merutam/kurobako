@@ -200,6 +200,15 @@ const showLogin = () => {
   keyInput.focus();
 };
 
+const show = (overview, namespaces) => {
+  loginForm.hidden = true;
+  dashboard.hidden = false;
+  renderServers();
+  renderOverview(overview);
+  renderNamespaces(namespaces.items);
+  renderPager(namespaces);
+};
+
 let loading = false;
 const load = async () => {
   if (loading) return;
@@ -209,12 +218,7 @@ const load = async () => {
     const query = new URLSearchParams({ offset: String(offset) });
     if (namespaceSearch.value.trim()) query.set("q", namespaceSearch.value.trim());
     const [overview, namespaces] = await Promise.all([api("overview"), api(`namespaces?${query}`)]);
-    loginForm.hidden = true;
-    dashboard.hidden = false;
-    renderServers();
-    renderOverview(overview);
-    renderNamespaces(namespaces.items);
-    renderPager(namespaces);
+    show(overview, namespaces);
     if (status.isError()) status.clear();
   } catch (error) {
     if (error instanceof Unauthorized) showLogin();
@@ -293,4 +297,9 @@ if ([...refreshInterval.options].some((option) => option.value === savedInterval
   refreshInterval.value = savedInterval;
 }
 schedule();
-await load();
+// Logged in, the page came with the first answers; logged out, only the login.
+const embedded = document.getElementById("admin-data");
+if (embedded) {
+  const { overview, namespaces } = JSON.parse(embedded.textContent);
+  show(overview, namespaces);
+} else showLogin();

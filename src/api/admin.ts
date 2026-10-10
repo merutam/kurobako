@@ -4,6 +4,7 @@
 import type { Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { ADMIN_PATH } from "../routing";
+import { renderAdminPage } from "../views/admin";
 import { type Api, type App, jsonError } from "./context";
 import { hasBearer, loginWith, logoutOf, type SessionCookie, signedSessions } from "./session";
 
@@ -31,7 +32,7 @@ const pageQuery = (c: Context) => ({
  * gets them (behind src/bun/router.ts, always the first).
  */
 export const mountAdmin = (app: App, api: Api, key: string) => {
-  const { hub, page, pages, platformOf, appVersion } = api;
+  const { hub, page, platformOf, appVersion, siteView } = api;
   const sessions = signedSessions(key, "admin-session");
   // Sent to the admin's routes only, under the site's base path.
   const cookie: SessionCookie = {
@@ -52,24 +53,30 @@ export const mountAdmin = (app: App, api: Api, key: string) => {
     return jsonError(c, 401, "Unauthorized.");
   });
 
-  app.get(ADMIN_PATH, (c) => page(c, pages.admin));
-
-  app.post(`${ADMIN_PATH}/login`, loginWith(api, key, sessions, cookie, "Admin login"));
-  app.post(`${ADMIN_PATH}/logout`, logoutOf(cookie));
-
-  app.get(`${ADMIN_PATH}/overview`, async (c) => {
+  const overview = async (c: Context) => {
     const platform = platformOf(c);
-    return c.json({
+    return {
       version: appVersion,
       ...platform.deployment(c),
       ...(await hub(c).overview()),
       maxStorageBytes: api.config.maxStorageBytes,
       logsUrl: platform.logsUrl,
       logsHint: platform.logsHint,
-    });
+    };
+  };
+  const namespacesPage = (c: Context) => hub(c).namespacesPage(pageQuery(c));
+
+  // With a session, the page comes with what the dashboard would ask for first.
+  app.get(ADMIN_PATH, async (c) => {
+    if (!hasSession(c)) return page(c, renderAdminPage(siteView, null));
+    c.header("Cache-Control", "no-store");
+    const [first, namespaces] = await Promise.all([overview(c), namespacesPage(c)]);
+    return c.html(renderAdminPage(siteView, { overview: first, namespaces }));
   });
 
-  app.get(`${ADMIN_PATH}/namespaces`, async (c) =>
-    c.json(await hub(c).namespacesPage(pageQuery(c))),
-  );
+  app.post(`${ADMIN_PATH}/login`, loginWith(api, key, sessions, cookie, "Admin login"));
+  app.post(`${ADMIN_PATH}/logout`, logoutOf(cookie));
+
+  app.get(`${ADMIN_PATH}/overview`, async (c) => c.json(await overview(c)));
+  app.get(`${ADMIN_PATH}/namespaces`, async (c) => c.json(await namespacesPage(c)));
 };
