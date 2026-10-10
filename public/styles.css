@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (C) 2026 Kurobako contributors
  */
-/* The site's styles, loaded after tokens.css by layout.html. */
+/* The site's styles, loaded after tokens.css by src/views/layout.tsx. */
 
 /* --- Base ----------------------------------------------------------------- */
 
@@ -781,7 +781,7 @@ button.media-preview:focus-visible {
 }
 
 /* A scrollable page of native images and videos. */
-main.media-feed-open > :not(.site-header, #media-feed, #page-loading) {
+main.media-feed-open > :not(.site-header, #media-feed) {
   display: none;
 }
 .media-feed {
@@ -965,6 +965,11 @@ main.media-feed-open > :not(.site-header, #media-feed, #page-loading) {
   color: var(--text);
   font-weight: normal;
   text-align: left;
+}
+a.item-toggle,
+a.item-toggle:visited {
+  color: var(--text);
+  text-decoration: none;
 }
 button.item-toggle:hover,
 button.item-toggle:active {

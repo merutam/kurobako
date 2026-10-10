@@ -15,7 +15,8 @@ import {
   sealedName,
   summaryItem,
 } from "../model";
-import { renderLogPage } from "../pages";
+import { renderLogPage } from "../views/log";
+import { renderNamespacePage } from "../views/namespace";
 import { type Api, type App, type AppContext, jsonError } from "./context";
 import { type createUploads, decodeFilename } from "./uploads";
 
@@ -68,13 +69,12 @@ export const mountNamespaces = (
     visit,
     page,
     pageView,
-    pages,
-    build,
-    assets,
     platformOf,
     refuseSend,
     refuseWrite,
     storageFull,
+    config,
+    siteView,
   } = api;
   /** A send's size, as it declares it (a text sent without one is small). */
   const declaredSize = (c: AppContext) => Number(c.req.header("content-length")) || 0;
@@ -85,10 +85,18 @@ export const mountNamespaces = (
 
     if (space.kind === "plain") {
       app.get(prefix, async (c) => {
-        // Nothing is stored until something is sent.
         const ref = resolve(c);
         if (!ref) return jsonError(c, 404, "Invalid namespace.");
-        return pageView(c, pages.namespace);
+        const { items } = await namespace(c, ref).listState(visit(c));
+        return pageView(
+          c,
+          renderNamespacePage(
+            siteView,
+            ref.name,
+            items.map((item) => ({ item: summaryItem(item), id: item.id })),
+            config.maxItems,
+          ),
+        );
       });
     }
 
@@ -133,16 +141,14 @@ export const mountNamespaces = (
       inNamespace(async (c, ref) =>
         page(
           c,
-          build(
-            renderLogPage(
-              assets.layout,
-              space.kind === "sealed" ? "encrypted namespace" : `/${ref.name}`,
-              // The way back to an encrypted page needs the secret name; the
-              // browser's history has it.
-              space.kind === "sealed" ? null : namespacePath("", ref),
-              `${namespacePath("", ref)}/log.json`,
-              await namespace(c, ref).accessLog(visit(c)),
-            ),
+          renderLogPage(
+            siteView,
+            space.kind === "sealed" ? "encrypted namespace" : `/${ref.name}`,
+            // The way back to an encrypted page needs the secret name; the
+            // browser's history has it.
+            space.kind === "sealed" ? null : namespacePath(config.basePath, ref),
+            `${namespacePath(config.basePath, ref)}/log.json`,
+            await namespace(c, ref).accessLog(visit(c)),
           ),
         ),
       ),

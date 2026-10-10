@@ -8,10 +8,12 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
     "noEmit": true,
     "skipLibCheck": true
   },
   // The shared code and the Cloudflare entry; src/bun has tsconfig.bun.json.
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["src/bun"]
 }

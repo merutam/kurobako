@@ -64,12 +64,16 @@
     { "name": "MISS_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }
   ],
 
-  // Scripts, styles and icons are served straight from Workers Static Assets, which
-  // costs no Worker request or CPU. Everything else, pages included, goes to
-  // the Worker; it also reads public/ through ASSETS to assemble the pages.
-  // The files are named one by one (the STATIC_FILES and ICON_FILES of
-  // src/pages.ts): a pattern such as "!/*.js" would also catch /k/common.js,
-  // which under BASE_PATH=/k only the Worker can serve.
+  // Renders the protocol and the licenses into public/k/ (see STATIC_PAGES).
+  // --no-env-file: .env configures the Bun server, not this deployment.
+  "build": { "command": "bun --no-env-file ops/pages.ts" },
+
+  // Scripts, styles, icons and the pages that never change are served straight
+  // from Workers Static Assets, which costs no Worker request or CPU. Pages
+  // with data go to the Worker, which renders them with it (src/views/).
+  // The files are named one by one (the STATIC_FILES, ICON_FILES and
+  // STATIC_PAGES of src/pages.ts): a pattern such as "!/*.js" would also catch
+  // /k/common.js, which under BASE_PATH=/k only the Worker can serve.
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -95,7 +99,7 @@
       "!/admin.js",
       "!/login.js",
       "!/log.js",
-      "!/loading.js",
+      "!/unlocking.js",
       "!/k.mjs",
       "!/status.js",
       "!/theme.js",
@@ -106,8 +110,11 @@
       "!/vendor/uqr.js",
       "!/favicon.ico",
       "!/apple-touch-icon.png",
-      "!/logo.png"
+      "!/logo.png",
+      "!/k/protocol",
+      "!/k/licenses"
     ],
-    "html_handling": "none"
+    // /k/protocol is public/k/protocol.html.
+    "html_handling": "drop-trailing-slash"
   }
 }

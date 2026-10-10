@@ -43,7 +43,7 @@ export type { AppEnv };
 /** A path no route matches, for requests outside the base path. */
 const OUTSIDE = "/\0";
 
-const SECURITY_HEADERS: Record<string, string> = {
+export const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
   "X-Frame-Options": "DENY",

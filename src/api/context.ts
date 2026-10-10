@@ -15,7 +15,7 @@ import {
 } from "../model";
 import { LIVE, type WriteCheck } from "../namespace";
 import { isAutomatedNetwork, networkKey } from "../networks";
-import { escapeHtml, renderHomeLimits, staticFiles, type WebAssets } from "../pages";
+import { siteViewOf, type WebAssets } from "../pages";
 import type { Platform } from "../platform";
 import { accessEvent, clientKey } from "../request-info";
 import { CLIENT_PATH, PROTOCOL_PATH, PROTOCOL_VERSION } from "../routing";
@@ -87,9 +87,6 @@ export const createContext = (
   assets: WebAssets,
   platformOf: (c: AppContext) => Platform,
 ) => {
-  const site = staticFiles(assets.files);
-  const appVersion = `${assets.version} (build ${site.version})`;
-
   const hub = (c: AppContext) => platformOf(c).hub();
   const namespace = (c: AppContext, ref: NamespaceRef) => platformOf(c).namespace(ref);
   const later = (c: AppContext, work: Promise<unknown>) => platformOf(c).later(c, work);
@@ -136,32 +133,8 @@ export const createContext = (
     live: LIVE,
   });
 
-  /**
-   * Pages are assembled once: script URLs versioned, version in the footer,
-   * and the public config embedded, which saves every page a request for it.
-   */
-  const embeddedConfig = JSON.stringify(publicConfig()).replaceAll("<", "\\u003c");
-  // Links in pages are written from the site's root; under a base path they
-  // get it in front.
-  const rebased = (html: string) =>
-    config.basePath
-      ? html.replace(/\b(src|href|action)="\/(?!\/)/g, `$1="${config.basePath}/`)
-      : html;
-  const build = (html: string) =>
-    rebased(site.versioned(html))
-      .replaceAll("%APP_VERSION%", escapeHtml(appVersion))
-      // Quoted in the pages, so they stay valid JSON until filled in.
-      .replaceAll('"%CONFIG%"', embeddedConfig);
-  const pages = {
-    home: renderHomeLimits(build(assets.homeHtml), config),
-    namespace: build(assets.namespaceHtml),
-    admin: build(assets.adminHtml),
-    item: build(assets.itemHtml),
-    view: build(assets.viewHtml),
-    protocol: build(assets.protocolHtml),
-    licenses: build(assets.licensesHtml),
-    login: build(assets.loginHtml),
-  };
+  const siteView = siteViewOf(assets, config.basePath, publicConfig());
+  const { appVersion } = siteView;
   const page = (c: AppContext, html: string) => {
     c.header("Cache-Control", "no-cache");
     return c.html(html);
@@ -239,6 +212,7 @@ export const createContext = (
     assets,
     platformOf,
     appVersion,
+    siteView,
     hub,
     namespace,
     later,
@@ -247,8 +221,6 @@ export const createContext = (
     log,
     visit,
     publicConfig,
-    build,
-    pages,
     page,
     countVisitor,
     pageView,

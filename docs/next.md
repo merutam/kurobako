@@ -7,7 +7,7 @@ while older views retain frozen membership but live item content. The earlier
 ownership/lock proposal is superseded.
 
 Protocol v8 is built and described on the protocol page
-(`public/protocol.html`): one derivation for every key, write capabilities
+(`src/views/templates/protocol.html`): one derivation for every key, write capabilities
 and read-only links, contents sealed in segments with a revision, the routes
 (the first path segment is the protocol's, the server's own things live under
 `/k`) and `"protocol": 8` in `/.well-known/kurobako`. The v4 key derivation

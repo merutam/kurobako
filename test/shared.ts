@@ -264,6 +264,15 @@ export const sharedTests = (harness: Harness) => {
       expect((await call(`/${ns}/9.json`)).status).toBe(404);
     });
 
+    test("renders a plain namespace's initial queue without a loading screen", async () => {
+      const ns = fresh();
+      await sendText(ns, "visible on first paint");
+      const page = await (await call(`/${ns}`)).text();
+      expect(page).toContain("<main>");
+      expect(page).not.toContain('id="page-loading"');
+      expect(page).toContain('class="item-title">visible on first paint');
+    });
+
     test("gives items short IDs, unique in their namespace, apart from positions", async () => {
       const ns = fresh();
       const ids = new Set<string>();
@@ -856,6 +865,7 @@ export const sharedTests = (harness: Harness) => {
       expect(alphaLog).toContain(`href="/${alpha}">← Back to namespace</a>`);
       expect(alphaLog).toContain('data-icon="json"');
       expect(alphaLog).toContain('type="module" src="/log.js?');
+      expect(alphaLog).not.toContain("<main data-loading>");
       expect(alphaLog).not.toContain('id="log-back-row" hidden');
       expect((await call("/log.json")).status).toBe(404);
     });
@@ -1024,7 +1034,10 @@ export const sharedTests = (harness: Harness) => {
     });
 
     test("serve the page, refuse bad IDs and keep the encrypted log's back link client-side", async () => {
-      expect(await (await call("/e")).text()).toContain("<html");
+      const page = await (await call("/e")).text();
+      expect(page).toContain("<html");
+      expect(page).toContain("Unlocking namespace…");
+      expect(page).toContain('id="page-loading"');
       expect((await call("/e/kk/ls")).status).toBe(404);
       const space = await freshSealedSpace();
       const id = space.id;
@@ -1079,6 +1092,8 @@ export const sharedTests = (harness: Harness) => {
       expect(page).not.toContain("%CONFIG%");
       expect(page).toContain('id="media-feed-list"');
       expect(page).toContain('id="items" class="items"');
+      expect(page).toContain('class="item-title">two');
+      expect(page).not.toContain('id="page-loading"');
       expect(page).not.toContain("%MEDIA_FEED%");
       expect(page).not.toContain(ns);
       expect(contents.entries.every(({ url }) => url.startsWith("/i/"))).toBe(true);
@@ -1182,7 +1197,10 @@ export const sharedTests = (harness: Harness) => {
       expect(sent.status).toBe(201);
       const view = await json<{ entries: { envelope: string }[] }>(`${created.url}.json`);
       expect(view.entries).toHaveLength(2);
-      expect(await (await call(created.url)).text()).not.toContain(space.id);
+      const page = await (await call(created.url)).text();
+      expect(page).not.toContain(space.id);
+      expect(page).toContain("Decrypting shared view…");
+      expect(page).not.toContain('id="page-loading"');
       expect(await openViewEntry(id, await space.viewKey(id), view.entries[0]?.envelope)).toBe(
         secondSealed.keyText,
       );
@@ -1397,6 +1415,17 @@ export const sharedTests = (harness: Harness) => {
       const page = await (await call(await share(`/${ns}`, text.id))).text();
       expect(embeddedItem(page).text).toBe(tricky);
       expect(page).not.toContain("</script><b>");
+      expect(page).toContain("&lt;/script&gt;&lt;b&gt;");
+      expect(page).toContain('data-ssr-rendered="true"');
+    });
+
+    test("renders a shared long text from blob storage in the first response", async () => {
+      const ns = fresh("share");
+      const long = "long text ".repeat(7_000);
+      const item = await parse<Item>(sendText(ns, long));
+      const page = await (await call(await share(`/${ns}`, item.id))).text();
+      expect(page).toContain(`<pre>${long}</pre>`);
+      expect(page).toContain('data-ssr-rendered="true"');
     });
 
     test("serve images and files, and die with their item", async () => {
@@ -1422,6 +1451,9 @@ export const sharedTests = (harness: Harness) => {
       const ns = fresh("share");
       const secret = await await parse<Item>(sendText(ns, "once", { burn: "1" }));
       const url = await share(`/${ns}`, secret.id);
+      const page = await (await call(url)).text();
+      expect(page).toContain('id="open-limited-item"');
+      expect(page).not.toContain("<pre>once</pre>");
       const shared = await json<SharedItem>(`${url}.json`);
       expect(shared).toMatchObject({ kind: "text", burn: true });
       expect(shared.text).toBeUndefined();
@@ -1447,6 +1479,10 @@ export const sharedTests = (harness: Harness) => {
         kind: "sealed",
         metadata: "a2V5.bWV0YQ",
       });
+      const page = await (await call(url)).text();
+      expect(page).toContain("Decrypting item…");
+      expect(page).toContain("<main>");
+      expect(page).not.toContain('id="page-loading"');
       expect(JSON.stringify(shared)).not.toContain(id);
       expect(new Uint8Array(await (await call(`${url}/c`)).arrayBuffer())).toEqual(
         new Uint8Array([7, 7, 7]),
@@ -1621,7 +1657,10 @@ export const sharedTests = (harness: Harness) => {
       });
 
     test("requires the key and locks out repeated failures", async () => {
-      expect(await (await call("/k/a")).text()).toContain("<html");
+      const loggedOut = await (await call("/k/a")).text();
+      expect(loggedOut).toContain("<html");
+      expect(loggedOut).not.toContain('id="admin-data"');
+      expect(loggedOut).toContain('<div id="dashboard" hidden="">');
       expect((await call("/k/a/overview")).status).toBe(401);
 
       const ip = "203.0.113.150";
@@ -1638,6 +1677,18 @@ export const sharedTests = (harness: Harness) => {
       expect(cookie).toContain("SameSite=Strict");
       const session = cookie.split(";", 1)[0] ?? "";
       expect((await call("/k/a/overview", { headers: { cookie: session } })).status).toBe(200);
+      // Logged in, the page comes open, with what the dashboard would ask for first.
+      const page = await call("/k/a", { headers: { cookie: session } });
+      expect(page.headers.get("cache-control")).toBe("no-store");
+      const html = await page.text();
+      expect(html).toContain('<form id="login-form" class="login-form" hidden="">');
+      const embedded = /<script type="application\/json" id="admin-data">(.*?)<\/script>/s.exec(
+        html,
+      )?.[1];
+      expect(JSON.parse(defined(embedded, "the embedded dashboard"))).toMatchObject({
+        overview: { version: expect.any(String) },
+        namespaces: { items: expect.any(Array), total: expect.any(Number) },
+      });
       const forged = session.replace(/\.[^.]+$/, ".forged-signature");
       expect((await call("/k/a/overview", { headers: { cookie: forged } })).status).toBe(401);
     });
