@@ -172,8 +172,8 @@ export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMIT
     itemTtlMs: integer(vars, "ITEM_TTL_SECONDS", 24 * 60 * 60, 0, 30 * 24 * 60 * 60) * 1000,
     maxItems: integer(vars, "MAX_ITEMS", 20, 1, 1_000),
     maxLiveConnections: integer(vars, "MAX_LIVE_CONNECTIONS", 100, 1, 10_000),
-    sendsPerMinute: integer(vars, "SENDS_PER_MINUTE", 30, 1, 100_000),
-    missesPerMinute: integer(vars, "MISSES_PER_MINUTE", 30, 1, 100_000),
+    sendsPerMinute: integer(vars, "SENDS_PER_MINUTE", 300, 1, 100_000),
+    missesPerMinute: integer(vars, "MISSES_PER_MINUTE", 300, 1, 100_000),
     maxStorageBytes: integer(vars, "MAX_STORAGE_BYTES", 0, 0, Number.MAX_SAFE_INTEGER) || null,
     automatedNetworks: automatedNetworks(vars),
     emptyNamespaceTtlMs:

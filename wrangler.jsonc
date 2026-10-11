@@ -32,9 +32,9 @@
     "ADMIN_SESSION_HOURS": "12",
     // What clients are told (/.well-known/kurobako); the limit itself is
     // UPLOAD_LIMITER's below, which must say the same.
-    "SENDS_PER_MINUTE": "30",
+    "SENDS_PER_MINUTE": "300",
     // The same for MISSES_PER_MINUTE and MISS_LIMITER below.
-    "MISSES_PER_MINUTE": "30"
+    "MISSES_PER_MINUTE": "300"
   },
 
   // Private: only this Worker reads and writes it, so burn-after-reading,
@@ -60,8 +60,8 @@
   // Counted per Cloudflare location and approximate by design: they slow
   // scripts down, they are not accounting.
   "ratelimits": [
-    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } },
-    { "name": "MISS_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }
+    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
+    { "name": "MISS_LIMITER", "namespace_id": "1002", "simple": { "limit": 300, "period": 60 } }
   ],
 
   // Builds dist/ (ops/build.ts): the browser's code bundled, the fixed files

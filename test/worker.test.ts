@@ -89,6 +89,13 @@ sharedTests({
   storedFiles: async (prefix) =>
     (await env.BUCKET.list({ prefix })).objects.map((object) => object.key),
   config: loadConfig(env, CLOUDFLARE_LIMITS),
+  // Cloudflare's limiter counts in windows that turn with the clock, for
+  // every key at once: a limit spent across the turn is never reached. So a
+  // test that spends one starts with ten seconds of its window left, at least.
+  limitWindow: async () => {
+    const left = 60_000 - (Date.now() % 60_000);
+    if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 250));
+  },
   origin: ORIGIN,
   adminKey: TEST_ADMIN_KEY,
 });

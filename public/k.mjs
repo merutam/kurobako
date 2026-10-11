@@ -23,6 +23,40 @@
 // Each item gets its own random AES-GCM key, which encrypts its contents and
 // its metadata. The namespace key only wraps that item key (AES-KW), so handing out an
 // item key (in a share link) reveals that one item and nothing else.
+// ============================================================================
+// FILE MAP - search "SECTION 01" ... "SECTION 24" to jump between sections.
+// Single-file module: cryptographic API (01–07), CLI (08–24).
+//
+// 01  Protocol parameters and shared primitives
+// 02  Encodings and common utilities
+// 03  Item metadata validation and serialization
+// 04  Authenticated encryption and segmented bodies
+// 05  Secret names, text titles and URL fragments
+// 06  Key derivation and namespace access
+// 07  Read-only views and shared item access
+// 08  CLI constants, usage and entry-point detection
+// 09  CLI argument and URL parsing
+// 10  HTTP transport, discovery and protocol compatibility
+// 11  CLI input, output and downloads
+// 12  File, media and MIME detection
+// 13  Safe filenames and text download names
+// 14  Encrypted item listing and lookup
+// 15  Item presentation: JSON, contents and streaming
+// 16  Human-readable tables and formatting
+// 17  Bulk export and offline backup reading
+// 18  Encrypted uploads, edits and renames
+// 19  Encrypted namespace request routing
+// 20  Shared item and read-only view routes
+// 21  Plain namespace detection and live updates
+// 22  Plain HTTP request routing
+// 23  Media playback: links and local HTTP server
+// 24  CLI dispatcher and direct execution
+// ============================================================================
+
+// ============================================================================
+// SECTION 01 - Protocol parameters and shared primitives
+// ============================================================================
+
 const PROTOCOL_SALT = "kurobako/v4";
 const PBKDF2_ITERATIONS = 600_000;
 const IV_BYTES = 12;
@@ -54,6 +88,10 @@ const WRITE_KEY_INFO = "kurobako/v4/write";
 /** Item keys are AES-128 too, which keeps a share link short (22 characters after the #). */
 const ITEM_KEY_BYTES = 16;
 
+// ============================================================================
+// SECTION 02 - Encodings and common utilities
+// ============================================================================
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const isLimited = (item) => Boolean(item.burn || item.readsLeft !== undefined);
@@ -76,6 +114,10 @@ const importKey = (raw) =>
 /** The namespace key only wraps and unwraps item keys (AES-KW, RFC 3394). */
 const importWrappingKey = (raw) =>
   crypto.subtle.importKey("raw", raw, "AES-KW", false, ["wrapKey", "unwrapKey"]);
+
+// ============================================================================
+// SECTION 03 - Item metadata validation and serialization
+// ============================================================================
 
 /**
  * Metadata as it is sealed: only what cannot be told otherwise. A file has
@@ -133,6 +175,10 @@ const unpackMetadata = (packed, bodySize) => {
       };
 };
 const OCTET_STREAM = "application/octet-stream";
+
+// ============================================================================
+// SECTION 04 - Authenticated encryption and segmented bodies
+// ============================================================================
 
 /**
  * What each seal is for, as AES-GCM's additional data: a metadata seal never
@@ -237,6 +283,42 @@ export const openSegments = async (key, bytes, first = 0, last = true) => {
   return contents;
 };
 
+/**
+ * Opens a body as it arrives, a segment at a time, never whole in memory.
+ * `chunks` (a fetch body, or any async iterable of bytes) holds the body from
+ * segment `first` on, as a Range request for it returns; what comes out is
+ * the contents' bytes [start, end]. Stopping early cancels `chunks`.
+ */
+export async function* openStream(
+  key,
+  chunks,
+  { sealedSize, first = 0, start = first * SEGMENT_BYTES, end = contentSize(sealedSize) - 1 },
+) {
+  const step = SEGMENT_BYTES + TAG_BYTES;
+  const count = Math.ceil(sealedSize / step);
+  const lastWanted = Math.floor(end / SEGMENT_BYTES);
+  const sizeOf = (index) => (index === count - 1 ? sealedSize - index * step : step);
+  let index = first;
+  let pending = new Uint8Array(0);
+  for await (const chunk of chunks) {
+    const joined = new Uint8Array(pending.length + chunk.length);
+    joined.set(pending);
+    joined.set(chunk, pending.length);
+    pending = joined;
+    while (index <= lastWanted && pending.length >= sizeOf(index)) {
+      const size = sizeOf(index);
+      const opened = await openSegments(key, pending.subarray(0, size), index, index === count - 1);
+      pending = pending.subarray(size);
+      // Only the bytes asked, of the first and last segments.
+      const offset = index * SEGMENT_BYTES;
+      yield opened.subarray(Math.max(0, start - offset), Math.min(opened.length, end - offset + 1));
+      index += 1;
+    }
+    if (index > lastWanted) return;
+  }
+  if (index <= lastWanted) throw new Error("The contents ended early.");
+}
+
 const openWith = async (key, label, sealed) => {
   const bytes = new Uint8Array(sealed);
   try {
@@ -251,6 +333,10 @@ const openWith = async (key, label, sealed) => {
     throw new Error("This item could not be decrypted.");
   }
 };
+
+// ============================================================================
+// SECTION 05 - Secret names, text titles and URL fragments
+// ============================================================================
 
 /** The same name must give the same key on every device and keyboard. */
 export const normalizeSecretName = (name) => name.normalize("NFC").trim();
@@ -312,6 +398,10 @@ export const splitFragment = (fragment) => {
     path: cut === -1 ? "" : fragment.slice(cut + 1),
   };
 };
+
+// ============================================================================
+// SECTION 06 - Key derivation and namespace access
+// ============================================================================
 
 export const encryptionAvailable = () => Boolean(globalThis.crypto?.subtle);
 
@@ -481,6 +571,10 @@ const spaceOf = async (idBytes, namespaceKeyBytes, writeKey, secret = null) => {
   };
 };
 
+// ============================================================================
+// SECTION 07 - Read-only views and shared item access
+// ============================================================================
+
 export const newViewId = () => toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
 
 const viewLabel = (viewId) => encoder.encode(`kurobako/v6/view-entry/${viewId}`);
@@ -563,7 +657,9 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
   };
 };
 
-// --- Command line ------------------------------------------------------------
+// ============================================================================
+// SECTION 08 - CLI constants, usage and entry-point detection
+// ============================================================================
 
 /** This file's version, the same as the server it comes from (package.json). */
 export const VERSION = "0.8.5";
@@ -602,6 +698,9 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs <site>/e#<name>/views             lists its shared views
   node k.mjs <site>/i/<token>#<key>           a shared item
   node k.mjs <site>/v/<token>#<view-key>      a shared view, one line per item
+  node k.mjs <site>/e#<name>/1 | mpv -        contents stream as they arrive
+  node k.mjs play <site>/e#<name>/1           plays it in mpv, seeking included
+  node k.mjs serve <site>/e#<name>/1          a local address for any player
 
 Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J,
 --no-clobber (do not overwrite)
@@ -648,7 +747,9 @@ const runningAsScript = async () => {
   }
 };
 
-// --- Options ------------------------------------------------------------------
+// ============================================================================
+// SECTION 09 - CLI argument and URL parsing
+// ============================================================================
 
 /** Options that take a value, by short and long name. */
 const VALUE_OPTIONS = {
@@ -810,7 +911,12 @@ const parseNamespacePath = (fullPath) => {
   return { path, query, first: decodeURIComponent(rawFirst), second, extra };
 };
 
-// --- Requests and output ----------------------------------------------------
+// ============================================================================
+// SECTION 10 - HTTP transport, discovery and protocol compatibility
+// ============================================================================
+
+/** The write key of the encrypted namespace a command works on, derived from its name. */
+let namespaceWriteKey = null;
 
 /**
  * fetch, failing with which site could not be reached and why. A private
@@ -818,9 +924,6 @@ const parseNamespacePath = (fullPath) => {
  * sends its own Authorization header; an encrypted namespace's write key, in
  * KUROBAKO_WRITE_KEY, unless it sends its own Write-Key.
  */
-/** The write key of the encrypted namespace a command works on, derived from its name. */
-let namespaceWriteKey = null;
-
 const reach = async (url, init = {}) => {
   const key = globalThis.process?.env?.KUROBAKO_KEY;
   const writeKey = globalThis.process?.env?.KUROBAKO_WRITE_KEY ?? namespaceWriteKey;
@@ -918,6 +1021,10 @@ const call = async (url, init, { page = false } = {}) => {
 };
 const fetchBytes = async (url) => new Uint8Array(await (await call(url)).arrayBuffer());
 
+// ============================================================================
+// SECTION 11 - CLI input, output and downloads
+// ============================================================================
+
 const readInput = async (source) => {
   if (source === "-") {
     const chunks = [];
@@ -965,9 +1072,12 @@ const contentDispositionName = (header) => {
  * Contents go where curl would put them: -o <file>, -O (named after the URL,
  * or with -J after the item itself), or standard output,
  * which refuses binary data in a terminal unless asked with -o -. `isText` is
- * known before fetching, so a refused item is never consumed.
+ * known before fetching, so a refused item is never consumed. With `parts`
+ * (an async iterable of bytes, made on demand), they are written as they
+ * arrive, so a large file is never whole in memory and `| mpv -` starts at once;
+ * otherwise `load` gives them whole.
  */
-const deliver = async ({ options, isText, ownName, urlName, load }) => {
+const deliver = async ({ options, isText, ownName, urlName, load, parts }) => {
   const forced = options.output === "-";
   const toFile = forced
     ? null
@@ -977,26 +1087,55 @@ const deliver = async ({ options, isText, ownName, urlName, load }) => {
       "Binary output can mess up your terminal: use -o <file>, -OJ, > file, or -o - to print it anyway.",
     );
   }
-  const bytes = await load();
+  const chunks = parts
+    ? parts()
+    : (async function* () {
+        yield await load();
+      })();
   if (!toFile) {
-    await writeStdout(bytes);
+    let lastByte;
+    for await (const chunk of chunks) {
+      if (!chunk.length) continue;
+      await writeStdout(chunk);
+      lastByte = chunk.at(-1);
+    }
     // Keeps the prompt on its own line after a text with no final newline.
-    if (process.stdout.isTTY && bytes.at(-1) !== 0x0a) process.stdout.write("\n");
+    if (process.stdout.isTTY && lastByte !== undefined && lastByte !== 0x0a) {
+      process.stdout.write("\n");
+    }
     return;
   }
-  const { writeFile } = await import("node:fs/promises");
+  const { open, unlink } = await import("node:fs/promises");
   // curl's -O and -o overwrite. -OJ protects a server-chosen name unless
   // --clobber is explicit; --no-clobber protects every output name.
   const exclusive = options.noClobber || (options.headerName && !options.clobber);
+  let file;
   try {
-    await writeFile(toFile, bytes, { flag: exclusive ? "wx" : "w" });
+    file = await open(toFile, exclusive ? "wx" : "w");
   } catch (error) {
     if (error.code === "EEXIST")
       throw new Error(`Refusing to overwrite ${toFile}: it already exists.`);
     throw error;
   }
-  console.error(`Saved ${toFile} (${bytes.byteLength} bytes).`);
+  let written = 0;
+  try {
+    for await (const chunk of chunks) {
+      await file.write(chunk);
+      written += chunk.byteLength;
+    }
+  } catch (error) {
+    // Half a file is no file: it goes, and the error says why.
+    await file.close();
+    await unlink(toFile).catch(() => {});
+    throw error;
+  }
+  await file.close();
+  console.error(`Saved ${toFile} (${written} bytes).`);
 };
+
+// ============================================================================
+// SECTION 12 - File, media and MIME detection
+// ============================================================================
 
 /** Names Windows refuses for a file, whatever the extension. */
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -1131,6 +1270,10 @@ export const fileMetadata = (bytes, name) => {
   };
 };
 
+// ============================================================================
+// SECTION 13 - Safe filenames and text download names
+// ============================================================================
+
 export const safeName = (name, fallback) => {
   const last = String(name || "")
     .split(/[\\/]/)
@@ -1169,7 +1312,9 @@ export const textDownloadName = (title, id = "shared") => {
   return /\.[\p{L}\p{N}]{1,10}$/u.test(safe) ? safe : `${safe}.txt`;
 };
 
-// --- Encrypted namespaces -----------------------------------------------------
+// ============================================================================
+// SECTION 14 - Encrypted item listing and lookup
+// ============================================================================
 
 /** The namespace's items, newest first, with their metadata decrypted. */
 const openList = async (space, site) => {
@@ -1215,6 +1360,10 @@ const requireEntryIn = (entries, selector) => {
 };
 const findEntry = async (space, site, selector) =>
   requireEntryIn(await openList(space, site), selector);
+
+// ============================================================================
+// SECTION 15 - Item presentation: JSON, contents and streaming
+// ============================================================================
 
 /**
  * An item as the plain API's JSON shows it, with the encrypted fields opened:
@@ -1285,6 +1434,25 @@ const entriesJson = (entries, options = {}) =>
   Promise.all(entries.map((entry) => entryJson(entry, options)));
 
 /** Sends one decrypted entry through the common curl-like output rules. */
+/**
+ * An entry's contents as they arrive, opened a segment at a time; null for a
+ * local backup's, which is read whole from its file.
+ */
+const entryParts = (entry) => {
+  if (entry.loadBody) return null;
+  return async function* () {
+    const response = await call(entry.contentUrl);
+    // A plain item (see plainEntry) is its contents already.
+    if (!entry.opened.bodyKey) {
+      yield* response.body;
+      return;
+    }
+    yield* openStream(await entry.opened.bodyKey(), response.body, {
+      sealedSize: entry.item.size,
+    });
+  };
+};
+
 const deliverEntry = (entry, options, urlName = ownName(entry)) =>
   deliver({
     options,
@@ -1292,6 +1460,7 @@ const deliverEntry = (entry, options, urlName = ownName(entry)) =>
     ownName: ownName(entry),
     urlName,
     load: () => contentsOf(entry),
+    parts: entryParts(entry),
   });
 
 /** A plain item shaped like an opened encrypted one, for common output code. */
@@ -1310,6 +1479,10 @@ const plainEntry = (item, index, source) => ({
     open: async (bytes) => bytes,
   },
 });
+
+// ============================================================================
+// SECTION 16 - Human-readable tables and formatting
+// ============================================================================
 
 /** Decimal units, like the site's limits (100 MB, 64 kB). */
 export const formatBytes = (bytes) => {
@@ -1376,6 +1549,10 @@ const tableJson = (entry) => {
   const title = entry.opened?.metadata.title;
   return entry.opened?.metadata.kind === "text" && title ? { ...json, preview: title } : json;
 };
+
+// ============================================================================
+// SECTION 17 - Bulk export and offline backup reading
+// ============================================================================
 
 /**
  * -O on the bare link: exports every item here under its own name, overwriting
@@ -1661,6 +1838,10 @@ const localRequest = async (text, options) => {
   return true;
 };
 
+// ============================================================================
+// SECTION 18 - Encrypted uploads, edits and renames
+// ============================================================================
+
 const send = async (space, site, options, filename) => {
   const base = `${site}/e/${space.id}`;
   let contents;
@@ -1791,6 +1972,10 @@ const edit = async (space, site, selector, options) => {
     }),
   });
 };
+
+// ============================================================================
+// SECTION 19 - Encrypted namespace request routing
+// ============================================================================
 
 /** The encrypted namespace, path by path, as the plain API answers it. */
 const sealedRequest = async ({ site, name, readToken, path: fullPath }, options) => {
@@ -1957,6 +2142,10 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
   throw new Error(`${method} is not used on "${path}". See: node k.mjs`);
 };
 
+// ============================================================================
+// SECTION 20 - Shared item and read-only view routes
+// ============================================================================
+
 /** A shared encrypted item: /i/<token>#key and its /c, /d and .json. */
 const sharedRequest = async ({ base, suffix, keyText }, options) => {
   if (options.method !== "GET") throw new Error("A shared item can only be read.");
@@ -1999,6 +2188,10 @@ const viewRequest = async ({ base, suffix, keyText }, options) => {
   if (options.remoteName) return saveAll(entries, options);
   return console.log(itemsTable(entries.map(tableJson)));
 };
+
+// ============================================================================
+// SECTION 21 - Plain namespace detection and live updates
+// ============================================================================
 
 /**
  * Whether a plain link is a bare namespace (https://<site>/notes). With one
@@ -2148,6 +2341,10 @@ const watchLive = async (base, nameOf) => {
   }
 };
 
+// ============================================================================
+// SECTION 22 - Plain HTTP request routing
+// ============================================================================
+
 const plainRequest = async ({ url }, options) => {
   // <namespace>/live: its changes, line by line, until stopped.
   const watched = url.replace(/\/live\/?$/, "");
@@ -2198,9 +2395,9 @@ const plainRequest = async ({ url }, options) => {
     }
   }
   const response = await reach(target, { method: options.method, headers, body });
-  const bytes = new Uint8Array(await response.arrayBuffer());
   const type = response.headers.get("content-type") ?? "";
   if (!response.ok) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
     // Kurobako answers errors as {"error": …}; anything else is another kind of site.
     let error = null;
     try {
@@ -2212,20 +2409,292 @@ const plainRequest = async ({ url }, options) => {
   // The server's JSON (a list, an item's details, a sent item) printed as it
   // is for an encrypted namespace, unless it is going to a file.
   if (/^application\/json/.test(type) && options.output === null && !options.remoteName) {
+    const text = await response.text();
     try {
-      return printJson(JSON.parse(decoder.decode(bytes)));
-    } catch {}
+      return printJson(JSON.parse(text));
+    } catch {
+      return writeStdout(encoder.encode(text));
+    }
   }
   const disposition = response.headers.get("content-disposition") ?? "";
   const urlName = new URL(target).pathname.split("/").pop() || "index";
+  // Anything else is written as it arrives.
   return deliver({
     options,
     isText: /^(text\/|application\/json)/.test(type),
     ownName: safeName(contentDispositionName(disposition), urlName),
     urlName,
-    load: async () => bytes,
+    parts: async function* () {
+      if (response.body) yield* response.body;
+    },
   });
 };
+
+// ============================================================================
+// SECTION 23 - Media playback: links and local HTTP server
+// ============================================================================
+
+//   node k.mjs serve <item link>               prints a local address, until stopped
+//   node k.mjs play <item link> [-- <args>]    opens it in mpv, and stops with it
+//
+// A player seeks: it asks for parts of a file (Range), and a video recorded
+// on a phone is only playable from its end (its index is there). Standard
+// output cannot be sought, so these serve the item on 127.0.0.1 instead,
+// where each request fetches only the segments it needs from the site and
+// opens them as they arrive: what public/sw.js does for a page's <video>.
+// The address carries a random token, so other pages and programs on this
+// computer cannot guess it; the item's key never leaves this process.
+
+const MEDIA_USAGE = `Usage:
+  node k.mjs serve [--port <n>] <item link>
+  node k.mjs play [--player <command>] <item link> [-- <player options>]
+
+The item link is one item's: <site>/e#<name>/<item>, <site>/i/<token>#<key>
+or <site>/<namespace>/<item>. serve prints a local address for it (on
+127.0.0.1) and answers there until stopped; play opens that address in a
+player, mpv unless --player or KUROBAKO_PLAYER says another, and stops when
+the player does. Items that are deleted once read cannot be served: each
+seek would read them again. Save those with -o instead.`;
+
+/** Every read of an item that is deleted once read uses it up: a player reads many times. */
+const refuseLimited = (item) => {
+  if (isLimited(item)) {
+    throw new Error(
+      "This item is deleted once read, and a player reads it many times: save it with -o.",
+    );
+  }
+};
+
+/**
+ * What an item link serves: { filename, mime, size, fetchParts(range) },
+ * where fetchParts gives { body }, the contents [start, end] as they arrive
+ * (all of them without a range).
+ */
+const playable = async (link) => {
+  const target = parseLink(link);
+  if (target.kind === "view") throw new Error("Pick one item of the view: open its link first.");
+
+  if (target.kind === "plain") {
+    // A plain item is served as the site serves it; the address is its ID's,
+    // which does not move when something is sent.
+    const url = target.url.replace(/\/[cd]\/?$/, "").replace(/\/$/, "");
+    const item = await (await call(`${url}.json`)).json();
+    refuseLimited(item);
+    const contentUrl = `${url.slice(0, url.lastIndexOf("/"))}/${encodeURIComponent(item.id)}`;
+    return {
+      filename: item.filename ?? textDownloadName(item.name ?? "", item.id),
+      mime: item.mime ?? "application/octet-stream",
+      size: item.size,
+      fetchParts: (range) =>
+        call(contentUrl, range ? { headers: { Range: `bytes=${range.start}-${range.end}` } } : {}),
+    };
+  }
+
+  let item;
+  let opened;
+  let contentUrl;
+  if (target.kind === "shared") {
+    await requireProtocol(target.base);
+    item = await (await call(`${target.base}.json`)).json();
+    opened = await openSharedItem(target.keyText, item.metadata, item.size);
+    contentUrl = `${target.base}/c`;
+  } else {
+    await requireProtocol(`${target.site}/e`);
+    const { first, second, extra } = parseNamespacePath(target.path);
+    if (
+      !first ||
+      FIXED_PATHS.has(first) ||
+      extra.length ||
+      !["c", "d", undefined].includes(second)
+    ) {
+      throw new Error("serve and play take one item's link: <site>/e#<name>/<item>.");
+    }
+    const space =
+      target.readToken !== undefined
+        ? await openReadOnlySpace(target.readToken)
+        : await openSealedSpace(target.name);
+    const entry = await findEntry(space, target.site, first);
+    ({ item, opened, contentUrl } = entry);
+  }
+  refuseLimited(item);
+  const { metadata } = opened;
+  const key = await opened.bodyKey();
+  const step = SEGMENT_BYTES + TAG_BYTES;
+  return {
+    filename:
+      metadata.kind === "text"
+        ? textDownloadName(metadata.title, item.id)
+        : safeName(metadata.filename, "file"),
+    mime: metadata.mime || "application/octet-stream",
+    size: metadata.size,
+    // Only the segments holding the range are fetched, then opened in turn.
+    fetchParts: async (range) => {
+      const first = range ? Math.floor(range.start / SEGMENT_BYTES) : 0;
+      const last = range ? Math.floor(range.end / SEGMENT_BYTES) : Infinity;
+      const to = Math.min((last + 1) * step, item.size) - 1;
+      const response = await call(contentUrl, {
+        headers: { Range: `bytes=${first * step}-${to}` },
+      });
+      return {
+        body: openStream(key, response.body, {
+          sealedSize: item.size,
+          first,
+          start: range?.start ?? 0,
+          end: range?.end ?? metadata.size - 1,
+        }),
+      };
+    },
+  };
+};
+
+/**
+ * The contents' bytes [start, end] a Range header asks for, null for all of
+ * them, or "unsatisfiable" for a range outside (as public/sw.js reads it).
+ */
+const playRange = (header, size) => {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header?.trim() ?? "");
+  if (!match || (!match[1] && !match[2])) return null;
+  if (!match[1]) {
+    const length = Math.min(Number(match[2]), size);
+    return length > 0 ? { start: size - length, end: size - 1 } : "unsatisfiable";
+  }
+  const start = Number(match[1]);
+  const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  return start < size && start <= end ? { start, end } : "unsatisfiable";
+};
+
+/**
+ * Serves `media` on 127.0.0.1 at a random address; resolves with that
+ * address and the server, once it listens.
+ */
+const serveMedia = async (media, port = 0) => {
+  const { createServer } = await import("node:http");
+  const token = toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
+  const path = `/${token}/${encodeURIComponent(media.filename)}`;
+  const server = createServer(async (request, response) => {
+    if (decodeURIComponent(request.url ?? "") !== decodeURIComponent(path)) {
+      response.writeHead(404).end();
+      return;
+    }
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.writeHead(405, { Allow: "GET, HEAD" }).end();
+      return;
+    }
+    const range = playRange(request.headers.range, media.size);
+    if (range === "unsatisfiable") {
+      response.writeHead(416, { "Content-Range": `bytes */${media.size}` }).end();
+      return;
+    }
+    const headers = {
+      "Content-Type": media.mime,
+      "Content-Length": String(range ? range.end - range.start + 1 : media.size),
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "no-store",
+      ...(range ? { "Content-Range": `bytes ${range.start}-${range.end}/${media.size}` } : {}),
+    };
+    if (request.method === "HEAD") {
+      response.writeHead(range ? 206 : 200, headers).end();
+      return;
+    }
+    // A player drops a request when it seeks: stop fetching for it.
+    let closed = false;
+    response.on("close", () => {
+      closed = true;
+    });
+    try {
+      const parts = await media.fetchParts(range);
+      response.writeHead(range ? 206 : 200, headers);
+      for await (const chunk of parts.body) {
+        if (closed) break;
+        // The player reads slower than the site sends: wait for it.
+        if (!response.write(chunk)) {
+          await new Promise((resolve) => {
+            const done = () => {
+              response.off("drain", done);
+              response.off("close", done);
+              resolve();
+            };
+            response.on("drain", done);
+            response.on("close", done);
+          });
+        }
+      }
+      response.end();
+    } catch (error) {
+      if (!response.headersSent) response.writeHead(502).end(error.message);
+      else response.destroy(error);
+    }
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", resolve);
+  });
+  return { server, address: `http://127.0.0.1:${server.address().port}${path}` };
+};
+
+/** serve or play: their own options, then the item's link, then (play) the player's. */
+const parseMediaArgs = (args) => {
+  const options = { port: 0, player: globalThis.process?.env?.KUROBAKO_PLAYER || "mpv" };
+  let link = null;
+  let rest = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = () => {
+      index += 1;
+      if (index >= args.length) throw new Error(`${arg} needs a value.`);
+      return args[index];
+    };
+    if (arg === "--") {
+      rest = args.slice(index + 1);
+      break;
+    }
+    if (arg === "--port") options.port = Number(next());
+    else if (arg === "--player") options.player = next();
+    else if (arg.startsWith("-")) throw new Error(`Unknown option ${arg}.\n\n${MEDIA_USAGE}`);
+    else if (link === null) link = arg;
+    else throw new Error(`Unexpected "${arg}": one link, then -- before the player's options.`);
+  }
+  if (!link) throw new Error(MEDIA_USAGE);
+  if (!Number.isInteger(options.port) || options.port < 0 || options.port > 65_535) {
+    throw new Error("--port takes a number from 0 to 65535.");
+  }
+  return { link, options, rest };
+};
+
+const mediaCommand = async (command, args) => {
+  const { link, options, rest } = parseMediaArgs(args);
+  const media = await playable(link);
+  const { server, address } = await serveMedia(media, options.port);
+  if (command === "serve") {
+    // The address alone on standard output, for $(…); the rest on standard error.
+    console.log(address);
+    console.error(`Serving ${media.filename} (${formatBytes(media.size)}); Ctrl+C stops.`);
+    return;
+  }
+  const { spawn } = await import("node:child_process");
+  const player = spawn(options.player, [...rest, address], { stdio: "inherit" });
+  await new Promise((resolve) => {
+    player.once("error", (error) => {
+      console.error(
+        error.code === "ENOENT"
+          ? `${options.player} was not found: install it, or pick another with --player.`
+          : error.message,
+      );
+      process.exitCode = 1;
+      resolve();
+    });
+    player.once("exit", (code) => {
+      process.exitCode = code ?? 1;
+      resolve();
+    });
+  });
+  server.closeAllConnections?.();
+  server.close();
+};
+
+// ============================================================================
+// SECTION 24 - CLI dispatcher and direct execution
+// ============================================================================
 
 const main = async (args) => {
   // Asking for help is not an error: it goes to standard output.
@@ -2234,6 +2703,8 @@ const main = async (args) => {
     return;
   }
   try {
+    if (args[0] === "serve" || args[0] === "play")
+      return await mediaCommand(args[0], args.slice(1));
     const parsed = parseArgs(args);
     if (!parsed) {
       console.error(USAGE);

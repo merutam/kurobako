@@ -175,6 +175,8 @@ describe("shared", () => {
     storedFiles: async (prefix) =>
       [...sharedBlobs.objects.keys()].filter((key) => key.startsWith(prefix)),
     config: sharedConfig,
+    // Each key's window starts at its first request here: always a whole one.
+    limitWindow: async () => {},
     get origin() {
       return sharedBase;
     },
@@ -671,10 +673,10 @@ describe("bun server", () => {
   test("limits sends per address", async () => {
     const ns = fresh();
     const statuses = [];
-    for (let index = 0; index < 31; index += 1)
+    for (let index = 0; index <= config.sendsPerMinute; index += 1)
       statuses.push((await call(`/${ns}/new`, { method: "POST", body: "x" })).status);
     expect(statuses.at(-1)).toBe(429);
-  });
+  }, 60_000);
 
   test("keeps only the most recently used namespace databases open", async () => {
     for (let index = 0; index < 4; index += 1) await typed(fresh(), `database ${index}`);
@@ -756,6 +758,106 @@ describe("bun server", () => {
       await own.stop();
     }
   }, 30_000);
+
+  test("k.mjs streams an item, and serves it to a player in parts", async () => {
+    // Its own server: the shared one's send limit is spent by other tests.
+    const own = await startServer({
+      config: { ...config, sendsPerMinute: 1_000 },
+      dataDir: mkdtempSync(join(tmpdir(), "kurobako-play-data-")),
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+    const script = join(import.meta.dir, "..", "public", "k.mjs");
+    const workDir = mkdtempSync(join(tmpdir(), "kurobako-play-"));
+    const link = `${own.server.url.origin}/e#${encodeURIComponent(`play ${crypto.randomUUID()}`)}`;
+    // Four segments, the last one short.
+    const media = new Uint8Array(3 * 65_536 + 1_000).map(
+      (_, index) => (index * 31 + (index >> 9)) & 255,
+    );
+    writeFileSync(join(workDir, "clip.bin"), media);
+    const run = async (...args: string[]) => {
+      const child = Bun.spawn(["bun", script, ...args], {
+        cwd: workDir,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [out, error, code] = await Promise.all([
+        new Response(child.stdout).arrayBuffer(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      return { out: new Uint8Array(out), error, code };
+    };
+    expect((await run("-T", "clip.bin", `${link}/`)).code).toBe(0);
+
+    // Standard output, a segment at a time.
+    expect((await run("-o", "-", `${link}/1`)).out).toEqual(media);
+
+    // serve: the address on its first line, then any part of the contents.
+    const serving = Bun.spawn(["bun", script, "serve", `${link}/1`], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    try {
+      const reader = serving.stdout.getReader();
+      let printed = "";
+      while (!printed.includes("\n"))
+        printed += new TextDecoder().decode((await reader.read()).value);
+      const address = printed.trim();
+      expect(address).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{22}\/clip\.bin$/);
+      const whole = await fetch(address);
+      expect(whole.headers.get("accept-ranges")).toBe("bytes");
+      expect(new Uint8Array(await whole.arrayBuffer())).toEqual(media);
+      for (const [range, start, end] of [
+        ["bytes=0-99", 0, 99],
+        ["bytes=65530-65545", 65_530, 65_545],
+        ["bytes=100000-", 100_000, media.length - 1],
+        ["bytes=-10", media.length - 10, media.length - 1],
+      ] as const) {
+        const part = await fetch(address, { headers: { Range: range } });
+        expect(part.status).toBe(206);
+        expect(part.headers.get("content-range")).toBe(`bytes ${start}-${end}/${media.length}`);
+        expect(new Uint8Array(await part.arrayBuffer())).toEqual(media.slice(start, end + 1));
+      }
+      expect((await fetch(address, { headers: { Range: `bytes=${media.length}-` } })).status).toBe(
+        416,
+      );
+      // Another path on that port is nothing.
+      expect((await fetch(new URL("/", address))).status).toBe(404);
+    } finally {
+      serving.kill();
+    }
+
+    // play: the player gets the address last, after its own options.
+    writeFileSync(
+      join(workDir, "player.mjs"),
+      `import { writeFileSync } from "node:fs";
+       const bytes = await (await fetch(process.argv.at(-1))).arrayBuffer();
+       writeFileSync(process.argv[2], new Uint8Array(bytes));`,
+    );
+    const played = await run(
+      "play",
+      "--player",
+      "bun",
+      `${link}/1`,
+      "--",
+      "player.mjs",
+      "played.bin",
+    );
+    expect(played.code).toBe(0);
+    expect(new Uint8Array(readFileSync(join(workDir, "played.bin")))).toEqual(media);
+
+    // A player reads many times: an item deleted once read is refused, and kept.
+    expect((await run("-H", "burn:1", "-d", "once", `${link}/new`)).code).toBe(0);
+    const refused = await run("play", "--player", "bun", `${link}/1`);
+    expect(refused.code).toBe(1);
+    expect(refused.error).toContain("deleted once read");
+    expect(new TextDecoder().decode((await run(`${link}/1`)).out)).toBe("once");
+    rmSync(workDir, { recursive: true, force: true });
+    await own.stop();
+  });
 
   test("k.mjs reports that namespace locks are retired", async () => {
     const script = join(import.meta.dir, "..", "public", "k.mjs");
@@ -841,8 +943,15 @@ describe("rules kept in two places", () => {
       "😀".repeat(81),
       "one\uFEFFtwo",
       "one\u0085two",
+      // Cut right after a dash: en, em and the plain hyphen all go.
+      ...["\u2013", "\u2014", "-"].map((dash) => `${"a".repeat(70)} b ${dash} ${"c".repeat(20)}`),
     ];
     for (const text of texts) expect(clientDefaultName(text)).toBe(defaultTextName(text));
+    for (const dash of ["\u2013", "\u2014", "-"]) {
+      expect(defaultTextName(`${"a".repeat(70)} b ${dash} ${"c".repeat(20)}`)).toBe(
+        `${"a".repeat(70)} b`,
+      );
+    }
     expect(defaultTextName(`${"a".repeat(79)}😀and more`)).toBe(`${"a".repeat(79)}😀`);
     expect(defaultTextName("😀".repeat(81))).toBe("😀".repeat(80));
     expect(defaultTextName("What is this?")).toBe("What is this?");

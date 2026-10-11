@@ -70,9 +70,9 @@ encrypted, is at `/k/protocol` on every instance. Every instance describes itsel
 - **A namespace exists once something is sent to it**, so opening random
   names creates nothing. Once its items are gone, it is
   deleted after an hour.
-- **Limits:** texts up to 1 MB, files up to 100 MB, 30 sends a minute per
+- **Limits:** texts up to 1 MB, files up to 100 MB, 300 sends a minute per
   address (an IPv6 /64 network counts as one).
-- **Guessing names gets slow:** an address that asks for 30 namespaces, items
+- **Guessing names gets slow:** an address that asks for 300 namespaces, items
   or share links that are not there in a minute reads nothing for the rest of
   it. Plain names are still best long: a short one is easy to find.
 - **File types** come from the bytes: PNG, JPEG, GIF, WebP, AVIF and HEIC are
@@ -181,9 +181,9 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 | `EMPTY_NAMESPACE_TTL_SECONDS` | `3600` | before an empty namespace is deleted |
 | `MAX_LIVE_CONNECTIONS` | `100` | per namespace |
 | `MAX_STORAGE_BYTES` | unset | every item together, across namespaces; sends past it get `507` |
-| `MISSES_PER_MINUTE` | `30` | per client: requests for namespaces, items or share links that are not there; past it, the client reads nothing for a minute. On Cloudflare, also set `MISS_LIMITER`'s limit |
+| `MISSES_PER_MINUTE` | `300` | per client: requests for namespaces, items or share links that are not there; past it, the client reads nothing for a minute. On Cloudflare, also set `MISS_LIMITER`'s limit |
 | `AUTOMATED_NETWORKS` | `limit` | hosting, cloud and VPN networks and Tor, where scripts run: `allow` counts them like anyone; `limit` counts their sends and misses by network block (IPv4 /24, IPv6 /48); `block` refuses their sends (`403`). Reading is never blocked |
-| `SENDS_PER_MINUTE` | `30` | per client address (an IPv6 /64 network counts as one); on Cloudflare, also set `UPLOAD_LIMITER`'s limit in `wrangler.jsonc` |
+| `SENDS_PER_MINUTE` | `300` | per client address (an IPv6 /64 network counts as one); on Cloudflare, also set `UPLOAD_LIMITER`'s limit in `wrangler.jsonc` |
 | `ADMIN_KEY` | unset | enables `/k/a`; 32 characters or more |
 | `ADMIN_SESSION_HOURS` | `12` | |
 | `ACCESS_KEY` | unset | makes the instance private (see "A private instance"); 16 characters or more |
