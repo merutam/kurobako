@@ -57,7 +57,7 @@ export const Page = ({
   config = false,
   data,
   noIndex = false,
-  unlocking = false,
+  decrypting: unlocking,
   mainClass,
   children,
 }: {
@@ -68,11 +68,16 @@ export const Page = ({
   config?: boolean;
   data?: { id: string; value: unknown };
   noIndex?: boolean;
-  unlocking?: boolean;
+  /**
+   * What the page waits on before it shows ("Decrypting item…"): until its
+   * script calls finishUnlocking (src/client/lib/unlocking.js), only this.
+   */
+  decrypting?: string;
   mainClass?: string;
   children: Child;
 }) => {
   const { basePath } = site;
+
   return `<!doctype html>\n${String(
     <html lang="en" data-base={basePath}>
       <head>
@@ -106,39 +111,46 @@ export const Page = ({
           <header class="site-header">
             <p class="site-name">
               <a href={`${basePath}/`}>
-                <img src={`${basePath}/logo.png`} alt="" width="32" height="32" />
-                Kurobako
+                {/* logo.png as a mask, painted in the theme's accent (styles.css). */}
+                <span class="site-logo" aria-hidden="true" />
+                kurobako
               </a>
             </p>
-            <div class="theme-picker" role="radiogroup" aria-labelledby="theme-picker-label">
-              <span id="theme-picker-label" class="theme-picker-label">
-                Theme
-              </span>
-              <label>
-                <input type="radio" name="theme" value="auto" checked /> Automatic
-              </label>
-              <label>
-                <input type="radio" name="theme" value="light" /> Light
-              </label>
-              <label>
-                <input type="radio" name="theme" value="dark" /> Dark
-              </label>
-            </div>
+            {/* theme.js shows it: without a script, the browser's theme applies. */}
+            <button
+              id="theme-toggle"
+              class="theme-toggle"
+              type="button"
+              data-theme-choice="auto"
+              hidden
+            >
+              <Icon name="contrast" size={14} />
+              <Icon name="sun" size={14} />
+              <Icon name="moon" size={14} />
+              theme: <span id="theme-name">auto</span>
+            </button>
           </header>
+          {unlocking ? (
+            <div id="page-loading" class="page-loading" role="status" aria-live="polite">
+              <span>{unlocking}</span>
+            </div>
+          ) : null}
           {children}
         </main>
         <footer class="site-footer">
-          Kurobako {site.appVersion} · <a href={`${basePath}/k/protocol`}>Protocol</a> ·{" "}
-          <a href={`${basePath}/k/licenses`}>Licenses</a> ·{" "}
-          <a
-            class="external-link"
-            href="https://github.com/merutam/kurobako"
-            target="_blank"
-            rel="noopener"
-          >
-            Source
-            <Icon name="external" size={14} />
-          </a>
+          <p>
+            Kurobako {site.appVersion} · <a href={`${basePath}/k/protocol`}>Protocol</a> ·{" "}
+            <a href={`${basePath}/k/licenses`}>Licenses</a> ·{" "}
+            <a
+              class="external-link"
+              href="https://github.com/merutam/kurobako"
+              target="_blank"
+              rel="noopener"
+            >
+              Source
+              <Icon name="external" size={14} />
+            </a>
+          </p>
         </footer>
         <button id="scroll-top" type="button" hidden>
           Top

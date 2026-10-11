@@ -113,6 +113,23 @@ const ICONS = {
     ["path", { d: "M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" }],
     ["circle", { cx: "8", cy: "8", r: "2" }],
   ],
+  /** The theme button. */
+  sun: [
+    ["circle", { cx: "8", cy: "8", r: "2.8" }],
+    [
+      "path",
+      {
+        d: "M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1",
+      },
+    ],
+  ],
+  /** The dark theme. */
+  moon: [["path", { d: "M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7z" }]],
+  /** The browser's theme: half light, half dark. */
+  contrast: [
+    ["circle", { cx: "8", cy: "8", r: "5.5" }],
+    ["path", { d: "M8 2.5v11a5.5 5.5 0 0 0 0-11z", fill: "currentColor" }],
+  ],
   /** A link that leaves the site. */
   external: [["path", { d: "M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4" }]],
 };

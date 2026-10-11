@@ -92,7 +92,7 @@ export const mountNamespaces = (
         const shown = items.map((item) => summaryItem(item) as ListedItem & { id: string });
         return pageView(
           c,
-          renderNamespacePage(siteView, ref.name, { items: shown, revision }, config.maxItems),
+          renderNamespacePage(siteView, ref.name, { items: shown, revision }, config),
         );
       });
     }

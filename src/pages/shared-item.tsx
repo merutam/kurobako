@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import { describePlain, itemMeta } from "../client/shared/item-row.js";
 import { readLimitedItem, type StoredItem, sharedItem } from "../core/model";
-import { formatBytes, titleOf } from "./components/items";
+import { h } from "./components/html";
+import { titleOf } from "./components/items";
 import { Page, type SiteView } from "./components/layout";
 
 type PlainItem = Exclude<StoredItem, { kind: "sealed" }>;
@@ -18,6 +20,8 @@ const SharedItemContent = ({
 }) => {
   const limited = readLimitedItem(item);
   const title = titleOf(item);
+  // As the browser sees it (item-data), so both write the same line.
+  const shared = sharedItem(item);
   const media =
     item.kind === "image"
       ? "image"
@@ -30,19 +34,7 @@ const SharedItemContent = ({
     <>
       <h1 id="item-title">{title}</h1>
       <p id="item-meta" class="intro">
-        {item.kind === "text"
-          ? "Text"
-          : media === "image"
-            ? "Image"
-            : media === "video"
-              ? "Video"
-              : media === "audio"
-                ? "Audio"
-                : "File"}{" "}
-        · {formatBytes(item.size)}
-        {limited
-          ? ` · ${item.readsLeft ? `${item.readsLeft} reads left` : "deletes when opened"}`
-          : ""}
+        {itemMeta(h, shared, describePlain(shared))}
       </p>
       <p id="status" class="status" role="status" aria-live="polite" />
       <section
@@ -92,6 +84,8 @@ export const renderSharedItemPage = (
     scripts: ["shared-item"],
     data: { id: "item-data", value: item ? sharedItem(item) : null },
     noIndex: true,
+    // An encrypted item shows only once decrypted, as a namespace does.
+    decrypting: item?.kind === "sealed" ? "Decrypting item…" : undefined,
     children:
       item && item.kind !== "sealed" ? (
         <SharedItemContent item={item} text={text} url={url} />
@@ -99,8 +93,8 @@ export const renderSharedItemPage = (
         <>
           <h1 id="item-title">Shared item</h1>
           <p id="item-meta" class="intro" />
-          <p id="status" class="status" role="status" aria-live="polite">
-            {item ? "Decrypting item…" : "This shared item is gone."}
+          <p id="status" class="status error" role="status" aria-live="polite">
+            {item ? null : <span>This shared item is gone.</span>}
           </p>
           <section id="item" class="shared-item stack" aria-labelledby="item-title" hidden>
             <div id="item-body" />

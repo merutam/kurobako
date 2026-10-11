@@ -3,30 +3,25 @@
  * Copyright (C) 2026 Kurobako contributors
  */
 
-/* Design tokens: every color, space, type size and shape the styles use.
-   The build puts it before styles.css, in one file; restyling the site starts here. */
+/* Design tokens: every color, space, type size and shape the styles use
+   (docs/design.md). The build puts it before styles.css, in one file;
+   restyling the site starts here. Dark is the default; light follows the
+   browser, or the theme button (theme.js), with the same names. */
 :root {
-  color-scheme: light dark;
-  --text: light-dark(#202122, #eaecf0);
-  --text-subtle: light-dark(#54595d, #a2a9b1);
-  --background: light-dark(#ffffff, #101418);
-  --surface: light-dark(#f8f9fa, #202122);
-  --surface-strong: light-dark(#eaecf0, #27292d);
-  --border: light-dark(#a2a9b1, #72777d);
-  --border-subtle: light-dark(#c8ccd1, #54595d);
-  --link: light-dark(#36c, #88a3e8);
-  --link-visited: light-dark(#6a60b0, #a799cd);
-  --link-hover: light-dark(#3056a9, #a6bbf5);
-  --progressive: light-dark(#36c, #6485d1);
-  --progressive-hover: light-dark(#3056a9, #88a3e8);
-  --on-progressive: light-dark(#ffffff, #101418);
-  --destructive: light-dark(#bf3c2c, #fd7865);
-  --error-text: light-dark(#bf3c2c, #fd7865);
-  --error-surface: light-dark(#ffe9e5, #3c1a19);
-  --success-text: light-dark(#14866d, #4dc49c);
-  --success-surface: light-dark(#dff2eb, #11302a);
-  --warning-text: light-dark(#996000, #e9b44c);
-  --focus: light-dark(#36c, #88a3e8);
+  color-scheme: dark;
+  --bg: #121211;
+  --fg: #e6e1d6;
+  --dim: #b9b3a6;
+  --muted: #8c877c;
+  --border: #3a3934;
+  --rule: #2e2d29;
+  --panel: #1a1917;
+  --chip: #24231f;
+  --accent: #e8b04f;
+  --accent-hover: #f2c779;
+  --on-accent: #121211;
+  --ok: #8fc27a;
+  --err: #e7806c;
 
   /* Spacing: one scale for every gap, padding and margin. */
   --space-1: 4px;
@@ -35,27 +30,60 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
-  --space-7: 48px;
+  --space-7: 56px;
+  --gap: var(--space-4);
+  --gap-section: var(--space-7);
 
-  /* Type */
-  --font-sans: sans-serif;
-  --font-serif: "Linux Libertine", Georgia, Times, serif;
-  --font-mono: monospace;
-  --text-small: 0.875rem;
-  --text-h2: 1.5rem;
-  --text-h1: 1.8rem;
+  /* Type: one monospaced family; hierarchy from size and weight. JetBrains
+     Mono when installed; the CSP allows no font from elsewhere. */
+  --font:
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Courier New",
+    monospace;
+  --text-body: 15px;
+  --text-list: 14px;
+  --text-small: 13px;
+  --text-h2: 22px;
+  --text-h1: clamp(32px, 6vw, 48px);
 
   /* Shapes and sizes */
-  --radius: 2px;
-  --radius-large: 4px;
-  --control-height: 32px;
-  --page-width: 72rem;
-  --page-gutter: var(--space-4);
-  --prose-width: 48rem;
+  --hit: 44px;
+  --col: 1120px;
+  --page-gutter: 20px;
+  --prose-width: 72ch;
 }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f4f1ea;
+    --fg: #1a1915;
+    --dim: #4a463f;
+    --muted: #615c53;
+    --border: #bdb6a8;
+    --rule: #d6d0c3;
+    --panel: #ece8de;
+    --chip: #e2ddd1;
+    --accent: #8a5200;
+    --accent-hover: #9a5c00;
+    --on-accent: #ffffff;
+    --ok: #2f6b1f;
+    --err: #a3321f;
+  }
+}
+
 :root[data-theme="light"] {
   color-scheme: light;
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
+  --bg: #f4f1ea;
+  --fg: #1a1915;
+  --dim: #4a463f;
+  --muted: #615c53;
+  --border: #bdb6a8;
+  --rule: #d6d0c3;
+  --panel: #ece8de;
+  --chip: #e2ddd1;
+  --accent: #8a5200;
+  --accent-hover: #9a5c00;
+  --on-accent: #ffffff;
+  --ok: #2f6b1f;
+  --err: #a3321f;
 }

@@ -14,7 +14,6 @@ import {
   formatExpiry,
   HIDDEN_TITLE,
 } from "./format.js";
-import { iconTree } from "./icons.js";
 
 export const limitedItem = (item) => Boolean(item.burn || item.readsLeft !== undefined);
 
@@ -62,6 +61,38 @@ export const itemSummary = (item, info) =>
   `${kindLabel(info)} · ${formatBytes(info.size ?? item.size)} · ${dateFormatter.format(new Date(item.createdAt))}`;
 
 /**
+ * The line under a shared item's title, as `h` makes it (see dom.js):
+ * "Text · 23 B · 10/6/26, 9:10 AM · expires in 23 hours". The server writes
+ * the date in its own zone; the browser rewrites only that <time>.
+ */
+export const itemMeta = (h, item, info, opened = false) => {
+  const parts = [
+    `${kindLabel(info)} · ${formatBytes(info.size ?? item.size)}`,
+    h(
+      "time",
+      { datetime: item.createdAt, "data-local-date": true },
+      dateFormatter.format(new Date(item.createdAt)),
+    ),
+  ];
+  if (opened && limitedItem(item))
+    parts.push(item.burn || item.readsLeft === 1 ? "deleted from the server" : "one read used");
+  else if (limitedItem(item))
+    parts.push(item.readsLeft ? `${item.readsLeft} reads left` : "deletes when opened");
+  if (!opened && item.expiresAt)
+    parts.push(h("span", { "data-expires-at": item.expiresAt }, formatExpiry(item.expiresAt)));
+  if (info.decrypt) parts.unshift("Encrypted");
+  return parts.flatMap((part, index) => (index ? [" · ", part] : [part]));
+};
+
+/** A page's dates, from the server's zone to this browser's. */
+export const localizeDates = (root) => {
+  for (const time of root.querySelectorAll("time[data-local-date]")) {
+    const local = dateFormatter.format(new Date(time.dateTime));
+    if (time.textContent !== local) time.textContent = local;
+  }
+};
+
+/**
  * Everything a row is made from, as text: a row is made again only when this
  * changes. The server puts its hash on the rows it renders (data-made), so the
  * browser can tell which it can keep.
@@ -79,9 +110,20 @@ export const rowHash = (state) => {
   return (hash >>> 0).toString(16);
 };
 
+/** What an item is, as its row shows it. */
+const KIND_NAMES = {
+  burn: "once",
+  unreadable: "locked",
+  text: "text",
+  image: "image",
+  video: "video",
+  audio: "audio",
+  file: "file",
+};
+
 /**
  * One row per item: its position (1 is the newest, as in $BOX/ns/1), what it
- * is, its name, size and age, and its actions as icons. The row's toggle opens
+ * is, its name, size and age, and its actions as words. The row's toggle opens
  * its body: the contents of a text or an image, and every detail. Closed, as
  * made here; the browser opens the ones it should.
  *
@@ -110,7 +152,7 @@ export const itemRow = (
               : "file";
   const renamable = expandable && !opened && info.kind !== "unreadable" && canWrite;
   const heading = [
-    h("span", { class: "item-kind" }, iconTree(h, kind)),
+    h("span", { class: "item-kind" }, KIND_NAMES[kind]),
     h("span", { class: "item-title", title: renamable && "Double-click to rename" }, info.title),
   ];
   const facts = h(
@@ -120,59 +162,56 @@ export const itemRow = (
     h("span", { "data-created-at": item.createdAt }, formatAge(item.createdAt)),
   );
 
-  /** A button that is only an icon: its label is for screen readers and tooltips. */
-  const iconButton = (name, label, action, className) =>
+  /** A row's action: its name, as text, which the styles put in brackets. */
+  const actionButton = (label, action, title, className) =>
     h(
       "button",
       {
         type: "button",
-        class: className ? `icon-button ${className}` : "icon-button",
-        "aria-label": label,
-        title: label,
+        class: className ? `row-action ${className}` : "row-action",
+        title,
         "data-action": action,
       },
-      iconTree(h, name),
+      label,
     );
-  const iconLink = (name, label, href) =>
-    h("a", { href, class: "icon-button", title: label, "aria-label": label }, iconTree(h, name));
+  const actionLink = (label, href, title) => h("a", { href, class: "row-action", title }, label);
 
   const actions = [];
   if (unopenedBurn) {
     actions.push(
-      h(
-        "button",
-        { type: "button", "data-action": "open-once" },
-        iconTree(h, "burn"),
-        item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once",
+      actionButton(
+        item.readsLeft ? `open (${item.readsLeft} left)` : "open once",
+        "open-once",
+        "Opening uses a read",
+        "burn-action",
       ),
     );
   } else {
     if (info.isImage || info.isVideo || info.isAudio) {
-      const media = info.isVideo ? "video" : info.isAudio ? "audio" : "image";
-      actions.push(iconButton(media, "Open media feed", "media"));
+      actions.push(actionButton("view", "media", "Open in the media feed"));
     }
     if (!opened && info.kind === "text" && canWrite) {
-      actions.push(iconButton("edit", "Edit", "edit"));
+      actions.push(actionButton("edit", "edit", "Edit the text"));
     }
     if (info.kind === "text" || (info.isImage && canCopyImages)) {
-      actions.push(iconButton("copy", "Copy", "copy"));
+      actions.push(actionButton("copy", "copy", "Copy to the clipboard"));
     }
     if (info.kind === "file" || info.kind === "text") {
       // Decrypted (or already consumed) files are fetched only on click.
       actions.push(
         !opened && downloadUrl
-          ? iconLink("download", "Download", downloadUrl)
-          : iconButton("download", "Download", "download"),
+          ? actionLink("save", downloadUrl, "Download")
+          : actionButton("save", "download", "Download"),
       );
     }
   }
-  if (!opened && info.itemUrl) actions.push(iconLink("external", "Open item", info.itemUrl));
+  if (!opened && info.itemUrl) actions.push(actionLink("open", info.itemUrl, "Open the item"));
   // Sharing makes a link on the server: like deleting, it is writing.
   if (!opened && info.kind !== "unreadable" && !unopenedBurn && canWrite) {
-    actions.push(iconButton("share", "Share", "share"));
+    actions.push(actionButton("share", "share", "Make a link to share"));
   }
-  if (opened) actions.push(iconButton("dismiss", "Dismiss", "dismiss"));
-  else if (canWrite) actions.push(iconButton("delete", "Delete", "delete", "destructive"));
+  if (opened) actions.push(actionButton("dismiss", "dismiss", "Remove from this page"));
+  else if (canWrite) actions.push(actionButton("delete", "delete", "Delete", "destructive"));
 
   const bodyId = `item-${item.id}`;
   const row = h(

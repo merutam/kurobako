@@ -169,9 +169,17 @@ const renderPager = (page) => {
     offset = Math.max(0, next);
     void load();
   };
-  const back = h("button", { type: "button", disabled: page.offset === 0 }, "← Previous");
+  const back = h(
+    "button",
+    { type: "button", "aria-label": "Previous page", disabled: page.offset === 0 },
+    "«",
+  );
   back.addEventListener("click", () => go(page.offset - page.limit));
-  const forward = h("button", { type: "button", disabled: last >= page.total }, "Next →");
+  const forward = h(
+    "button",
+    { type: "button", "aria-label": "Next page", disabled: last >= page.total },
+    "»",
+  );
   forward.addEventListener("click", () => go(page.offset + page.limit));
   namespacesPagination.replaceChildren(
     back,

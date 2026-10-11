@@ -42,6 +42,7 @@ import { FIXED_FILES, ICON_FILES, STYLES } from "../src/assets";
 import { bundle } from "../src/client/build";
 import { formatBytes as pageFormatBytes } from "../src/client/lib/common.js";
 import { coverFromTag } from "../src/client/lib/cover.js";
+import { sealedFileLimit } from "../src/client/shared/limits.js";
 import { type AppConfig, loadConfig } from "../src/config";
 import { readArchive, writeArchive } from "../src/core/archive";
 import type { BlobStore } from "../src/core/host";
@@ -1094,6 +1095,9 @@ describe("rules kept in two places", () => {
     const body = await opened.open(Buffer.from(vector("body"), "base64url"));
     expect(new TextDecoder().decode(body)).toBe("hello");
     expect(contentSize(70_032)).toBe(70_000);
+    // The namespace page's limit for encrypted files is the same arithmetic.
+    for (const bytes of [0, 1, 65_552, 65_553, 100_000_000])
+      expect(sealedFileLimit(bytes)).toBe(contentSize(bytes));
     expect(new Uint8Array(await opened.open(longBody))).toEqual(long);
     // A part opens on its own, as a Range request brings it: here the second segment.
     const key = await bodyKey(itemKey, 0);

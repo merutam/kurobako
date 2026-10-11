@@ -4,7 +4,7 @@
 import { openSharedItem, textDownloadName } from "../../../public/k.mjs";
 // The page behind a share link, /i/<token>: one item, and nothing that leads
 // back to its namespace. Encrypted items carry their own key after the #.
-import { button, compactText, copyText, element, formatExpiry, request } from "../lib/common.js";
+import { button, compactText, copyText, element, request } from "../lib/common.js";
 import {
   audioPlayer,
   canCopyImages,
@@ -13,14 +13,15 @@ import {
   describePlain,
   downloadBlob,
   highlightedText,
-  itemSummary,
   limitedItem,
   streamAddress,
   videoPlayer,
 } from "../lib/items.js";
 import { createStatus } from "../lib/status.js";
+import { failUnlocking, finishUnlocking } from "../lib/unlocking.js";
 import { h } from "../shared/dom.js";
 import { icon } from "../shared/icons.js";
+import { itemMeta, localizeDates } from "../shared/item-row.js";
 
 const title = element("#item-title");
 const meta = element("#item-meta");
@@ -124,14 +125,7 @@ const showContent = (item, info, content) => {
 };
 
 const describeMeta = (item, info, opened) => {
-  const parts = [itemSummary(item, info)];
-  if (opened && limitedItem(item))
-    parts.push(item.burn || item.readsLeft === 1 ? "deleted from the server" : "one read used");
-  else if (limitedItem(item))
-    parts.push(item.readsLeft ? `${item.readsLeft} reads left` : "deletes when opened");
-  if (!opened && item.expiresAt) parts.push(formatExpiry(item.expiresAt));
-  if (info.decrypt) parts.unshift("Encrypted");
-  meta.textContent = parts.join(" · ");
+  meta.replaceChildren(...itemMeta(h, item, info, opened));
 };
 
 try {
@@ -140,10 +134,16 @@ try {
   if (!item) throw new Error(GONE);
   const info = await describe(item);
 
-  title.textContent = info.title;
-  document.title = `${info.title} · Kurobako`;
-  describeMeta(item, info, false);
-  section.hidden = false;
+  if (item.kind === "sealed") {
+    // Only the key in the fragment tells what an encrypted item is.
+    title.textContent = info.title;
+    document.title = `${info.title} · Kurobako`;
+    describeMeta(item, info, false);
+    section.hidden = false;
+  } else {
+    // A plain item comes described by the server (shared-item.tsx).
+    localizeDates(meta);
+  }
 
   if (section.dataset.ssrRendered && item.kind !== "sealed" && !limitedItem(item)) {
     // Keep the server's native media elements and text in place. In particular,
@@ -251,7 +251,9 @@ try {
     }
   }
   status.clear();
+  finishUnlocking();
 } catch (error) {
   title.textContent = "Shared item";
-  status.error(error.message);
+  if (document.querySelector("#page-loading")) failUnlocking(error.message);
+  else status.error(error.message);
 }

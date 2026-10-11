@@ -12,6 +12,7 @@ import {
 import { element, readConfig, request, SITE, setupNamespaceField } from "../lib/common.js";
 import { describeOpened, describePlain, limitedItem } from "../lib/items.js";
 import { createStatus } from "../lib/status.js";
+import { failUnlocking, finishUnlocking } from "../lib/unlocking.js";
 import { createItemList } from "./namespace/item-list.js";
 
 const status = createStatus(element("#view-status"));
@@ -132,7 +133,13 @@ refreshButton.addEventListener("click", async () => {
     refreshButton.disabled = false;
   }
 });
-show(view).catch((error) => status.error(error.message));
+// An encrypted view shows only once decrypted, as a namespace does.
+show(view)
+  .then(finishUnlocking)
+  .catch((error) => {
+    if (document.querySelector("#page-loading")) failUnlocking(error.message);
+    else status.error(error.message);
+  });
 setInterval(itemList.updateExpiries, 30_000);
 
 /** Each item is checked again before copying: a live view is not an atomic snapshot. */

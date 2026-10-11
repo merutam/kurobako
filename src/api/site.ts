@@ -20,7 +20,7 @@ export const mountSite = (app: App, api: Api) => {
     home: renderHomePage(siteView, config),
     protocol: renderProtocolPage(siteView),
     licenses: renderLicensesPage(siteView),
-    encrypted: renderNamespacePage(siteView, null, { items: [], revision: 0 }, config.maxItems),
+    encrypted: renderNamespacePage(siteView, null, { items: [], revision: 0 }, config),
   };
   let statsCache: { expires: number; body: Promise<Record<string, unknown>> } | null = null;
 

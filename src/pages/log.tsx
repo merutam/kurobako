@@ -22,7 +22,9 @@ const LogContent = ({
         Back to namespace
       </a>
     </p>
-    <h1>Access log · {title}</h1>
+    <h1>
+      Access log · <span id="log-title">{title}</span>
+    </h1>
     <p class="intro">
       {entries.length} IP{entries.length === 1 ? "" : "s"} ·{" "}
       <a data-icon="json" href={jsonHref}>
@@ -82,6 +84,9 @@ export const renderLogPage = (
     site,
     title: `${title} access log · Kurobako`,
     scripts: ["log"],
+    // An encrypted namespace's log takes its name from the page's fragment
+    // (see log.js): it shows once that is in place, as the namespace does.
+    decrypting: backHref === null ? "Decrypting access log…" : undefined,
     children: (
       <LogContent title={title} backHref={backHref} jsonHref={jsonHref} entries={entries} />
     ),

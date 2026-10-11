@@ -6,7 +6,6 @@ import {
   copyText,
   element,
   formatBytes,
-  formatDuration,
   request,
   restoreForm,
   setBusy,
@@ -17,6 +16,8 @@ import {
   fillLanguages,
   MAX_HIGHLIGHT_CHARACTERS,
 } from "../../lib/text-editor.js";
+import { h } from "../../shared/dom.js";
+import { maxFilesAtOnce, textSizeText } from "../../shared/limits.js";
 
 export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const textForm = element("#text-form");
@@ -34,12 +35,9 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     expiresIn: expiresInput.value || null,
   });
   const textLimit = element("#text-limit");
-  const fileLimitLabel = element("#file-limit");
   const backupZip = element("#backup-zip");
   const backupTar = element("#backup-tar");
-  const backupHint = element("#backup-hint");
   const restore = element("#restore-form");
-  const expiryLabel = element("#expiry-label");
   const pageUrl = element("#page-url");
   const copyLinkButton = element("#copy-link");
   let mode = null;
@@ -95,6 +93,107 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   // The caret's line and column, with the language, below the text.
   textLanguage.parentElement.append(mainTextEditor.position);
   textLanguage.addEventListener("change", applyLanguage);
+
+  // Files pasted or dropped on the text join the file field's selection, as
+  // if picked there: a screenshot is sent as an image, not as text. A paste
+  // that also carries text (a spreadsheet's cells, say) stays text.
+  /** The local date and time, 20261011-062124: names sort as pasted. */
+  const pasteStamp = () => {
+    const now = new Date();
+    const two = (value) => String(value).padStart(2, "0");
+    return `${now.getFullYear()}${two(now.getMonth() + 1)}${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}`;
+  };
+  /** A pasted screenshot is "image.png" in every browser: give it its own name. */
+  const named = (file) => {
+    if (file.name && !/^image\.[a-z0-9]+$/i.test(file.name)) return file;
+    const extension = file.type.split("/")[1]?.replace("jpeg", "jpg") || "bin";
+    return new File([file], `paste-${pasteStamp()}.${extension}`, { type: file.type });
+  };
+  const takeFiles = (files) => {
+    const picked = new DataTransfer();
+    for (const file of fileInput.files) picked.items.add(file);
+    for (const file of files) picked.items.add(named(file));
+    fileInput.files = picked.files;
+    fileInput.dispatchEvent(new Event("change"));
+    status.success(
+      files.length === 1
+        ? `${picked.files[picked.files.length - 1].name} is ready to send under File.`
+        : `${files.length} files are ready to send under File.`,
+    );
+  };
+  // The files picked, pasted or dropped, one per line with their sizes and
+  // the total: the browser's own field only says how many.
+  const fileList = element("#file-list");
+  const showFiles = () => {
+    const files = [...fileInput.files];
+    fileList.hidden = files.length === 0;
+    if (!files.length) {
+      fileList.replaceChildren();
+      return;
+    }
+    const total = files.reduce((sum, file) => sum + file.size, 0);
+    fileList.replaceChildren(
+      ...files.map((file) =>
+        h(
+          "li",
+          { class: file.size > fileLimit() ? "too-large" : undefined },
+          h("span", { class: "file-name" }, file.name),
+          h(
+            "span",
+            { class: "file-size" },
+            formatBytes(file.size),
+            file.size > fileLimit() ? " · too large" : "",
+          ),
+        ),
+      ),
+      h(
+        "li",
+        { class: "file-total" },
+        h("span", {}, `Total · ${files.length === 1 ? "1 file" : `${files.length} files`}`),
+        h("span", { class: "file-size" }, formatBytes(total)),
+      ),
+    );
+  };
+  fileInput.addEventListener("change", showFiles);
+  // A reset empties the field after its event: show that, after it.
+  fileForm.addEventListener("reset", () => setTimeout(showFiles));
+
+  // The clipboard read on request: what a phone cannot paste in the text box.
+  const pasteButton = element("#paste-files");
+  if (!navigator.clipboard?.read) pasteButton.hidden = true;
+  pasteButton.addEventListener("click", async () => {
+    try {
+      const files = [];
+      let text = false;
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((type) => !type.startsWith("text/"));
+        if (type) files.push(new File([await item.getType(type)], "", { type }));
+        else text ||= item.types.length > 0;
+      }
+      if (files.length) takeFiles(files);
+      else if (text) status.error("The clipboard holds text: paste it in the text box.");
+      else status.error("The clipboard holds no image or file.");
+    } catch (error) {
+      status.error(
+        error.name === "NotAllowedError"
+          ? "The browser did not allow reading the clipboard."
+          : error.message,
+      );
+    }
+  });
+  textInput.addEventListener("paste", (event) => {
+    const files = [...(event.clipboardData?.files ?? [])];
+    if (!files.length || event.clipboardData.getData("text/plain").trim()) return;
+    event.preventDefault();
+    takeFiles(files);
+  });
+  mainTextEditor.editor.addEventListener("drop", (event) => {
+    const files = [...(event.dataTransfer?.files ?? [])];
+    if (!files.length) return;
+    event.preventDefault();
+    takeFiles(files);
+  });
+
   textNameRow.hidden = burnInput.checked;
   burnInput.addEventListener("change", () => {
     textNameRow.hidden = burnInput.checked;
@@ -138,7 +237,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
    * the queue holds (more would push out what was just sent) nor than it takes
    * in a minute, since each file is a send. 20 if the server says neither.
    */
-  const maxFiles = () => Math.min(config.maxItems ?? 20, config.sendsPerMinute ?? 20);
+  const maxFiles = () => maxFilesAtOnce(config);
 
   /** Waits `seconds`, calling `tick(secondsLeft)` once a second. */
   const countdown = async (seconds, tick) => {
@@ -252,16 +351,10 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   /** Encrypted files grow a little; the server's limit applies to what it receives. */
   const fileLimit = () => mode.fileLimit(config.maxFileBytes);
 
+  // The limits, expiry and hints come written by the server (namespace.tsx);
+  // only the address, which an encrypted page holds in its fragment, is ours.
   const showPage = () => {
-    fileLimitLabel.textContent =
-      maxFiles() > 1
-        ? `Any files, up to ${maxFiles()} at once · max ${formatBytes(fileLimit())} each`
-        : `Any file · max ${formatBytes(fileLimit())}`;
     pageUrl.value = mode.shareUrl;
-    if (mode.label) {
-      backupHint.textContent =
-        "Every item as a zip or a tar, still encrypted. Items that delete when opened are left out.";
-    }
   };
 
   /** Under the text: its size against the limit, red past it. */
@@ -273,7 +366,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     const text = textInput.value;
     const bytes = encoder.encode(text).byteLength;
     const paused = text.length > MAX_HIGHLIGHT_CHARACTERS;
-    textLimit.textContent = `${formatBytes(bytes)} / ${formatBytes(config.maxTextBytes)}${paused ? " · no colors" : ""}`;
+    textLimit.textContent = textSizeText(bytes, config.maxTextBytes, paused);
     textLimit.title = `${formatBytes(bytes)} of ${formatBytes(config.maxTextBytes)}${paused ? "; too long to color" : ""}`;
     textLimit.classList.toggle("over", bytes > config.maxTextBytes);
   };
@@ -283,41 +376,12 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     textSizeTimer = setTimeout(showTextSize, 300);
   });
 
-  const applyConfig = () => {
-    textInput.maxLength = config.maxTextBytes;
-    showTextSize();
-    expiryLabel.textContent = config.itemTtlSeconds
-      ? `Expires after ${formatDuration(config.itemTtlSeconds)}`
-      : "No expiration";
-    const maxSeconds = config.itemTtlSeconds || 30 * 24 * 60 * 60;
-    const presets = [
-      60, 300, 900, 1800, 3600, 10_800, 21_600, 43_200, 86_400, 259_200, 604_800, 2_592_000,
-    ];
-    const selected = expiresInput.value;
-    expiresInput.replaceChildren(
-      new Option(
-        config.itemTtlSeconds
-          ? `Instance default (${formatDuration(config.itemTtlSeconds)})`
-          : "Instance default (no expiration)",
-        "",
-      ),
-      ...presets
-        .filter((seconds) => seconds <= maxSeconds)
-        .map((seconds) => new Option(formatDuration(seconds), String(seconds))),
-    );
-    expiresInput.value =
-      selected && [...expiresInput.options].some((option) => option.value === selected)
-        ? selected
-        : "";
-  };
-
   return {
     setMode(value) {
       mode = value;
     },
     setConfig(value) {
       config = value;
-      applyConfig();
     },
     showPage,
   };

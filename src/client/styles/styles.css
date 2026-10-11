@@ -2,12 +2,16 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (C) 2026 Kurobako contributors
  */
-/* The site's styles, after tokens.css in the file the build makes of both. */
+/* The site's styles, after tokens.css in the file the build makes of both.
+   The rule that holds it together (docs/design.md): interaction shows by
+   color and by brackets, never by shadow, gradient or rounding. */
 
 /* --- Base ----------------------------------------------------------------- */
 
 * {
   box-sizing: border-box;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* A namespace page known, before its first paint, to be a reader's (see
@@ -30,32 +34,19 @@ main[data-loading] {
   min-height: 100dvh;
   flex-direction: column;
 }
+/* No spinner: a line of output, as a terminal would print it. */
 .page-loading {
   display: flex;
   min-height: 0;
   flex: 1;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
-  color: var(--text-subtle);
+  gap: 1ch;
+  color: var(--muted);
+  font-size: var(--text-small);
 }
-.loading-spinner {
-  width: 1.2em;
-  height: 1.2em;
-  border: 2px solid var(--border);
-  border-top-color: var(--progressive);
-  border-radius: 50%;
-  animation: loading-turn 0.8s linear infinite;
-}
-@keyframes loading-turn {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .loading-spinner {
-    animation: none;
-  }
+.page-loading::before {
+  content: ">" / "";
 }
 
 body {
@@ -64,46 +55,38 @@ body {
      keeps clear of a notch or rounded corner, in landscape too. */
   padding-right: env(safe-area-inset-right);
   padding-left: env(safe-area-inset-left);
-  background: var(--background);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 1rem;
-  line-height: 1.6;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--text-body) / 1.65 var(--font);
+  font-variant-ligatures: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 main {
-  max-width: var(--page-width);
+  max-width: calc(var(--col) + 2 * var(--page-gutter));
   margin: 0 auto;
-  padding: 0 var(--page-gutter) var(--space-7);
+  padding: 0 var(--page-gutter);
 }
 
 a {
-  color: var(--link);
-}
-a:visited {
-  color: var(--link-visited);
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
 }
 a:hover {
-  color: var(--link-hover);
-}
-/* Navigation shortcuts (See JSON, Access log, Back, Download) are reopened
-   all the time; "already visited" tells nothing there. */
-.intro a:visited,
-.actions a:visited {
-  color: var(--link);
-}
-.intro a:hover,
-.actions a:hover {
-  color: var(--link-hover);
-}
-/* A page of prose keeps ordinary links, in its opening paragraph too. */
-.prose :where(.intro) a:visited {
-  color: var(--link-visited);
+  color: var(--accent-hover);
 }
 
 :focus-visible {
-  outline: 2px solid var(--focus);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 /* Hidden from sight, still there for keyboards and screen readers. */
@@ -116,95 +99,144 @@ a:hover {
   white-space: nowrap;
 }
 
-/* A link to another site, marked as such. */
-.external-link svg {
-  margin-left: 0.2em;
-  vertical-align: -0.1em;
+/* Icons stay in the markup for the controls that come with one, but a
+   control is known by its words here: only the theme button and the editor's
+   resize handle draw theirs. */
+:where(#viewers) svg,
+button > svg,
+[data-icon] > svg,
+.external-link svg,
+a.button > svg {
+  display: none;
+}
+button.text-resize-handle > svg {
+  display: block;
+}
+/* The theme button draws the choice's icon: auto, sun or moon. */
+.theme-toggle[data-theme-choice="auto"] > svg:nth-of-type(1),
+.theme-toggle[data-theme-choice="light"] > svg:nth-of-type(2),
+.theme-toggle[data-theme-choice="dark"] > svg:nth-of-type(3) {
+  display: block;
+}
+/* A link to another site, marked as such: an arrow in place of the icon. */
+.external-link::after {
+  content: " ↗" / "";
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font);
+  font-size: 1em;
+}
+/* Inline code: a chip, no border. */
+:not(pre) > code {
+  padding: 1px 6px;
+  background: var(--chip);
+  color: var(--fg);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 /* --- Type ----------------------------------------------------------------- */
 
 h1,
-h2 {
-  margin: 0 0 var(--space-3);
-  padding-bottom: var(--space-1);
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-serif);
-  font-weight: normal;
-  line-height: 1.3;
+h2,
+h3 {
+  margin: 0;
+  color: var(--fg);
+  font-weight: 700;
 }
 h1 {
+  margin-bottom: var(--space-3);
   font-size: var(--text-h1);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
   overflow-wrap: anywhere;
 }
 h2 {
+  margin-bottom: var(--gap);
   font-size: var(--text-h2);
+  line-height: 1.3;
+}
+h3 {
+  margin-bottom: var(--space-2);
+  font-size: 16px;
+  line-height: 1.4;
+}
+/* Markdown's marks, in the accent: decoration, so not read out. */
+h1::before {
+  content: "# " / "";
+  color: var(--accent);
+}
+h2::before {
+  content: "## " / "";
+  color: var(--accent);
+}
+.prose h3::before {
+  content: "### " / "";
+  color: var(--accent);
 }
 h2 small {
-  color: var(--text-subtle);
-  font-family: var(--font-sans);
+  color: var(--muted);
   font-size: var(--text-small);
+  font-weight: 400;
 }
 p {
   margin: 0 0 var(--space-3);
 }
 .intro {
-  margin-bottom: var(--space-5);
+  max-width: var(--prose-width);
+  margin-bottom: var(--space-6);
+  color: var(--dim);
 }
 /* Small print under a field or a heading. */
 .hint {
-  margin: var(--space-1) 0 var(--space-3);
-  color: var(--text-subtle);
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--muted);
   font-size: var(--text-small);
 }
 /* The text's size, under it: red once past the limit. */
 .hint.over {
-  color: var(--error-text);
+  color: var(--err);
 }
-/* A name's strength: a colored dot and text, red to green. */
-.hint[data-level] {
-  font-weight: bold;
-}
+/* A name's strength, as a state: weak, fair or strong. */
 .hint[data-level]::before {
-  content: "● ";
+  content: "> strength: " / "";
+  color: var(--muted);
 }
 .hint[data-level="weak"] {
-  color: var(--error-text);
+  color: var(--err);
 }
 .hint[data-level="fair"] {
-  color: var(--warning-text);
+  color: var(--accent);
 }
 .hint[data-level="strong"] {
-  color: var(--success-text);
+  color: var(--ok);
 }
 .empty {
-  color: var(--text-subtle);
-  font-style: italic;
+  color: var(--muted);
+}
+.empty::before {
+  content: "> " / "";
+}
+.error-text {
+  color: var(--err);
 }
 
 /* --- Layout --------------------------------------------------------------- */
 
-/* General two-column layouts. */
+/* Content side by side when there is room; it stacks on its own. */
 .columns {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-6);
-}
-@media (min-width: 800px) {
-  .columns {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: var(--space-7);
-  }
-  /* A column hidden (Send, on a read-only namespace): the other takes it all. */
-  .columns:has(> [hidden]),
-  :root[data-read-link] .columns {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--gap-section) var(--space-6);
 }
 
-/* Sections after the main columns stand apart from them. */
+/* Sections stand apart from one another. */
 .page-section {
-  margin-top: var(--space-7);
+  margin-top: var(--gap-section);
 }
 
 /* A row of controls that wraps on narrow screens. */
@@ -214,7 +246,7 @@ p {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-2);
 }
 .actions {
   margin: 0;
@@ -222,11 +254,167 @@ p {
 .actions > .primary {
   margin-left: auto;
 }
+/* The home form's buttons sit together at the end: Random name, then Open. */
 :where(#namespace-form) .actions {
   justify-content: flex-end;
 }
 :where(#namespace-form) .actions > .primary {
   margin-left: 0;
+}
+
+/* --- Header and footer ---------------------------------------------------- */
+
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-5) 0;
+  margin-bottom: var(--space-6);
+}
+.site-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.site-name a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--hit);
+  color: var(--fg);
+  text-decoration: none;
+}
+.site-name a:hover {
+  color: var(--accent);
+}
+/* The logo's strokes in the accent, whatever the theme: logo.png is only
+   its shape. The path is from this file, in <base>/k/assets/, to <base>/. */
+.site-logo {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  background: var(--accent);
+  -webkit-mask: url("../../logo.png") center / contain no-repeat;
+  mask: url("../../logo.png") center / contain no-repeat;
+}
+.site-name a:hover .site-logo {
+  background: var(--accent-hover);
+}
+.theme-toggle {
+  font-size: var(--text-small);
+}
+/* As wide for "auto" and "dark" as for "light": the button keeps its size. */
+#theme-name {
+  display: inline-block;
+  width: 5ch;
+  text-align: left;
+}
+
+.site-footer {
+  /* The column's width, inside the page's gutter on narrower screens. */
+  width: min(var(--col), 100% - 2 * var(--page-gutter));
+  margin: var(--gap-section) auto 0;
+  padding: var(--space-5) 0 var(--space-7);
+  border-top: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-align: center;
+}
+.site-footer p {
+  margin: 0 0 var(--space-2);
+}
+#scroll-top {
+  position: fixed;
+  right: calc(var(--space-3) + env(safe-area-inset-right));
+  bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+  z-index: 2;
+  background: var(--bg);
+}
+
+/* The files about to be sent: name and size, the total last. */
+.file-list {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  font-size: var(--text-small);
+}
+.file-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 6px var(--space-3);
+  border-bottom: 1px dashed var(--rule);
+}
+.file-list .file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-list .file-size {
+  flex: none;
+  color: var(--dim);
+}
+.file-list .too-large,
+.file-list .too-large .file-size {
+  color: var(--err);
+}
+.file-list .file-total {
+  border-bottom: 0;
+  color: var(--muted);
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
+/* Secondary by default: a frame and the text. */
+button,
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--hit);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-list);
+  line-height: 1.3;
+  text-decoration: none;
+  cursor: pointer;
+}
+button:hover,
+a.button:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+button:disabled,
+button:disabled:hover {
+  border-style: dashed;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+/* One per screen, for the main action. */
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+button.primary:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+button.destructive:hover {
+  border-color: var(--err);
+  color: var(--err);
 }
 
 /* --- Forms ---------------------------------------------------------------- */
@@ -236,29 +424,42 @@ fieldset {
      narrows like any box, and its content does instead. */
   min-width: 0;
   margin: 0;
-  padding: var(--space-3) var(--space-4) var(--space-4);
-  border: 1px solid var(--border-subtle);
+  padding: 0;
+  border: 0;
 }
-legend {
-  padding: 0 6px;
-  font-weight: bold;
-}
+/* Labels read like prompts: "> name". */
+legend,
 label {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+legend::before,
+label:not(.checkbox-label)::before {
+  content: "> " / "";
 }
 form + form {
-  margin-top: var(--space-5);
+  margin-top: var(--space-6);
 }
 
 label.checkbox-label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: var(--space-3) 0 0;
+  gap: var(--space-2);
+  min-height: var(--hit);
+  margin: var(--space-2) 0 0;
+  color: var(--fg);
+  font-size: var(--text-list);
   cursor: pointer;
 }
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
 .checkbox-label input {
+  flex: none;
   width: 18px;
   height: 18px;
   margin: 0;
@@ -278,61 +479,72 @@ input[type="search"],
 .rename-input,
 .copy-link input {
   width: 100%;
-  padding: 6px var(--space-2);
+  min-height: var(--hit);
+  padding: 10px var(--space-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--background);
-  color: var(--text);
+  background: var(--panel);
+  color: var(--fg);
   font: inherit;
+}
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 textarea {
   min-height: 10rem;
   resize: vertical;
-  font-family: var(--font-mono);
-  font-size: 0.9375rem;
 }
-textarea:focus,
-select:focus,
-input[type="text"]:focus,
-input[type="password"]:focus,
-input[type="search"]:focus {
-  border-color: var(--focus);
-  outline: 1px solid var(--focus);
+select {
+  width: auto;
+  max-width: 100%;
+  padding: 0 var(--space-3);
+  font-size: var(--text-list);
+  cursor: pointer;
+}
+:is(textarea, select, input[type="text"], input[type="password"], input[type="search"]):focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 
+/* A field with a prefix glued to its left: /e#, or the search's $ grep. */
 .namespace-input {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   min-width: 0;
-  padding: 0 var(--space-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--background);
-  font-family: var(--font-mono);
+  background: var(--panel);
 }
 .namespace-input:focus-within {
-  border-color: var(--focus);
-  outline: 1px solid var(--focus);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 .namespace-input input[type="text"],
 .namespace-input input[type="text"]:focus {
   flex: 1;
   width: 100%;
   min-width: 0;
-  padding: 6px 0;
   border: 0;
   outline: 0;
   background: transparent;
-  font-family: var(--font-mono);
+}
+.namespace-input span {
+  flex: none;
+  white-space: nowrap;
+}
+.namespace-prefix {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  background: var(--chip);
+  color: var(--muted);
 }
 .e2ee-control {
   display: flex;
   align-items: center;
   flex: none;
   gap: var(--space-1);
-  margin-left: var(--space-1);
-  padding-left: var(--space-2);
-  border-left: 1px solid var(--border-subtle);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-left: 1px solid var(--border);
 }
 .e2ee-control input {
   flex: none;
@@ -340,32 +552,36 @@ input[type="search"]:focus {
   height: 18px;
   margin: 0;
 }
-.namespace-input span {
-  flex: none;
-  white-space: nowrap;
-}
-.namespace-prefix {
-  color: var(--text-subtle);
+.e2ee-control button,
+.e2ee-control button:hover {
+  min-height: var(--hit);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--text-small);
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .e2ee-dialog {
-  width: min(32rem, calc(100% - 2 * var(--page-gutter)));
+  width: min(36rem, calc(100% - 2 * var(--page-gutter)));
   max-height: calc(100dvh - 2 * var(--page-gutter));
-  padding: var(--space-4);
+  padding: var(--space-5);
   border: 1px solid var(--border);
-  border-radius: var(--radius-large);
-  background: var(--surface);
-  color: var(--text);
+  background: var(--bg);
+  color: var(--fg);
 }
 .e2ee-dialog::backdrop {
-  background: rgb(0 0 0 / 45%);
+  background: rgb(0 0 0 / 60%);
+}
+.e2ee-dialog p {
+  color: var(--dim);
 }
 .e2ee-dialog-actions {
   display: flex;
   justify-content: flex-end;
-  margin: 0;
-}
-#stats-section {
-  margin-top: var(--space-5);
+  margin: var(--space-5) 0 0;
 }
 
 /* The browser's own file input, shown as a drop zone (see file-field.tsx).
@@ -374,204 +590,61 @@ input[type="search"]:focus {
   display: block;
   width: 100%;
   margin-bottom: var(--space-2);
-  padding: 20px var(--space-3);
-  border: 2px dashed var(--border);
-  border-radius: var(--radius-large);
-  color: var(--text-subtle);
+  padding: var(--space-5) var(--space-4);
+  border: 1px dashed var(--border);
+  background: var(--panel);
+  color: var(--muted);
   font: inherit;
+  font-size: var(--text-list);
   cursor: pointer;
 }
 .file-drop:hover {
-  border-color: var(--link);
-  color: var(--text);
+  border-color: var(--accent);
 }
 .file-drop:valid {
   border-style: solid;
-  color: var(--text);
-}
-.file-drop:focus-visible {
-  outline: 2px solid var(--link);
-  outline-offset: 2px;
+  color: var(--fg);
 }
 .file-drop:disabled {
+  border-style: dashed;
+  color: var(--muted);
   cursor: not-allowed;
-  opacity: 0.6;
 }
 .file-drop::file-selector-button {
+  min-height: var(--hit);
   margin-right: var(--space-3);
-  font: inherit;
-  cursor: pointer;
-}
-
-/* --- Buttons -------------------------------------------------------------- */
-
-button,
-a.button {
-  min-height: var(--control-height);
-  padding: var(--space-1) var(--space-3);
+  padding: 0 var(--space-4);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text);
+  background: transparent;
+  color: var(--fg);
   font: inherit;
-  font-weight: bold;
   cursor: pointer;
 }
-/* A label with its icon (see icons.js) in front. */
-button:has(> svg),
-a.button:has(> svg) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-button:hover,
-a.button:hover {
-  background: var(--background);
-}
-/* A real link (it still navigates and can be saved), drawn as a button. */
-a.button {
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-}
-a.button:visited,
-a.button:hover {
-  color: var(--text);
-  text-decoration: none;
-}
-button:active {
-  background: var(--surface-strong);
-}
-button:disabled {
-  color: var(--text-subtle);
-  cursor: default;
-  opacity: 0.6;
-}
-button.primary {
-  border-color: var(--progressive);
-  background: var(--progressive);
-  color: var(--on-progressive);
-}
-button.primary:hover {
-  border-color: var(--progressive-hover);
-  background: var(--progressive-hover);
-}
-button.destructive {
-  color: var(--destructive);
-}
-.e2ee-control button {
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--link);
-  font-family: var(--font-sans);
-  font-size: var(--text-small);
-  text-decoration: underline dotted;
-}
-.e2ee-control button:hover {
-  background: none;
-  color: var(--link-hover);
+.file-drop:hover::file-selector-button {
+  border-color: var(--accent);
 }
 
+/* A section's heading with its controls on the right. */
 .section-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
-  padding-bottom: var(--space-1);
-  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--gap);
 }
 .section-heading h2 {
   margin: 0;
-  padding: 0;
-  border: 0;
 }
 .section-heading .actions {
   justify-content: flex-end;
-  gap: var(--space-2);
 }
 .media-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: var(--control-height);
-}
-/* --- Header and footer ---------------------------------------------------- */
-
-.site-header {
-  display: flex;
-  flex-wrap: wrap;
-  /* The title and the theme picker share a baseline: centering their boxes
-     leaves a serif title looking higher than the text beside it. */
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-5);
-  padding: var(--space-3) 0;
-  margin-bottom: var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
-}
-.site-name {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  font-family: var(--font-serif);
-  font-size: var(--text-h2);
-  font-weight: normal;
-  line-height: 1.3;
-}
-.site-name a,
-.site-name a:visited {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4em;
-  color: var(--text);
-  text-decoration: none;
-}
-.site-name img {
-  /* Centered on the title, out of the baseline the header lines up with. */
-  align-self: center;
-  width: 1.3em;
-  height: 1.3em;
-  border-radius: 20%;
-}
-
-.theme-picker {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-4);
-  font-size: var(--text-small);
-}
-.theme-picker-label {
-  font-weight: bold;
-}
-.theme-picker label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin: 0;
-  font-weight: normal;
-  cursor: pointer;
-}
-
-.site-footer {
-  width: calc(100% - 2 * var(--page-gutter));
-  max-width: calc(var(--page-width) - 2 * var(--page-gutter));
-  margin: 0 auto;
-  padding: var(--space-4) 0 var(--space-6);
-  border-top: 1px solid var(--border-subtle);
-  color: var(--text-subtle);
-  font-size: var(--text-small);
-}
-#scroll-top {
-  position: fixed;
-  right: calc(var(--space-3) + env(safe-area-inset-right));
-  bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
-  z-index: 2;
-  background: var(--surface-strong);
+  min-height: var(--hit);
+  padding: 0 var(--space-2);
+  font-size: var(--text-list);
 }
 
 /* --- Status messages ------------------------------------------------------ */
@@ -580,53 +653,68 @@ button.destructive {
   display: none;
 }
 /* The page's status floats over it, at the top, out of the flow: showing
-   and leaving (see status.js) moves nothing on the page. */
+   and leaving (see status.js) moves nothing on the page. It reads like a
+   line of output: "> ok: copied". */
 .status {
   position: fixed;
   top: var(--space-3);
   left: 50%;
   z-index: 10;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   width: min(40rem, calc(100% - 2 * var(--page-gutter)));
   margin: 0;
-  padding: var(--space-2) var(--space-3);
-  box-shadow: 0 2px 10px rgb(0 0 0 / 25%);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
   transform: translateX(-50%);
-  border: 1px solid var(--success-text);
-  background: var(--success-surface);
-  color: var(--text);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: var(--text-list);
+}
+.status::before {
+  content: "> " / "";
+  flex: none;
+  color: var(--muted);
+}
+.status[data-kind="success"] {
+  border-color: var(--ok);
+}
+.status[data-kind="success"] > span::before {
+  content: "ok: ";
+  color: var(--ok);
 }
 .status.error {
-  border-color: var(--error-text);
-  background: var(--error-surface);
+  border-color: var(--err);
+}
+.status.error > span::before {
+  content: "error: ";
+  color: var(--err);
 }
 .status > span {
+  flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.status-dismiss {
+.status-dismiss,
+.status-dismiss:hover {
   flex: none;
-  min-height: 0;
-  padding: 0 6px;
+  width: var(--hit);
+  padding: 0;
   border: 0;
   background: none;
-  color: inherit;
-  font-size: 1.25rem;
-  line-height: 1.2;
+  color: var(--muted);
+  font-size: 18px;
 }
 .status-dismiss:hover {
-  background: none;
-  color: var(--text-subtle);
+  color: var(--fg);
 }
 /* A form's own status stays by its fields, in the flow. */
 fieldset .status {
   position: static;
   width: auto;
   margin: var(--space-3) 0 0;
-  box-shadow: none;
   transform: none;
 }
 
@@ -637,10 +725,12 @@ fieldset .status {
 .shared-item pre,
 .prose pre {
   overflow: auto;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border-subtle);
-  background: var(--surface);
-  font-size: var(--text-small);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: var(--text-list);
+  line-height: 1.6;
 }
 .item pre,
 .shared-item pre {
@@ -652,8 +742,8 @@ fieldset .status {
   display: flex;
   max-height: 24rem;
   overflow: auto;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface);
+  border: 1px solid var(--border);
+  background: var(--panel);
 }
 .numbered-text pre {
   flex: none;
@@ -663,7 +753,6 @@ fieldset .status {
   overflow: visible;
   border: 0;
   background: none;
-  font-family: var(--font-mono);
   line-height: 1.6;
   white-space: pre;
   overflow-wrap: normal;
@@ -671,10 +760,11 @@ fieldset .status {
 .numbered-text .line-numbers {
   position: sticky;
   left: 0;
-  min-width: calc(3ch + 2 * var(--space-2));
-  padding: var(--space-2);
-  background: var(--surface);
-  color: var(--text-subtle);
+  min-width: calc(3ch + 2 * var(--space-3));
+  padding: var(--space-3);
+  border-right: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--muted);
   text-align: right;
   user-select: none;
 }
@@ -682,12 +772,14 @@ fieldset .status {
   flex: 1 0 auto;
   padding-left: var(--space-3);
 }
+/* Highlighting stays within the palette: the accent for keywords, the
+   state colors only for strings and removals. */
 .hljs {
-  color: var(--text);
+  color: var(--fg);
 }
 .hljs-comment,
 .hljs-quote {
-  color: var(--text-subtle);
+  color: var(--muted);
   font-style: italic;
 }
 .hljs-keyword,
@@ -695,37 +787,37 @@ fieldset .status {
 .hljs-literal,
 .hljs-section,
 .hljs-link {
-  color: var(--progressive);
+  color: var(--accent);
 }
 .hljs-string,
+.hljs-addition {
+  color: var(--ok);
+}
 .hljs-title,
 .hljs-name,
 .hljs-type,
 .hljs-attribute,
 .hljs-symbol,
 .hljs-bullet,
-.hljs-addition {
-  color: var(--success-text);
-}
 .hljs-number,
 .hljs-regexp,
 .hljs-variable,
 .hljs-template-variable,
 .hljs-selector-class,
 .hljs-selector-attr,
-.hljs-selector-pseudo {
-  color: var(--warning-text);
-}
+.hljs-selector-pseudo,
 .hljs-built_in,
-.hljs-meta,
+.hljs-meta {
+  color: var(--dim);
+}
 .hljs-deletion {
-  color: var(--destructive);
+  color: var(--err);
 }
 .hljs-emphasis {
   font-style: italic;
 }
 .hljs-strong {
-  font-weight: bold;
+  font-weight: 700;
 }
 .item video,
 .shared-item video {
@@ -744,13 +836,12 @@ fieldset .status {
   display: block;
   max-width: 100%;
   height: auto;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
 }
 
 /* An image preview is a real button, while still looking only like its image. */
 button.media-preview,
-button.media-preview:hover,
-button.media-preview:active {
+button.media-preview:hover {
   display: block;
   max-width: 100%;
   min-height: 0;
@@ -758,47 +849,42 @@ button.media-preview:active {
   padding: 0;
   border: 0;
   background: none;
-  font-weight: normal;
-  cursor: pointer;
+  cursor: zoom-in;
 }
-button.media-preview:focus-visible {
-  outline-offset: 3px;
-}
+
+/* --- Media feed ----------------------------------------------------------- */
 
 /* A scrollable page of native images and videos. */
 main.media-feed-open > :not(.site-header, #media-feed) {
   display: none;
-}
-.media-feed {
-  margin: var(--space-5) 0 0;
 }
 .media-feed-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2) var(--space-4);
-  margin-bottom: var(--space-4);
-  padding-bottom: var(--space-1);
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0 var(--space-5);
 }
 .media-feed-heading h1 {
   margin: 0;
-  padding: 0;
-  border: 0;
 }
+/* The views are tags: "[ list ]", filled when chosen. */
 .media-view-options {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  gap: var(--space-2);
+}
+.media-view-options button::before {
+  content: "[ " / "";
+}
+.media-view-options button::after {
+  content: " ]" / "";
 }
 .media-view-options button[aria-pressed="true"] {
-  border-color: var(--focus);
-  background: var(--surface-strong);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 .media-feed-item {
   margin: 0 0 var(--space-6);
@@ -808,6 +894,7 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   min-height: 12rem;
   align-items: center;
   justify-content: center;
+  border: 1px solid var(--border);
   background: #000;
   color: #fff;
 }
@@ -834,7 +921,6 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   width: min(100%, 20rem);
   aspect-ratio: 1;
   object-fit: cover;
-  border-radius: var(--radius-large);
 }
 .media-feed-slot .audio-player {
   margin: var(--space-4);
@@ -852,7 +938,6 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   inset: 0;
   width: 100%;
   height: 100%;
-  border-radius: 0;
 }
 .media-feed-list[data-view="grid"] .audio-player audio {
   position: relative;
@@ -864,7 +949,7 @@ main.media-feed-open > :not(.site-header, #media-feed) {
 .media-feed-item figcaption {
   padding: var(--space-2) 0;
   overflow-wrap: anywhere;
-  color: var(--text-subtle);
+  color: var(--dim);
   font-size: var(--text-small);
 }
 .media-feed-meta {
@@ -891,14 +976,17 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   aspect-ratio: 1;
   min-height: 0;
   overflow: hidden;
-  background: var(--surface);
-  color: var(--text-subtle);
+  background: var(--panel);
+  color: var(--muted);
 }
 .media-feed-list[data-view="grid"] .media-feed-slot :where(img, video) {
   width: 100%;
   height: 100%;
   max-height: none;
   object-fit: cover;
+}
+.media-feed-list[data-view="details"] {
+  border: 1px solid var(--border);
 }
 .media-feed-list[data-view="details"] .media-feed-slot :where(img, video) {
   width: 100%;
@@ -912,8 +1000,11 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   align-items: center;
   gap: var(--space-3);
   margin: 0;
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px dashed var(--rule);
+}
+.media-feed-list[data-view="details"] .media-feed-item:last-child {
+  border-bottom: 0;
 }
 .media-feed-list[data-view="details"] .media-feed-slot {
   width: 6rem;
@@ -929,6 +1020,8 @@ main.media-feed-open > :not(.site-header, #media-feed) {
 .media-feed-list[data-view="details"] .media-feed-item:has(audio) .media-feed-slot {
   width: 100%;
   height: auto;
+  border: 0;
+  background: none;
 }
 .media-feed-list[data-view="details"] figcaption {
   display: flex;
@@ -938,39 +1031,45 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   min-width: 0;
 }
 .media-feed-list[data-view="details"] .media-feed-title {
-  color: var(--text);
-  font-weight: bold;
+  color: var(--fg);
+  font-weight: 700;
 }
 .media-feed-list[data-view="details"] .media-feed-meta {
   display: inline-flex;
+  color: var(--muted);
 }
+
 /* --- Item list ------------------------------------------------------------ */
 
-/* One row per item: position, what it is, name, size and age, actions. Its
-   contents open under it. On phones the actions go to a second line. */
+/* A box of rows, as `ls` prints them: position, what it is, name, size and
+   age, actions in brackets. A row's contents open under it. On narrow
+   screens the actions go to a second line. */
 .items {
   margin: 0;
   padding: 0;
   list-style: none;
-  border-top: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
+  font-size: var(--text-list);
+}
+.items:empty {
+  display: none;
 }
 .item {
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px dashed var(--rule);
+}
+.item:last-child {
+  border-bottom: 0;
 }
 .item-row {
   display: grid;
   grid-template-columns: 2ch minmax(0, 1fr) auto auto;
   align-items: center;
-  column-gap: var(--space-2);
-  min-height: 44px;
-}
-.item-row:hover,
-.item.open > .item-row {
-  background: var(--surface);
+  column-gap: var(--space-3);
+  min-height: var(--hit);
+  padding: 0 var(--space-2) 0 var(--space-3);
 }
 .item-position {
-  color: var(--text-subtle);
-  font-family: var(--font-mono);
+  color: var(--muted);
   font-size: var(--text-small);
   text-align: right;
 }
@@ -978,30 +1077,28 @@ main.media-feed-open > :not(.site-header, #media-feed) {
 .rename-input {
   grid-column: 2;
 }
-.item-toggle {
+/* The name opens the item: it looks like the link it acts as. */
+.item-toggle,
+button.item-toggle:hover {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--hit);
   padding: 0;
   border: 0;
   background: none;
-  color: var(--text);
-  font-weight: normal;
+  color: var(--fg);
+  font-size: inherit;
   text-align: left;
 }
-button.item-toggle:hover,
-button.item-toggle:active {
-  background: none;
-}
 .item-kind {
-  display: inline-flex;
   flex: none;
-  color: var(--text-subtle);
+  width: 6ch;
+  color: var(--dim);
 }
 .item.burn .item-kind {
-  color: var(--destructive);
+  color: var(--err);
 }
 .item-title {
   flex: 1 1 auto;
@@ -1010,58 +1107,149 @@ button.item-toggle:active {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.item.burn .item-title {
-  color: var(--text-subtle);
-  font-style: italic;
+button.item-toggle .item-title {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+button.item-toggle:hover .item-title {
+  color: var(--accent-hover);
+}
+.item.burn span.item-title {
+  color: var(--muted);
+}
+/* Open: the name turns to plain text, as the current page does in the nav. */
+.item.open > .item-row .item-title {
+  color: var(--fg);
+  text-decoration: none;
 }
 .item-facts {
-  color: var(--text-subtle);
+  color: var(--dim);
   font-size: var(--text-small);
   white-space: nowrap;
 }
 .item-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 2px;
 }
-.item-actions > button:not(.icon-button) {
-  min-height: 30px;
-  padding: 2px var(--space-2);
+/* An action is a word in brackets: "[copy]". */
+.row-action,
+.row-action:hover {
+  gap: 0;
+  min-height: var(--hit);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--accent);
   font-size: var(--text-small);
+  text-decoration: none;
 }
-.icon-button {
+a.row-action {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  min-height: 0;
-  padding: 0;
-  border-color: transparent;
-  background: none;
-  color: var(--text-subtle);
 }
-.icon-button:hover,
-a.icon-button:hover {
-  border-color: var(--border-subtle);
-  background: var(--surface-strong);
-  color: var(--text);
+.row-action::before {
+  content: "[" / "";
+  color: var(--muted);
 }
-.icon-button.destructive:hover {
-  color: var(--destructive);
+.row-action::after {
+  content: "]" / "";
+  color: var(--muted);
+}
+.row-action:hover {
+  color: var(--accent-hover);
+}
+.row-action.destructive:hover {
+  color: var(--err);
+}
+.row-action.burn-action {
+  color: var(--err);
 }
 .item-body {
-  padding: 0 0 var(--space-3) calc(2ch + var(--space-2));
+  padding: 0 var(--space-3) var(--space-4) calc(2ch + 2 * var(--space-3));
 }
 .item-meta {
-  margin: var(--space-1) 0 0;
-  color: var(--text-subtle);
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
   font-size: var(--text-small);
 }
 .item .numbered-text {
   margin: var(--space-1) 0 0;
 }
+.item img {
+  max-height: 30rem;
+  margin: var(--space-1) 0 0;
+}
+button.media-preview img {
+  margin: 0;
+}
+button.media-preview:hover img {
+  border-color: var(--accent);
+}
+.burn-note {
+  color: var(--err);
+}
+@media (max-width: 640px) {
+  .item-row {
+    grid-template-columns: 2ch minmax(0, 1fr) auto;
+    padding-right: var(--space-1);
+  }
+  .item-toggle,
+  .rename-input {
+    grid-column: 2 / -1;
+  }
+  .item-facts,
+  .item-actions {
+    grid-column: 2 / -1;
+  }
+  .item-actions {
+    justify-content: flex-start;
+    margin: calc(-1 * var(--space-2)) 0 0 calc(-1 * var(--space-1));
+  }
+  .item-body {
+    padding-left: var(--space-3);
+  }
+}
+
+/* How items open, beside the list actions. */
+.section-heading select {
+  min-height: var(--hit);
+}
+
+/* Renaming an item in place, where its name was. */
+.rename-input {
+  min-height: 36px;
+  margin: var(--space-1) 0;
+  padding: 4px var(--space-2);
+  border-color: var(--accent);
+}
+
+/* The text being copied without the Clipboard API (see copyText), out of sight. */
+.clipboard-fallback {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+}
+
+.live-status {
+  color: var(--ok);
+}
+.live-status.offline {
+  color: var(--err);
+}
+/* The others connected, in words: "· 3 connected". */
+#viewers .visually-hidden {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+}
+
+/* --- Editors -------------------------------------------------------------- */
+
 .item-editor {
   margin: var(--space-1) 0 0;
 }
@@ -1071,45 +1259,42 @@ a.icon-button:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
 }
 .editor-toolbar select {
   min-width: 0;
   flex: 0 1 auto;
-  width: auto;
   max-width: 16rem;
 }
 .text-name-row {
-  margin-top: var(--space-2);
-}
-.text-name-row label {
-  margin-bottom: 4px;
+  margin-bottom: var(--space-3);
 }
 .text-name-control {
   display: inline-flex;
   max-width: 100%;
-  align-items: center;
+  align-items: stretch;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--background);
+  background: var(--panel);
 }
 .text-name-control:focus-within {
-  border-color: var(--focus);
-  outline: 1px solid var(--focus);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
-.text-name-control input {
-  width: min(24rem, 70vw);
+.text-name-control input[type="text"],
+.text-name-control input[type="text"]:focus {
+  width: min(24rem, 60vw);
   min-width: 0;
-  padding: 6px var(--space-2);
   border: 0;
   outline: 0;
   background: transparent;
-  font: inherit;
 }
 .text-name-control span {
+  display: flex;
   flex: none;
-  padding-right: var(--space-2);
-  color: var(--text-subtle);
+  align-items: center;
+  padding: 0 var(--space-3);
+  background: var(--chip);
+  color: var(--muted);
 }
 .editor-toolbar .hint,
 .form-footer .hint {
@@ -1131,8 +1316,8 @@ a.icon-button:hover {
   overflow: hidden;
   resize: vertical;
   /* `--line-number-width` is set here in ch: measure it in the gutter's font. */
-  font-family: var(--font-mono);
-  font-size: 0.9375rem;
+  font-family: var(--font);
+  font-size: var(--text-list);
   --gutter-size: calc(var(--line-number-width, 3ch) + 2 * var(--space-2) + 2px);
 }
 .text-editor > textarea,
@@ -1147,13 +1332,20 @@ a.icon-button:hover {
   padding: 6px var(--space-2);
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: 0.9375rem;
+  border-left: 0;
+  font-family: var(--font);
+  font-size: var(--text-list);
   line-height: 1.6;
   overflow-wrap: normal;
   tab-size: 2;
   white-space: pre;
+}
+.text-editor > textarea:focus {
+  outline: 0;
+}
+.text-editor:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .text-editor > pre.text-editor-lines {
   position: absolute;
@@ -1163,12 +1355,11 @@ a.icon-button:hover {
   padding: 6px var(--space-2);
   overflow: hidden;
   border: 1px solid var(--border);
-  border-right: 0;
-  border-radius: var(--radius) 0 0 var(--radius);
-  background: var(--background);
-  color: var(--text-subtle);
-  font-family: var(--font-mono);
-  font-size: 0.9375rem;
+  border-right: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: var(--text-list);
   line-height: 1.6;
   white-space: pre;
   overflow-wrap: normal;
@@ -1176,10 +1367,12 @@ a.icon-button:hover {
   user-select: none;
 }
 .text-editor > pre.text-editor-highlight {
-  background: var(--background);
+  background: var(--panel);
   pointer-events: none;
 }
 .text-editor-highlight code {
+  padding: 0;
+  background: none;
   font: inherit;
   white-space: inherit;
 }
@@ -1187,12 +1380,13 @@ a.icon-button:hover {
   z-index: 1;
   resize: none;
   background: transparent;
-  caret-color: var(--text);
+  caret-color: var(--accent);
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
 .text-editor > textarea::selection {
-  background: color-mix(in srgb, var(--focus) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: transparent;
 }
 .text-editor-selection {
   position: absolute;
@@ -1200,38 +1394,33 @@ a.icon-button:hover {
   z-index: 2;
   overflow: hidden;
   pointer-events: none;
-  font-family: var(--font-mono);
-  font-size: 0.9375rem;
+  font-family: var(--font);
+  font-size: var(--text-list);
 }
 .text-editor-selected-empty-line {
   position: absolute;
   width: 1ch;
-  background: color-mix(in srgb, var(--focus) 40%, transparent);
-}
-.text-editor > textarea,
-.text-editor > pre.text-editor-highlight {
-  border-left: 0;
-  border-radius: 0 var(--radius) var(--radius) 0;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 /* The caret's line and column, below the text with the form's details. */
 .text-editor-position {
   /* Short (see createTextEditor), so always whole: the picker gives way. */
   flex: none;
   margin-left: auto;
-  color: var(--text-subtle);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
+  color: var(--muted);
+  font-size: 12px;
   white-space: nowrap;
 }
 /* While a phone's keyboard composes a word, the textarea shows its own
    letters (see createTextEditor). */
 .text-editor.composing > textarea {
-  color: var(--text);
+  color: var(--fg);
   -webkit-text-fill-color: currentcolor;
 }
 .text-editor.composing > pre.text-editor-highlight {
   visibility: hidden;
 }
+
 .text-resize-handle {
   display: none;
 }
@@ -1242,99 +1431,28 @@ a.icon-button:hover {
     resize: none;
   }
   .text-editor > :is(textarea, pre.text-editor-highlight, pre.text-editor-lines) {
-    padding-bottom: 44px;
+    padding-bottom: var(--hit);
   }
-  .text-resize-handle {
+  .text-resize-handle,
+  .text-resize-handle:hover {
     position: absolute;
     right: 0;
     bottom: 0;
     z-index: 3;
     display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    min-height: 44px;
+    width: var(--hit);
+    height: var(--hit);
     padding: 0;
     border: 0;
     background: transparent;
-    color: var(--text-subtle);
+    color: var(--muted);
     cursor: ns-resize;
     touch-action: none;
     user-select: none;
   }
-  .text-resize-handle:hover,
   .text-resize-handle:active {
-    background: transparent;
-    color: var(--text);
+    color: var(--fg);
   }
-}
-.error-text {
-  color: var(--error-text);
-}
-.item img {
-  max-height: 30rem;
-  margin: var(--space-1) 0 0;
-}
-button.media-preview img {
-  margin: 0;
-}
-@media (max-width: 480px) {
-  .item-row {
-    grid-template-columns: 2ch minmax(0, 1fr) auto;
-  }
-  .item-toggle,
-  .rename-input {
-    grid-column: 2 / -1;
-  }
-  .item-facts {
-    grid-column: 2;
-  }
-  .icon-button {
-    width: 44px;
-    height: 44px;
-  }
-}
-
-/* How items open, beside the list actions. */
-.section-heading select {
-  width: auto;
-  height: var(--control-height);
-  padding: 0 var(--space-2);
-}
-
-/* Renaming an item in place, where its name was. */
-.rename-input {
-  margin: 0 0 var(--space-1);
-  padding: 2px 6px;
-  border-color: var(--focus);
-}
-
-/* The text being copied without the Clipboard API (see copyText), out of sight. */
-.clipboard-fallback {
-  position: fixed;
-  top: 0;
-  left: -9999px;
-}
-
-:where(#stats-section) a[data-icon] svg,
-.intro a[data-icon] svg,
-.links a[data-icon] svg {
-  margin-right: 0.25em;
-  vertical-align: -0.15em;
-}
-.live-status {
-  color: var(--success-text);
-}
-#viewers svg {
-  vertical-align: -0.15em;
-}
-.live-status.offline {
-  color: var(--error-text);
-}
-
-.burn-note {
-  color: var(--destructive);
 }
 
 /* --- Open on another device ----------------------------------------------- */
@@ -1343,6 +1461,7 @@ button.media-preview img {
   display: block;
   width: 160px;
   height: 160px;
+  border: 1px solid var(--border);
   /* QR codes must stay dark-on-light to scan, even in dark mode. */
   background: #ffffff;
   image-rendering: pixelated;
@@ -1356,81 +1475,95 @@ button.media-preview img {
 .copy-link input {
   flex: 1;
   min-width: 0;
-  padding: var(--space-1) var(--space-2);
-  background: var(--surface);
-  font: var(--text-small) var(--font-mono);
+  color: var(--dim);
+  font-size: var(--text-small);
   cursor: copy;
 }
 
 /* --- Long-form pages (the protocol): readable line length ------------------- */
 
-/* About 70 characters a line, with room between paragraphs: long lines
-   and solid blocks are what make a page of text hard to read. */
 .prose > p,
 .prose > ul,
 .prose > ol {
-  max-width: 42rem;
-  line-height: 1.7;
+  max-width: var(--prose-width);
 }
 .prose > p {
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--gap);
+}
+.prose > h2 {
+  margin-top: var(--gap-section);
+}
+.prose > h3 {
+  margin-top: var(--space-6);
+}
+.prose ul,
+.prose ol {
+  padding-left: 3ch;
 }
 .prose li {
   margin-bottom: var(--space-2);
 }
-/* Justified where lines are long enough for it, hyphenated so that words
-   do not drift apart; on a phone, a ragged edge reads better. */
-@media (min-width: 800px) {
-  .prose > p,
-  .prose li {
-    text-align: justify;
-    hyphens: auto;
-  }
+.prose li::marker {
+  color: var(--muted);
 }
-/* Inline code on text pages reads like Markdown's: a small tinted box. */
-.prose code {
-  padding: 1px 5px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-large);
-  background: var(--surface-strong);
-  font-size: 0.875em;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
+.prose pre {
+  margin: 0 0 var(--gap);
 }
 .prose pre code {
   padding: 0;
-  border: 0;
   background: none;
-  font-size: inherit;
 }
 
 /* Each third-party notice stays distinct, and its full legal text is there
    without making the page long until someone asks to read it. */
 .license-notice {
-  max-width: var(--prose-width);
-  margin: var(--space-5) 0;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-subtle);
+  max-width: var(--col);
+  margin: var(--space-6) 0;
+  padding-top: var(--gap);
+  border-top: 1px dashed var(--rule);
 }
 .license-notice h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--space-2);
-  margin: 0 0 var(--space-1);
+  margin: 0 0 var(--space-2);
 }
 .license-notice h3 small {
-  color: var(--text-subtle);
-  font-family: var(--font-mono);
+  color: var(--muted);
   font-size: var(--text-small);
-  font-weight: normal;
+  font-weight: 400;
 }
-.license-notice summary {
-  color: var(--link);
+/* Native details, in a box: the summary is the line that opens it. */
+details {
+  border: 1px solid var(--border);
+}
+summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--hit);
+  padding: 0 var(--space-3);
+  color: var(--fg);
   cursor: pointer;
+  list-style: none;
 }
-.license-notice details[open] summary {
-  margin-bottom: var(--space-2);
+summary::-webkit-details-marker {
+  display: none;
+}
+summary::before {
+  content: "▸" / "";
+  color: var(--accent);
+}
+details[open] > summary::before {
+  content: "▾" / "";
+}
+details[open] > summary {
+  border-bottom: 1px dashed var(--rule);
+}
+details > :not(summary) {
+  margin: var(--space-3);
+  color: var(--dim);
 }
 .license-notice pre {
   max-height: 28rem;
@@ -1440,25 +1573,40 @@ button.media-preview img {
 
 /* --- Tables --------------------------------------------------------------- */
 
+/* Wide tables scroll inside their box: the page never does. */
 .table-scroll {
   overflow-x: auto;
+  border: 1px solid var(--border);
 }
 .data-table {
-  margin: 0 0 var(--space-3);
+  margin: 0;
   border: 1px solid var(--border);
   border-collapse: collapse;
-  background: var(--surface);
-  font-size: var(--text-small);
+  font-size: var(--text-list);
+}
+.table-scroll > .data-table {
+  min-width: 100%;
+  border: 0;
 }
 .data-table th,
 .data-table td {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
+  padding: 10px var(--space-3);
+  border-bottom: 1px dashed var(--rule);
   text-align: left;
   vertical-align: top;
 }
-.data-table th {
-  background: var(--surface-strong);
+.data-table tr:last-child > :is(th, td) {
+  border-bottom: 0;
+}
+.data-table thead th {
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: 400;
+}
+.data-table tbody th {
+  color: var(--dim);
+  font-weight: 400;
 }
 .data-table td code {
   overflow-wrap: anywhere;
@@ -1467,7 +1615,11 @@ button.media-preview img {
   white-space: nowrap;
 }
 /* A table inside a step of a list, on text pages. */
-.prose li > .data-table {
+.prose .table-scroll {
+  margin-bottom: var(--gap);
+}
+.prose li > .data-table,
+.prose li > .table-scroll {
   margin-top: var(--space-2);
 }
 /* On text pages only the first column (a command or a route) stays on one line. */
@@ -1476,7 +1628,7 @@ button.media-preview img {
 }
 .data-table td small {
   display: block;
-  color: var(--text-subtle);
+  color: var(--muted);
 }
 /* Method above, path below on one line; long paths end in "…" (full path on hover). */
 .data-table td.route code {
@@ -1489,7 +1641,7 @@ button.media-preview img {
 }
 .data-table td.agent {
   min-width: 20rem;
-  color: var(--text-subtle);
+  color: var(--dim);
 }
 .data-table td.agent span {
   display: -webkit-box;
@@ -1503,22 +1655,16 @@ button.media-preview img {
 /* --- Admin dashboard and logins ------------------------------------------- */
 
 .login-form {
-  max-width: 28rem;
-}
-.login-form input {
-  font-family: var(--font-mono);
+  max-width: 32rem;
 }
 .login-form .actions {
-  margin-top: var(--space-3);
+  margin-top: var(--space-4);
 }
 .toolbar {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-5);
 }
 .toolbar label {
   margin: 0;
-}
-.toolbar select {
-  width: auto;
 }
 .toolbar input[type="search"] {
   flex: 1;
@@ -1526,18 +1672,23 @@ button.media-preview img {
   width: auto;
 }
 #dashboard > :is(section, .columns) + :is(section, .columns) {
-  margin-top: var(--space-6);
+  margin-top: var(--gap-section);
 }
 .stats-table {
   width: 100%;
 }
-.stats-table th {
+.stats-table tbody th {
   width: 50%;
 }
+/* Pages in squares: « 1–20 of 64 ». */
 .pagination {
   margin: var(--space-3) 0 0;
-  color: var(--text-subtle);
+  color: var(--muted);
   font-size: var(--text-small);
+}
+.pagination button {
+  width: var(--hit);
+  padding: 0;
 }
 .pagination:empty {
   display: none;
@@ -1562,13 +1713,10 @@ button.media-preview img {
   margin-top: var(--space-3);
 }
 .stack > * + :is(form, fieldset, .table-scroll, .data-table, .copy-link, .items) {
-  margin-top: var(--space-5);
+  margin-top: var(--gap);
 }
 .stack > :is(h1, h2, .section-heading) + * {
   margin-top: 0;
-}
-#items-section > .items {
-  margin-top: var(--space-5);
 }
 /* A QR code and the link it encodes belong together. */
 .stack > .qr-code + .copy-link {
@@ -1579,19 +1727,19 @@ button.media-preview img {
 
 /* Settings belong only to the namespace page. */
 .namespace-settings {
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--gap-section);
 }
 .settings-grid {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3) var(--space-5);
+  gap: var(--space-2) var(--space-6);
 }
 .expiry-setting {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 .expiry-setting label {
   margin: 0;
@@ -1602,13 +1750,16 @@ button.media-preview img {
   max-width: 100%;
 }
 .setting-row label.setting-check {
-  min-height: var(--control-height);
   margin: 0;
 }
 .setting-check:has(input:disabled) {
-  cursor: default;
-  opacity: 0.6;
+  color: var(--muted);
+  cursor: not-allowed;
 }
+#stats-section {
+  margin-top: var(--gap-section);
+}
+
 /* Markdown source wraps visually; the textarea still stores its original newlines. */
 .text-editor.markdown > :is(textarea, pre.text-editor-highlight),
 .text-editor.markdown .text-editor-highlight code {

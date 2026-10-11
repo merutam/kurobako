@@ -6,7 +6,6 @@ import {
   button,
   compactText,
   copyText,
-  dateFormatter,
   element,
   formatAge,
   formatBytes,
@@ -35,7 +34,7 @@ import {
   withExtension,
 } from "../../lib/text-editor.js";
 import { h } from "../../shared/dom.js";
-import { itemRow, rowHash, rowState } from "../../shared/item-row.js";
+import { itemRow, localizeDates, rowHash, rowState } from "../../shared/item-row.js";
 
 export const createItemList = ({ status, access, refreshUnlessLive, loadItems }) => {
   const itemsList = element("#items");
@@ -74,13 +73,17 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     objectUrls.delete(id);
   };
 
-  // Only rewrites the countdown text; the list itself arrives from the server.
+  // Only rewrites the countdown text, and only once it changes; the list
+  // itself arrives from the server.
   const updateExpiries = () => {
+    const update = (label, text) => {
+      if (label.textContent !== text) label.textContent = text;
+    };
     for (const label of itemsList.querySelectorAll("[data-expires-at]")) {
-      label.textContent = formatExpiry(label.dataset.expiresAt);
+      update(label, formatExpiry(label.dataset.expiresAt));
     }
     for (const label of itemsList.querySelectorAll("[data-created-at]")) {
-      label.textContent = formatAge(label.dataset.createdAt);
+      update(label, formatAge(label.dataset.createdAt));
     }
   };
 
@@ -531,13 +534,13 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     [...itemsList.querySelectorAll("li[data-made]")].map((node) => [node.dataset.id, node]),
   );
   const adoptRow = (node, entry, position) => {
-    node.querySelector(".item-position").textContent = position ? String(position) : "";
+    const place = node.querySelector(".item-position");
+    const shown = position ? String(position) : "";
+    if (place.textContent !== shown) place.textContent = shown;
     // What only this browser knows: whether it copies images, and its own times.
     if (entry.info.isImage && !canCopyImages())
       node.querySelector('[data-action="copy"]')?.remove();
-    for (const time of node.querySelectorAll("time[data-local-date]")) {
-      time.textContent = dateFormatter.format(new Date(time.dateTime));
-    }
+    localizeDates(node);
     wireItem(node, entry);
     return node;
   };
@@ -563,9 +566,9 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     if (renaming || editing) return;
     const serverIds = new Set(items.map((item) => item.id));
     const openedOnly = [...opened.values()].filter((entry) => !serverIds.has(entry.item.id));
-    itemCount.textContent = config?.maxItems
-      ? `${items.length}/${config.maxItems}`
-      : String(items.length);
+    // Written only when it differs from what the server (or the last render) wrote.
+    const count = config?.maxItems ? `${items.length}/${config.maxItems}` : String(items.length);
+    if (itemCount.textContent !== count) itemCount.textContent = count;
     emptyMessage.hidden = items.length + openedOnly.length > 0;
 
     // Refreshing must not rebuild an unchanged list: that would steal focus and
@@ -598,9 +601,12 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     mediaFeed.update(mediaEntries);
     openMediaLink.hidden = mediaEntries.length === 0;
     if (mediaEntries.length) {
-      const url = new URL(window.location.href);
-      url.searchParams.set("media", mediaEntries[0].item.id);
-      openMediaLink.href = url.href;
+      // Relative, as the server writes it (items.tsx), with the fragment an
+      // encrypted page needs.
+      const params = new URLSearchParams(window.location.search);
+      params.set("media", mediaEntries[0].item.id);
+      const href = `?${params}${window.location.hash}`;
+      if (openMediaLink.getAttribute("href") !== href) openMediaLink.setAttribute("href", href);
     }
 
     // Rows of unchanged items stay as they are (only their position moves),

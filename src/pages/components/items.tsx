@@ -7,7 +7,13 @@
 import { raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { formatBytes } from "../../client/shared/format.js";
-import { describePlain, itemRow, rowHash, rowState } from "../../client/shared/item-row.js";
+import {
+  describePlain,
+  itemRow,
+  limitedItem,
+  rowHash,
+  rowState,
+} from "../../client/shared/item-row.js";
 import { h } from "./html";
 import { Icon } from "./icons";
 
@@ -78,17 +84,27 @@ export const viewRows = (entries: ReadonlyArray<{ url: string; item: ListedItem 
     false,
   );
 
+/** The newest item the media feed shows, which its link opens at: its ID. */
+export const firstMediaId = (entries: ReadonlyArray<{ id: string; item: ListedItem }>) =>
+  entries.find(({ item }) => {
+    const info = describePlain(item);
+    return (info.isImage || info.isVideo || info.isAudio) && !limitedItem(item);
+  })?.id;
+
 /** The items' section: `rows` from namespaceRows or viewRows, `size` how many. */
 export const ItemsSection = ({
   rows,
   size,
   count,
+  mediaId,
   live = false,
   known = true,
 }: {
   rows: HtmlEscapedString | null;
   size: number;
   count: string;
+  /** The first item of the media feed, if any (firstMediaId). */
+  mediaId?: string;
   live?: boolean;
   known?: boolean;
 }) => (
@@ -104,7 +120,13 @@ export const ItemsSection = ({
         ) : null}
       </h2>
       <span class="actions">
-        <a class="media-link" data-icon="image" id="open-media" href="?media" hidden>
+        <a
+          class="media-link"
+          data-icon="image"
+          id="open-media"
+          href={mediaId ? `?media=${mediaId}` : "?media"}
+          hidden={!mediaId}
+        >
           <Icon name="image" />
           Media
         </a>
@@ -113,15 +135,8 @@ export const ItemsSection = ({
           <option value="several">Several at once</option>
           <option value="all">All</option>
         </select>
-        <button
-          class="icon-button"
-          data-icon="refresh"
-          id="refresh"
-          type="button"
-          aria-label="Refresh items"
-          title="Refresh items"
-        >
-          <Icon name="refresh" />
+        <button id="refresh" type="button" title="Refresh items">
+          refresh
         </button>
       </span>
     </div>

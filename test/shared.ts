@@ -290,7 +290,7 @@ export const sharedTests = (harness: Harness) => {
       });
       // Ready to use as it is: actions and icons included.
       expect(page).toContain('data-action="delete"');
-      expect(page).toMatch(/class="item-kind"><svg /);
+      expect(page).toContain('class="item-kind">text</span>');
     });
 
     test("gives items short IDs, unique in their namespace, apart from positions", async () => {
@@ -1056,7 +1056,7 @@ export const sharedTests = (harness: Harness) => {
     test("serve the page, refuse bad IDs and keep the encrypted log's back link client-side", async () => {
       const page = await (await call("/e")).text();
       expect(page).toContain("<html");
-      expect(page).toContain("Unlocking namespace…");
+      expect(page).toContain("Decrypting namespace…");
       expect(page).toContain('id="page-loading"');
       expect((await call("/e/kk/ls")).status).toBe(404);
       const space = await freshSealedSpace();
@@ -1074,6 +1074,8 @@ export const sharedTests = (harness: Harness) => {
       expect(log).toContain("203.0.113.7");
       expect(log).toContain("encrypted namespace");
       expect(log).toContain('id="log-back-row" hidden');
+      // Its name comes from the fragment: the log shows once log.js put it in.
+      expect(log).toContain("Decrypting access log…");
       expect(log).toMatch(/src="\/k\/assets\/log-[0-9a-z]+\.js"/);
       expect(log).not.toContain(`href="/e/${id}"`);
     });
@@ -1228,7 +1230,9 @@ export const sharedTests = (harness: Harness) => {
       const page = await (await call(created.url)).text();
       expect(page).not.toContain(space.id);
       expect(page).toContain("Decrypting shared view…");
-      expect(page).not.toContain('id="page-loading"');
+      // Shown alone until decrypted, as an encrypted namespace is.
+      expect(page).toContain('<main data-loading="">');
+      expect(page).toContain('id="page-loading"');
       expect(await openViewEntry(id, await space.viewKey(id), view.entries[0]?.envelope)).toBe(
         secondSealed.keyText,
       );
@@ -1509,8 +1513,8 @@ export const sharedTests = (harness: Harness) => {
       });
       const page = await (await call(url)).text();
       expect(page).toContain("Decrypting item…");
-      expect(page).toContain("<main>");
-      expect(page).not.toContain('id="page-loading"');
+      expect(page).toContain('<main data-loading="">');
+      expect(page).toContain('id="page-loading"');
       expect(JSON.stringify(shared)).not.toContain(id);
       expect(new Uint8Array(await (await call(`${url}/c`)).arrayBuffer())).toEqual(
         new Uint8Array([7, 7, 7]),
@@ -1615,7 +1619,11 @@ export const sharedTests = (harness: Harness) => {
         expect((await call(defined(chunk, "a chunk"))).status).toBe(200);
       expect(html).toMatch(/\(build [0-9a-f]{12}\)/);
       expect(html.match(/<input id="[a-z-]+" class="file-drop"/g)).toHaveLength(2);
-      expect(html).toContain('<select id="expires-in"></select>');
+      // The limits come written: the page's script does not fill them in.
+      expect(html).toContain('<option value="">Instance default (1 day)</option>');
+      expect(html).toContain('<span id="expiry-label">Expires after 1 day</span>');
+      expect(html).toMatch(/id="file-limit" class="hint">Any files, up to \d+ at once/);
+      expect(html).toContain('<input id="burn" type="checkbox"/>');
       expect(html).toContain('id="media-feed-list"');
       expect(html).not.toContain("%MEDIA_FEED%");
       expect(html).not.toContain('id="reads-limit"');
@@ -1634,7 +1642,9 @@ export const sharedTests = (harness: Harness) => {
       expect(home).toMatch(/>Source<svg[^>]*>/);
       expect(home).toContain('id="namespace-hint" class="hint">E2EE. Max 256 characters.</p>');
       expect(home).toContain('maxlength="256"');
-      expect(home).toContain('name="theme" value="auto" checked');
+      expect(home).toContain(
+        'id="theme-toggle" class="theme-toggle" type="button" data-theme-choice="auto" hidden',
+      );
       expect(home).toContain('id="stats-section" class="stack page-section"');
       expect(home).not.toContain('id="toggle-stats"');
       expect(home).not.toContain("data-stat=");

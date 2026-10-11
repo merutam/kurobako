@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { Icon } from "./components/icons";
-import { ItemsSection, type ListedItem, viewRows } from "./components/items";
+import { firstMediaId, ItemsSection, type ListedItem, viewRows } from "./components/items";
 import { Page, type SiteView } from "./components/layout";
 import { MediaFeed } from "./components/media-feed";
 
@@ -19,6 +19,7 @@ export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
     config: true,
     data: { id: "view-data", value: view },
     noIndex: true,
+    decrypting: sealed ? "Decrypting shared view…" : undefined,
     children: (
       <>
         <h1>Shared view</h1>
@@ -26,14 +27,20 @@ export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
           Read-only. New items appear here while this view is active; existing items stay live after
           it freezes.
         </p>
-        <p id="view-status" class="status" role="status" aria-live="polite">
-          {sealed ? "Decrypting shared view…" : null}
-        </p>
+        <p id="view-status" class="status" role="status" aria-live="polite" />
         <MediaFeed />
         <ItemsSection
           rows={sealed ? null : viewRows(view.entries)}
           size={sealed ? 0 : view.entries.length}
           count={sealed ? "" : String(view.entries.length)}
+          mediaId={
+            sealed
+              ? undefined
+              : // The browser names a view's items by their link's token (see viewRows).
+                firstMediaId(
+                  view.entries.map(({ url, item }) => ({ id: url.split("/").pop() ?? "", item })),
+                )
+          }
           known={!sealed}
         />
         <section class="page-section" aria-labelledby="clone-title">

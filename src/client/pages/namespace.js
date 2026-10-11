@@ -54,20 +54,20 @@ const forms = createForms({
 ignoreStrayDrops();
 
 const showPage = (mode) => {
-  pageTitle.textContent = mode.title;
-  pageLinks.replaceChildren(
-    " · ",
-    // An encrypted name or read token stays in the fragment, including when
-    // the log's Back link returns to this page.
-    iconLink(
-      `${mode.basePath}/log${mode.label ? window.location.hash : ""}`,
-      "Access log",
-      "users",
-    ),
-    " · ",
-    iconLink(`${mode.basePath}/ls`, "See JSON", "json"),
-  );
-  document.title = `${mode.title} · Kurobako`;
+  // A plain page comes with its title and links (namespace.tsx); an encrypted
+  // one learns its name and address from the fragment, here.
+  if (mode.label) {
+    pageTitle.textContent = mode.title;
+    pageLinks.replaceChildren(
+      " · ",
+      // The name or read token stays in the fragment, including when the
+      // log's Back link returns to this page.
+      iconLink(`${mode.basePath}/log${window.location.hash}`, "Access log", "users"),
+      " · ",
+      iconLink(`${mode.basePath}/ls`, "See JSON", "json"),
+    );
+    document.title = `${mode.title} · Kurobako`;
+  }
   // The encrypted name in this address must never be sent to the server.
   // The QR code's library loads apart: the code is at the bottom of the page.
   void import("../vendor/uqr.js").then(({ renderSVG }) => {
@@ -109,10 +109,8 @@ try {
       const problem = secretNameProblem(secretName, config.sealed.maxNameLength);
       if (problem) throw new Error(problem);
     }
-    status.progress("Unlocking…");
-    element("#page-loading").lastElementChild.textContent = "Unlocking namespace…";
+    // The page's loading screen (see namespace.tsx) says what is happening.
     mode = await sealedMode({ secretName, readToken }, access.writeHeaders);
-    status.clear();
   } else {
     mode = plainMode(decodeURIComponent(path.split("/")[1] || ""), access.writeHeaders);
   }

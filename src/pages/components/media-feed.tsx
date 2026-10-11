@@ -8,7 +8,7 @@ export const MediaFeed = () => (
   <section id="media-feed" class="media-feed" aria-labelledby="media-feed-title" hidden>
     <p>
       <a id="media-feed-back" href=".">
-        ← Back to items
+        Back to items
       </a>
     </p>
     <div class="media-feed-heading">

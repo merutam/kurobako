@@ -28,6 +28,8 @@ export const createStatus = (element) => {
     stopTimer();
     kind = message ? newKind : "";
     element.classList.toggle("error", kind === "error");
+    if (kind) element.dataset.kind = kind;
+    else delete element.dataset.kind;
     if (!message) {
       element.replaceChildren();
       return;
