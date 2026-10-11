@@ -41,6 +41,7 @@ import { SECURITY_HEADERS } from "../src/app";
 import { FIXED_FILES, ICON_FILES, STYLES } from "../src/assets";
 import { bundle } from "../src/client/build";
 import { formatBytes as pageFormatBytes } from "../src/client/lib/common.js";
+import { coverFromTag } from "../src/client/lib/cover.js";
 import { type AppConfig, loadConfig } from "../src/config";
 import { readArchive, writeArchive } from "../src/core/archive";
 import type { BlobStore } from "../src/core/host";
@@ -861,6 +862,53 @@ describe("rules kept in two places", () => {
     expect(textDownloadName("answer.js", "abc")).toBe("answer.js");
     expect(textDownloadName("old title", "abc")).toBe("old title.txt");
     expect(textDownloadName("", "abc")).toBe("text-abc.txt");
+  });
+
+  test("finds an audio file's cover in its ID3v2 tag, the front one first", async () => {
+    const latin1 = (text: string) => [...text].map((c) => c.charCodeAt(0));
+    const syncsafe = (n: number) => [(n >> 21) & 127, (n >> 14) & 127, (n >> 7) & 127, n & 127];
+    const plain32 = (n: number) => [(n >>> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255];
+    const png = [0x89, 0x50, 0x4e, 0x47, 1, 2, 3];
+    const jpeg = [0xff, 0xd8, 0xff, 9, 9];
+    /** An APIC frame: Latin-1 description, then the picture. */
+    const apic = (version: 3 | 4, type: number, picture: number[]) => {
+      const body = [0, ...latin1("image/png"), 0, type, ...latin1("desc"), 0, ...picture];
+      return [
+        ...latin1("APIC"),
+        ...(version === 4 ? syncsafe : plain32)(body.length),
+        0,
+        0,
+        ...body,
+      ];
+    };
+    const tag = (version: 3 | 4, frames: number[][]) => {
+      const body = frames.flat();
+      return new Uint8Array([
+        ...latin1("ID3"),
+        version,
+        0,
+        0,
+        ...syncsafe(body.length),
+        ...body,
+        1,
+        2,
+      ]);
+    };
+    const bytesOf = async (blob: Blob | null) => [
+      ...new Uint8Array(await defined(blob, "a cover").arrayBuffer()),
+    ];
+
+    const v3 = coverFromTag(tag(3, [apic(3, 0, jpeg), apic(3, 3, png)]));
+    expect(await bytesOf(v3)).toEqual(png);
+    expect(v3?.type).toBe("image/png");
+    const v4 = coverFromTag(tag(4, [apic(4, 4, png), apic(4, 3, jpeg)]));
+    expect(await bytesOf(v4)).toEqual(jpeg);
+    expect(v4?.type).toBe("image/jpeg");
+    // Any picture, without a front cover.
+    expect(await bytesOf(coverFromTag(tag(3, [apic(3, 0, png)])))).toEqual(png);
+    // No tag, or a tag without pictures.
+    expect(coverFromTag(new Uint8Array([0xff, 0xfb, 0x90, 0, 0, 0, 0, 0, 0, 0]))).toBeNull();
+    expect(coverFromTag(tag(3, []))).toBeNull();
   });
 
   test("bundles each page's code with every chunk it imports", async () => {

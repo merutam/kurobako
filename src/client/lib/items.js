@@ -88,8 +88,26 @@ export const videoPlayer = (src) => {
 };
 
 /** Native audio controls keep seeking, downloads and accessibility in the browser. */
-export const audioPlayer = (src) =>
-  h("audio", { src: src, controls: true, preload: "metadata", playsinline: true });
+/**
+ * The browser's own audio player, with the file's cover picture above it when
+ * it has one (read from its tag by cover.js, which loads only for audio).
+ */
+export const audioPlayer = (src) => {
+  const cover = h("img", { class: "audio-cover", alt: "", hidden: true });
+  const audio = h("audio", { src, controls: true, preload: "metadata", playsinline: true });
+  void import("./cover.js")
+    .then(({ coverOf }) => coverOf(src))
+    .then(
+      (url) => {
+        if (!url) return;
+        cover.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
+        cover.src = url;
+        cover.hidden = false;
+      },
+      () => {},
+    );
+  return h("div", { class: "audio-player" }, cover, audio);
+};
 
 /** Whether this browser can put an image on the clipboard. */
 export const canCopyImages = () =>

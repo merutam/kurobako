@@ -817,10 +817,49 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   max-height: 95dvh;
   height: auto;
 }
-.media-feed-slot audio {
-  display: block;
+/* An audio file: its cover, when it has one, over the browser's player. */
+.audio-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
   width: min(100%, 36rem);
+}
+.audio-player audio {
+  display: block;
+  width: 100%;
+}
+.audio-cover {
+  display: block;
+  width: min(100%, 20rem);
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-large);
+}
+.media-feed-slot .audio-player {
   margin: var(--space-4);
+}
+/* In a tile, the cover fills it and the player sits at its foot. */
+.media-feed-list[data-view="grid"] .media-feed-slot .audio-player {
+  position: relative;
+  justify-content: flex-end;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+.media-feed-list[data-view="grid"] .audio-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+.media-feed-list[data-view="grid"] .audio-player audio {
+  position: relative;
+}
+/* The details list stays compact: the player alone. */
+.media-feed-list[data-view="details"] .audio-cover {
+  display: none;
 }
 .media-feed-item figcaption {
   padding: var(--space-2) 0;
@@ -831,19 +870,14 @@ main.media-feed-open > :not(.site-header, #media-feed) {
 .media-feed-meta {
   display: none;
 }
+/* Square tiles, as many as fit: the same in every width and before anything
+   loads. Pictures fill their tile; the list view shows them whole. */
 .media-feed-list[data-view="grid"] {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--space-2) var(--space-3);
-}
-/* A flexible filler keeps the final row from stretching a few images wide. */
-.media-feed-list[data-view="grid"]::after {
-  content: "";
-  flex: 1000 1 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(11rem, 40%), 1fr));
+  gap: var(--space-2);
 }
 .media-feed-list[data-view="grid"] .media-feed-item {
-  flex: var(--media-ratio, 1) 1 var(--media-basis, 14rem);
   min-width: 0;
   margin: 0;
 }
@@ -854,12 +888,18 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   white-space: nowrap;
 }
 .media-feed-list[data-view="grid"] .media-feed-slot {
-  aspect-ratio: var(--media-ratio, 1);
+  aspect-ratio: 1;
   min-height: 0;
+  overflow: hidden;
   background: var(--surface);
   color: var(--text-subtle);
 }
-.media-feed-list[data-view="grid"] .media-feed-slot :where(img, video),
+.media-feed-list[data-view="grid"] .media-feed-slot :where(img, video) {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+}
 .media-feed-list[data-view="details"] .media-feed-slot :where(img, video) {
   width: 100%;
   height: 100%;

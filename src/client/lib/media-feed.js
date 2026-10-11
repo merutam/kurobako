@@ -3,13 +3,14 @@
 
 // A scrollable media page. Media loads near the viewport and stays loaded while
 // the page is open, so scrolling back never spends another read/rate-limit hit.
+// Music keeps playing out of view; videos pause. A namespace's live changes
+// keep the cards they do not touch, so what plays goes on playing.
 import { h } from "../shared/dom.js";
 import { element, storage } from "./common.js";
 import { audioPlayer, itemSummary, videoPlayer } from "./items.js";
 
 const VIEW_KEY = "kurobako-media-view-v2";
 const VIEWS = ["list", "grid", "details"];
-const GRID_ROW_HEIGHT = 320;
 
 export const createMediaFeed = (sourceOf) => {
   const page = element("#media-feed");
@@ -24,7 +25,6 @@ export const createMediaFeed = (sourceOf) => {
   let view = VIEWS.includes(savedView) ? savedView : "list";
   let entries = [];
   let cards = new Map();
-  const aspects = new Map();
   let observer = null;
   let returnScroll = 0;
   let filter = "all";
@@ -89,14 +89,6 @@ export const createMediaFeed = (sourceOf) => {
     card.source = null;
   };
 
-  const rememberAspect = (card, width, height) => {
-    if (!(width > 0 && height > 0)) return;
-    const ratio = width / height;
-    aspects.set(card.entry.item.id, ratio);
-    card.figure.style.setProperty("--media-ratio", String(ratio));
-    card.figure.style.setProperty("--media-basis", `${ratio * GRID_ROW_HEIGHT}px`);
-  };
-
   const load = async (card) => {
     if (card.source || card.loading) return;
     const generation = ++card.generation;
@@ -118,22 +110,7 @@ export const createMediaFeed = (sourceOf) => {
               loading: "lazy",
               decoding: "async",
             });
-      if (medium.localName === "video") {
-        medium.controls = view !== "details";
-        medium.addEventListener("loadedmetadata", () => {
-          if (generation === card.generation) {
-            rememberAspect(card, medium.videoWidth, medium.videoHeight);
-          }
-        });
-        if (medium.videoWidth) rememberAspect(card, medium.videoWidth, medium.videoHeight);
-      } else if (medium.localName === "img") {
-        medium.addEventListener("load", () => {
-          if (generation === card.generation) {
-            rememberAspect(card, medium.naturalWidth, medium.naturalHeight);
-          }
-        });
-        if (medium.complete) rememberAspect(card, medium.naturalWidth, medium.naturalHeight);
-      }
+      if (medium.localName === "video") medium.controls = view !== "details";
       card.source = source;
       card.slot.replaceChildren(medium);
       card.slot.style.removeProperty("min-height");
@@ -146,60 +123,114 @@ export const createMediaFeed = (sourceOf) => {
     }
   };
 
+  /** What a card shows: when it changes, the card is made again. */
+  const signature = (entry) => JSON.stringify([entry.item, entry.info]);
+
+  const makeCard = (entry) => {
+    const slot = h(
+      "div",
+      { class: "media-feed-slot" },
+      h("span", { class: "hint" }, "Scroll to load"),
+    );
+    const caption = h(
+      "figcaption",
+      {},
+      h("span", { class: "media-feed-title", title: entry.info.title }, entry.info.title),
+      h("small", { class: "media-feed-meta" }, itemSummary(entry.item, entry.info)),
+    );
+    const figure = h(
+      "figure",
+      { class: "media-feed-item", "data-media-id": entry.item.id },
+      slot,
+      caption,
+    );
+    observer.observe(figure);
+    return {
+      entry,
+      signature: signature(entry),
+      figure,
+      slot,
+      source: null,
+      loading: false,
+      generation: 0,
+    };
+  };
+
+  const forget = (card) => {
+    observer?.unobserve(card.figure);
+    release(card);
+  };
+
+  /**
+   * The cards for the entries, in order: unchanged ones are kept as they are,
+   * loaded and playing, and only what moved is moved (moving a player pauses it).
+   */
   const render = () => {
-    observer?.disconnect();
-    for (const card of cards.values()) release(card);
-    cards = new Map();
-    list.replaceChildren();
-    if (!entries.length) {
-      list.append(h("p", { class: "hint" }, "No media."));
-      return;
-    }
-    observer = new IntersectionObserver(
+    observer ??= new IntersectionObserver(
       (changes) => {
         for (const change of changes) {
           const card = cards.get(change.target.dataset.mediaId);
           if (!card) continue;
           if (change.isIntersecting) void load(card);
-          else card.slot.querySelector("video, audio")?.pause();
+          else card.slot.querySelector("video")?.pause();
         }
       },
       { rootMargin: "800px 0px" },
     );
+    const next = new Map();
     for (const entry of entries) {
-      const slot = h(
-        "div",
-        { class: "media-feed-slot" },
-        h("span", { class: "hint" }, "Scroll to load"),
-      );
-      const caption = h(
-        "figcaption",
-        {},
-        h("span", { class: "media-feed-title", title: entry.info.title }, entry.info.title),
-        h("small", { class: "media-feed-meta" }, itemSummary(entry.item, entry.info)),
-      );
-      const figure = h("figure", { class: "media-feed-item" }, slot, caption);
-      figure.dataset.mediaId = entry.item.id;
-      list.append(figure);
-      const card = {
-        entry,
-        figure,
-        slot,
-        source: null,
-        loading: false,
-        generation: 0,
-      };
-      const knownAspect = aspects.get(entry.item.id);
-      if (knownAspect) rememberAspect(card, knownAspect, 1);
-      cards.set(entry.item.id, card);
-      observer.observe(figure);
+      const known = cards.get(entry.item.id);
+      if (known?.signature === signature(entry)) {
+        known.entry = entry;
+        next.set(entry.item.id, known);
+        continue;
+      }
+      if (known) {
+        forget(known);
+        known.figure.remove();
+      }
+      next.set(entry.item.id, makeCard(entry));
+    }
+    for (const [id, card] of cards) {
+      if (!next.has(id)) {
+        forget(card);
+        card.figure.remove();
+      }
+    }
+    cards = next;
+    if (!cards.size) {
+      list.replaceChildren(h("p", { class: "hint" }, "No media."));
+      return;
+    }
+    list.querySelector(":scope > p.hint")?.remove();
+    let index = 0;
+    for (const card of cards.values()) {
+      const there = list.children[index];
+      if (there !== card.figure) list.insertBefore(card.figure, there ?? null);
+      index += 1;
     }
     applyFilter();
+  };
+
+  /** Opening the page: the selected medium (or the first) in view and loading. */
+  const show = () => {
+    render();
     const selected = new URL(window.location.href).searchParams.get("media");
     const first = cards.get(selected) ?? cards.values().next().value;
-    if (selected) first?.slot.parentElement.scrollIntoView();
+    if (selected) first?.figure.scrollIntoView();
     if (first) void load(first);
   };
+
+  // One medium plays at a time: starting one pauses the others.
+  list.addEventListener(
+    "play",
+    (event) => {
+      for (const medium of list.querySelectorAll("audio, video")) {
+        if (medium !== event.target) medium.pause();
+      }
+    },
+    true,
+  );
 
   const sync = () => {
     const active = new URL(window.location.href).searchParams.has("media");
@@ -207,10 +238,9 @@ export const createMediaFeed = (sourceOf) => {
     document.querySelector("main").classList.toggle("media-feed-open", active);
     back.href = mediaUrl(null).href;
     if (active) {
-      render();
+      show();
     } else {
-      observer?.disconnect();
-      for (const card of cards.values()) release(card);
+      for (const card of cards.values()) forget(card);
       cards.clear();
       list.replaceChildren();
     }
