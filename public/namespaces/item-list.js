@@ -16,7 +16,8 @@ import {
   setBusy,
   storage,
 } from "../common.js";
-import { icon } from "../icons.js";
+import { h } from "../dom.js";
+import { itemRow, rowHash, rowState } from "../item-row.js";
 import {
   audioPlayer,
   canCopyImages,
@@ -24,7 +25,6 @@ import {
   downloadBlob,
   extensionOf,
   highlightedText,
-  itemSummary,
   limitedItem,
   streamAddress,
   videoPlayer,
@@ -249,13 +249,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     void renderItems(serverItems, { force: true });
   };
 
-  const noteSpan = (text) => {
-    const note = document.createElement("span");
-    note.className = "burn-note";
-    note.textContent = text;
-    return note;
-  };
-
   /** Whether a name is being edited; live updates wait until it is done. */
   let renaming = false;
   /** Whether text contents are being edited; live updates wait until it is done. */
@@ -309,15 +302,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       }
     });
     input.addEventListener("blur", () => void finish(true));
-  };
-
-  /** A button that is only an icon: its label is for screen readers and tooltips. */
-  const iconButton = (name, label, onClick, className) => {
-    const control = button("", onClick, `icon-button${className ? ` ${className}` : ""}`);
-    control.append(icon(name));
-    control.setAttribute("aria-label", label);
-    control.title = label;
-    return control;
   };
 
   /** Opens a text editor in its preview. Save is conditional on the version shown. */
@@ -376,7 +360,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     const save = el("button", { type: "submit", className: "primary", textContent: "Save" });
     const toolbar = el("div", { className: "editor-toolbar" }, language, size, editor.position);
     const details = preview.nextElementSibling;
-    details.firstChild.textContent = dateFormatter.format(new Date(entry.item.createdAt));
+    // Only the date (and the expiry) stays: "Text · 23 B · " goes.
+    details.firstChild.remove();
     const footer = el(
       "div",
       { className: "form-footer" },
@@ -413,55 +398,35 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     });
   };
 
-  /**
-   * One row per item: its position (1 is the newest, as in $BOX/ns/1), what it
-   * is, its name, size and age, and its actions as icons. Clicking the row
-   * opens it: the contents of a text or an image, and every detail.
-   */
-  const renderItem = (entry, position) => {
-    const { item, info } = entry;
-    const unopenedBurn = limitedItem(item) && !entry.opened;
-    const listItem = el("li", { className: unopenedBurn ? "item burn" : "item" });
-    const row = el("div", { className: "item-row" });
-    row.append(el("span", { className: "item-position" }, position ? String(position) : ""));
+  /** What itemRow needs to make an entry's row. */
+  const rowOf = (entry, position) => ({
+    item: entry.item,
+    info: entry.info,
+    position,
+    opened: Boolean(entry.opened),
+    canWrite: canWrite(),
+    canCopyImages: canCopyImages(),
+    downloadUrl: mode.downloadUrl?.(entry.item) ?? null,
+  });
 
-    const kind = unopenedBurn
-      ? "burn"
-      : info.kind === "unreadable"
-        ? "unreadable"
-        : info.kind === "text"
-          ? "text"
-          : info.isImage
-            ? "image"
-            : info.isVideo
-              ? "video"
-              : info.isAudio
-                ? "audio"
-                : "file";
-    const title = el("span", { className: "item-title", textContent: info.title });
-    const heading = [el("span", { className: "item-kind" }, icon(kind)), title];
-    const age = el("span", { textContent: formatAge(item.createdAt) });
-    age.dataset.createdAt = item.createdAt;
-    const facts = el(
-      "span",
-      { className: "item-facts" },
-      `${formatBytes(info.size ?? item.size)} · `,
-      age,
-    );
-    let preview = null;
+  /**
+   * Gives a row (see item-row.js), made here or by the server, its behavior:
+   * clicking its toggle opens it, loading its preview, and each action does
+   * what its data-action says.
+   */
+  const wireItem = (listItem, entry) => {
+    const { item, info } = entry;
+    const on = (action, handler) =>
+      listItem.querySelector(`[data-action="${action}"]`)?.addEventListener("click", handler);
+    const toggle = listItem.querySelector("button.item-toggle");
+    const preview = listItem.querySelector(".item-preview");
     let loadPreview = async () => {};
 
     // Opening a burn-after-reading item reads it: only its own button does that.
-    const expandable = !unopenedBurn;
-    if (!expandable) {
-      row.append(el("span", { className: "item-toggle" }, ...heading), facts);
-    } else {
-      const bodyId = `item-${item.id}`;
-      const toggle = el("button", { type: "button", className: "item-toggle" }, ...heading);
-      toggle.setAttribute("aria-controls", bodyId);
-      const body = el("div", { className: "item-body", id: bodyId });
+    if (toggle) {
+      const body = listItem.querySelector(".item-body");
+      const title = listItem.querySelector(".item-title");
       const previewable = info.kind === "text" || info.isImage || info.isVideo || info.isAudio;
-      preview = el("div");
 
       let loaded = false;
       const load = async () => {
@@ -531,114 +496,62 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       toggle.addEventListener("click", (event) => {
         if (event.detail <= 1) toggleOpen();
       });
-
-      const renamable = !entry.opened && info.kind !== "unreadable" && canWrite();
-      if (renamable) {
-        title.title = "Double-click to rename";
+      // itemRow offers a rename (in the title's tooltip) only to those who can.
+      if (title.title) {
         title.addEventListener("dblclick", (event) => {
           event.preventDefault();
           toggleOpen();
           renameItem(entry, title);
         });
       }
-
-      const details = el("p", { className: "item-meta", textContent: itemSummary(item, info) });
-      if (entry.opened) {
-        details.append(
-          " · ",
-          noteSpan(item.burn || item.readsLeft === 1 ? "deleted from the server" : "one read used"),
-        );
-      } else if (item.expiresAt) {
-        const expiry = el("span", { textContent: formatExpiry(item.expiresAt) });
-        expiry.dataset.expiresAt = item.expiresAt;
-        details.append(" · ", expiry);
-      }
-      body.append(preview, details);
-      row.append(toggle, facts);
-      listItem.append(row, body);
       setOpen(isExpanded(item.id));
     }
 
-    const actions = el("span", { className: "item-actions" });
-    if (unopenedBurn) {
-      actions.append(
-        button(
-          item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once",
-          () => openOnce(entry),
-          undefined,
-          "burn",
-        ),
-      );
-    } else {
-      if (info.isImage || info.isVideo || info.isAudio) {
-        actions.append(
-          iconButton(
-            info.isVideo ? "video" : info.isAudio ? "audio" : "image",
-            "Open media feed",
-            () => mediaFeed.open(entry),
-          ),
-        );
+    on("open-once", () => openOnce(entry));
+    on("media", () => mediaFeed.open(entry));
+    on("edit", async () => {
+      if (editing) return;
+      await loadPreview();
+      if (expandMode === "one") {
+        for (const id of expandedItems) itemOpeners.get(id)?.(false);
+        expandedItems.clear();
       }
-      if (!entry.opened && info.kind === "text" && canWrite()) {
-        actions.append(
-          iconButton(
-            "edit",
-            "Edit",
-            () =>
-              void (async () => {
-                if (editing) return;
-                await loadPreview();
-                if (expandMode === "one") {
-                  for (const id of expandedItems) itemOpeners.get(id)?.(false);
-                  expandedItems.clear();
-                }
-                expandedItems.add(item.id);
-                closedItems.delete(item.id);
-                itemOpeners.get(item.id)?.(true);
-                await editItem(entry, preview);
-              })(),
-          ),
-        );
-      }
-      if (info.kind === "text" || (info.isImage && canCopyImages())) {
-        actions.append(iconButton("copy", "Copy", () => copyItem(entry)));
-      }
-      if (info.kind === "file" || info.kind === "text") {
-        const href = !entry.opened && mode.downloadUrl?.(item);
-        if (href) {
-          const download = el(
-            "a",
-            { href, className: "icon-button", title: "Download" },
-            icon("download"),
-          );
-          download.setAttribute("aria-label", "Download");
-          actions.append(download);
-        } else {
-          // Decrypted (or already consumed) files are fetched only on click.
-          actions.append(iconButton("download", "Download", () => downloadItem(entry)));
-        }
-      }
-    }
-    if (!entry.opened && info.itemUrl) {
-      const link = el(
-        "a",
-        { href: info.itemUrl, className: "icon-button", title: "Open item" },
-        icon("external"),
-      );
-      link.setAttribute("aria-label", "Open item");
-      actions.append(link);
-    }
-    // Sharing makes a link on the server: like deleting, it is writing.
-    if (!entry.opened && info.kind !== "unreadable" && !unopenedBurn && canWrite()) {
-      actions.append(iconButton("share", "Share", () => shareItem(item)));
-    }
-    if (entry.opened) actions.append(iconButton("dismiss", "Dismiss", () => dismiss(item.id)));
-    else if (canWrite()) {
-      actions.append(iconButton("delete", "Delete", () => deleteItem(item), "destructive"));
-    }
-    row.append(actions);
-    if (!expandable) listItem.append(row);
+      expandedItems.add(item.id);
+      closedItems.delete(item.id);
+      itemOpeners.get(item.id)?.(true);
+      await editItem(entry, preview);
+    });
+    on("copy", () => copyItem(entry));
+    on("download", () => downloadItem(entry));
+    on("share", () => shareItem(item));
+    on("dismiss", () => dismiss(item.id));
+    on("delete", () => deleteItem(item));
+  };
+
+  const renderItem = (entry, position) => {
+    const listItem = itemRow(h, rowOf(entry, position));
+    wireItem(listItem, entry);
     return listItem;
+  };
+
+  /**
+   * The rows the server rendered (a plain namespace's, a shared view's), by
+   * item id: the first render keeps those still made from the same item, as
+   * they are, instead of making them again.
+   */
+  let serverRows = new Map(
+    [...itemsList.querySelectorAll("li[data-made]")].map((node) => [node.dataset.id, node]),
+  );
+  const adoptRow = (node, entry, position) => {
+    node.querySelector(".item-position").textContent = position ? String(position) : "";
+    // What only this browser knows: whether it copies images, and its own times.
+    if (entry.info.isImage && !canCopyImages())
+      node.querySelector('[data-action="copy"]')?.remove();
+    for (const time of node.querySelectorAll("time[data-local-date]")) {
+      time.textContent = dateFormatter.format(new Date(time.dateTime));
+    }
+    wireItem(node, entry);
+    return node;
   };
 
   expandModeSelect.value = expandMode;
@@ -709,7 +622,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     for (const entry of entries) {
       const { id } = entry.item;
       const position = entry.opened ? 0 : (positions.get(id) ?? 0);
-      const made = JSON.stringify([entry.item, entry.info, Boolean(entry.opened), canWrite()]);
+      const made = rowState(entry.item, entry.info, entry.opened, canWrite());
       const kept = rows.get(id);
       if (kept && kept.made === made) {
         kept.node.querySelector(".item-position").textContent = position ? String(position) : "";
@@ -717,7 +630,14 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
         continue;
       }
       if (kept) freeObjectUrls(id);
-      next.set(id, { made, node: renderItem(entry, position) });
+      const served = serverRows.get(id);
+      next.set(id, {
+        made,
+        node:
+          served?.dataset.made === rowHash(made)
+            ? adoptRow(served, entry, position)
+            : renderItem(entry, position),
+      });
     }
     for (const id of rows.keys()) {
       if (next.has(id)) continue;
@@ -725,6 +645,12 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       itemOpeners.delete(id);
     }
     rows = next;
+    // Only the first render may take the server's rows; ages and expiries in
+    // them were the server's, as of when it rendered them.
+    if (serverRows.size) {
+      serverRows = new Map();
+      updateExpiries();
+    }
     const nodes = [...next.values()].map((row) => row.node);
     const current = [...itemsList.children];
     if (nodes.length !== current.length || nodes.some((node, index) => node !== current[index])) {

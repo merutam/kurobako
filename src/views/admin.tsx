@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import { FileField } from "./file-field";
+import { Icon } from "./icons";
 import { Page, type SiteView } from "./layout";
 
 /**
@@ -34,6 +36,7 @@ export const renderAdminPage = (
             <input id="key" name="key" type="password" autocomplete="current-password" required />
             <p class="actions">
               <button data-icon="login" type="submit" class="primary">
+                <Icon name="login" />
                 Log in
               </button>
             </p>
@@ -55,9 +58,11 @@ export const renderAdminPage = (
               <option value="30">30 s</option>
             </select>
             <button data-icon="refresh" id="refresh" type="button">
+              <Icon name="refresh" />
               Refresh
             </button>
             <button data-icon="logout" id="logout" type="button">
+              <Icon name="logout" />
               Log out
             </button>
           </p>
@@ -84,34 +89,31 @@ export const renderAdminPage = (
             </p>
             <p class="actions">
               <button data-icon="download" id="backup-zip" type="button">
+                <Icon name="download" />
                 Download zip
               </button>
               <button data-icon="download" id="backup-tar" type="button">
+                <Icon name="download" />
                 Download tar
               </button>
             </p>
             <form id="restore-form">
               <fieldset>
                 <legend id="restore-legend">Restore</legend>
-                <k-file-field>
-                  <input
-                    id="restore-file"
-                    class="visually-hidden"
-                    type="file"
-                    accept=".zip,.tar,application/zip,application/x-tar"
-                    aria-labelledby="restore-legend"
-                    aria-describedby="restore-hint"
-                    required
-                  />
-                  <label id="restore-zone" class="dropzone" for="restore-file">
-                    Drop a backup here, or click to pick one
-                  </label>
-                </k-file-field>
+                <FileField
+                  id="restore-file"
+                  zoneId="restore-zone"
+                  accept=".zip,.tar,application/zip,application/x-tar"
+                  labelledBy="restore-legend"
+                  describedBy="restore-hint"
+                  placeholder="Drop a backup here, or click to pick one"
+                />
                 <p id="restore-hint" class="hint">
                   A backup of the instance or of a namespace (zip or tar).
                 </p>
                 <p class="actions">
                   <button data-icon="upload" type="submit" class="primary">
+                    <Icon name="upload" />
                     Restore
                   </button>
                 </p>

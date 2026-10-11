@@ -966,11 +966,6 @@ main.media-feed-open > :not(.site-header, #media-feed) {
   font-weight: normal;
   text-align: left;
 }
-a.item-toggle,
-a.item-toggle:visited {
-  color: var(--text);
-  text-decoration: none;
-}
 button.item-toggle:hover,
 button.item-toggle:active {
   background: none;

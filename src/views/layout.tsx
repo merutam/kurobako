@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import type { Child } from "hono/jsx";
+import { Icon } from "./icons";
 
 export type SiteView = {
   basePath: string;
@@ -109,20 +110,7 @@ export const Page = ({
             rel="noopener"
           >
             Source
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4" />
-            </svg>
+            <Icon name="external" size={14} />
           </a>
         </footer>
         <button id="scroll-top" type="button" hidden>

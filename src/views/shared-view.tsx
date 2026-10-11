@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import type { ListedItem } from "./items";
+import { Icon } from "./icons";
+import { type ListedItem, viewRows } from "./items";
 import { Page, type SiteView } from "./layout";
 import { MediaFeed } from "./media-feed";
 import { ItemsSection } from "./queue";
@@ -12,9 +13,6 @@ type ViewPageData = {
 
 export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
   const sealed = view.entries.some(({ item }) => item.kind === "sealed");
-  const entries = sealed
-    ? []
-    : view.entries.map(({ item, url }) => ({ item, href: url, id: url.split("/").pop() }));
   return Page({
     site,
     title: "Shared view · Kurobako",
@@ -34,8 +32,9 @@ export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
         </p>
         <MediaFeed />
         <ItemsSection
-          entries={entries}
-          count={sealed ? "" : String(entries.length)}
+          rows={sealed ? null : viewRows(view.entries)}
+          size={sealed ? 0 : view.entries.length}
+          count={sealed ? "" : String(view.entries.length)}
           known={!sealed}
         />
         <section class="page-section" aria-labelledby="clone-title">
@@ -87,6 +86,7 @@ export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
             </label>
             <p class="actions">
               <button type="submit" data-icon="copy">
+                <Icon name="copy" />
                 Clone
               </button>
             </p>

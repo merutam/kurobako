@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import type { AppConfig } from "../config";
+import { Icon } from "./icons";
 import { Page, type SiteView } from "./layout";
 
 const number = new Intl.NumberFormat("en-US");
@@ -30,23 +31,6 @@ const duration = (seconds: number) => {
   const value = Math.round(seconds / size);
   return `${value} ${unit}${value === 1 ? "" : "s"}`;
 };
-
-const Icon = ({ children }: { children: unknown }) => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="1.4"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-    focusable="false"
-  >
-    {children}
-  </svg>
-);
 
 /** The home page has no per-request state: the server renders it once, at start. */
 export const renderHomePage = (site: SiteView, config: AppConfig) => {
@@ -114,18 +98,11 @@ export const renderHomePage = (site: SiteView, config: AppConfig) => {
               <p id="name-strength" class="hint" aria-live="polite" hidden />
               <p class="actions">
                 <button data-icon="random" id="random-name" type="button">
-                  <Icon>
-                    <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
-                    <circle cx="5.5" cy="5.5" r=".6" />
-                    <circle cx="8" cy="8" r=".6" />
-                    <circle cx="10.5" cy="10.5" r=".6" />
-                  </Icon>
+                  <Icon name="random" />
                   Random name
                 </button>
                 <button data-icon="open" type="submit" class="primary">
-                  <Icon>
-                    <path d="M2.5 8h10M9 4.5L12.5 8 9 11.5" />
-                  </Icon>
+                  <Icon name="open" />
                   Open
                 </button>
               </p>
@@ -162,9 +139,7 @@ export const renderHomePage = (site: SiteView, config: AppConfig) => {
           </table>
           <p>
             <a data-icon="json" href={`${site.basePath}/stats.json`}>
-              <Icon>
-                <path d="M6 2.5H5a1.5 1.5 0 0 0-1.5 1.5v2A2 2 0 0 1 2 8a2 2 0 0 1 1.5 2v2A1.5 1.5 0 0 0 5 13.5h1M10 2.5h1a1.5 1.5 0 0 1 1.5 1.5v2A2 2 0 0 0 14 8a2 2 0 0 0-1.5 2v2a1.5 1.5 0 0 1-1.5 1.5h-1" />
-              </Icon>
+              <Icon name="json" />
               Full statistics
             </a>
           </p>
