@@ -20,11 +20,13 @@ export const renderThemePage = (site: SiteView) => {
     children: (
       <>
         <h1 id="page-title">Theme</h1>
-        <p class="intro">Your own colors, spacing and type for this site.</p>
+        <p class="intro">Your own colors, spacing, type and corners for this site.</p>
         <p id="status" class="status" role="status" aria-live="polite" />
         <section aria-labelledby="theme-presets-title">
           <h2 id="theme-presets-title">Ready-made themes</h2>
-          <p class="hint">Click a CSS file to copy its contents, then paste it bellow to try it out.</p>
+          <p class="hint">
+            Click a CSS file to copy its contents, then paste it below to try it out.
+          </p>
           <div id="theme-preset-list" class="theme-preset-list">
             {Object.keys(presets).map((name) => (
               <button type="button" data-preset={name}>

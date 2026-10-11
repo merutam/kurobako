@@ -4,7 +4,7 @@ Oct 10, 2026
 
 ## Principle
 
-Kurobako looks like a well-kept terminal: monospaced text, thin borders and a single accent color. The rule that holds it all together is that **interaction shows through color and brackets, never through shadow, gradient or rounding**.
+Kurobako looks like a well-kept terminal: monospaced text, thin borders and a single accent color. Interaction shows through color and brackets. Corners are square by default; a custom theme can change their radius.
 
 The reference is the old personal web (the small web), but deliberate, not abandoned. It is not brutalist: contrast is comfortable, type is restrained and the layout is predictable.
 
@@ -50,21 +50,21 @@ One monospaced family for everything: JetBrains Mono, falling back to the system
 
 Headings carry their Markdown prefix (` # `, ` ## `) in the accent, hidden from screen readers so the symbol is not read out. File names and paths show as literal text: `notes.txt`, `project/`, `/about/`.
 
-Inline code has a `chip` background and `padding: 1px 6px`, with no border and no rounding.
+Inline code has a `chip` background and `padding: 1px 6px`, with no border. It uses the theme's corner radius.
 
 ## Layout and spacing
 
 One centered column up to 1120 px (`--col`), with a 20 px side margin on phones. There is no fixed sidebar; secondary content goes in a grid that stacks (`repeat(auto-fit, minmax(240px, 1fr))`).
 
 - **Vertical rhythm:** 56 px between sections, 16 px within a section, 8–10 px between items of a group.
-- **Boxes:** a 1 px `border` only, `border-radius: 0`, no shadow. Use a box only when the content is a block with its own header, such as a listing or a panel.
+- **Boxes:** a 1 px `border` only, `border-radius: var(--radius)`, no shadow. The default radius is `0px`. Use a box only when the content is a block with its own header, such as a listing or a panel.
 - **Box header:** a `muted` line with the "command" on the left (`$ ls -lt ~/notes`) and a counter on the right, above a bottom border.
 - **Separators:** a 1 px dashed `rule` line between list rows; dashed `border` above the footer.
 - **Wide tables:** inside a box with `overflow-x: auto`, so the page never scrolls sideways.
 
 ## Components
 
-Every component follows the same recipe: inherited font, 1 px border, square corners and at least 44 px tall when clickable.
+Every component follows the same recipe: inherited font, 1 px border, theme-controlled corners and at least 44 px tall when clickable.
 
 | Component | Look | Active or selected |
 | --- | --- | --- |
@@ -112,7 +112,7 @@ Every state change is instant: no animation, no transition, no fake loading.
 
 Each item below drags the look toward "a modern app in disguise" or "terminal cosplay".
 
-- Shadows, gradients, blur and rounded corners.
+- Shadows, gradients and blur. The default theme keeps square corners.
 - Cards with their own background for each list item; use rows with separators.
 - A second typeface, headings included.
 - More than one accent color, or the accent on something that is neither interactive nor a heading.
@@ -132,6 +132,7 @@ Paste this at the top of the stylesheet; the rest of the site should use only th
   --border: #3A3934;  --rule: #2E2D29;  --panel: #1A1917;  --chip: #24231F;
   --accent: #E8B04F;  --on-accent: #121211;  --ok: #8FC27A;  --err: #E7806C;
   --col: 1120px;  --gap-section: 56px;  --gap: 16px;  --hit: 44px;
+  --radius: 0px;
 }
 
 @media (prefers-color-scheme: light) {
@@ -154,5 +155,5 @@ body {
 }
 a { color: var(--accent); text-underline-offset: 3px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-* { border-radius: 0; box-shadow: none; }
+* { border-radius: var(--radius); box-shadow: none; }
 ```

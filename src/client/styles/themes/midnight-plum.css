@@ -45,6 +45,7 @@
   --text-h1: clamp(32px, 6vw, 48px);
 
   /* Shapes and sizes */
+  --radius: 8px;
   --hit: 44px;
   --col: 1120px;
   --page-gutter: 20px;

@@ -3,14 +3,13 @@
  * Copyright (C) 2026 Kurobako contributors
  */
 /* The site's styles, after tokens.css in the file the build makes of both.
-   The rule that holds it together (docs/design.md): interaction shows by
-   color and by brackets, never by shadow, gradient or rounding. */
+   Interaction shows by color and brackets; themes may round corners. */
 
 /* --- Base ----------------------------------------------------------------- */
 
 * {
   box-sizing: border-box;
-  border-radius: 0;
+  border-radius: var(--radius);
   box-shadow: none;
 }
 
@@ -521,6 +520,7 @@ select {
   display: flex;
   align-items: stretch;
   min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--border);
   background: var(--panel);
 }
@@ -534,6 +534,7 @@ select {
   width: 100%;
   min-width: 0;
   border: 0;
+  border-radius: 0;
   outline: 0;
   background: transparent;
 }
@@ -631,6 +632,7 @@ select {
   margin-right: var(--space-3);
   padding: 0 var(--space-4);
   border: 1px solid var(--border);
+  border-radius: var(--radius);
   background: transparent;
   color: var(--fg);
   font: inherit;
@@ -761,6 +763,7 @@ fieldset .status {
   margin: 0;
   overflow: visible;
   border: 0;
+  border-radius: 0;
   background: none;
   line-height: 1.6;
   white-space: pre;
@@ -1340,6 +1343,10 @@ button.media-preview:hover img {
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
+.text-editor > :is(textarea, pre.text-editor-highlight, pre.text-editor-lines) {
+  /* The wrapper clips these adjoining editor layers to one shared radius. */
+  border-radius: 0;
+}
 .text-editor > textarea::selection {
   background: color-mix(in srgb, var(--accent) 35%, transparent);
   color: transparent;
@@ -1754,6 +1761,7 @@ summary::before {
   padding: 0 var(--space-3);
   border: 0;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   background: none;
   color: var(--muted);
   font-size: var(--text-list);
@@ -1788,6 +1796,7 @@ summary::before {
   padding: 0 var(--space-2) 0 0;
   border: 0;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   background: none;
   color: var(--muted);
 }
