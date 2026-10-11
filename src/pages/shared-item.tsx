@@ -57,13 +57,13 @@ const SharedItemContent = ({
         </div>
         <p id="item-actions" class="actions">
           {limited ? (
-            <button type="button" id="open-limited-item">
+            <button type="button" id="open-limited-item" class="primary">
               {item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once"}
             </button>
           ) : null}
           {!limited ? (
-            <a class="button" href={`${url}/d`}>
-              Download
+            <a class="button primary" href={`${url}/d`}>
+              Save
             </a>
           ) : null}
         </p>
@@ -92,10 +92,10 @@ export const renderSharedItemPage = (
       ) : (
         <>
           <h1 id="item-title">Shared item</h1>
-          <p id="item-meta" class="intro" />
-          <p id="status" class="status error" role="status" aria-live="polite">
-            {item ? null : <span>This shared item is gone.</span>}
+          <p id="item-meta" class="intro">
+            {item ? null : "This shared item is gone: deleted, expired or already read."}
           </p>
+          <p id="status" class="status" role="status" aria-live="polite" />
           <section id="item" class="shared-item stack" aria-labelledby="item-title" hidden>
             <div id="item-body" />
             <p id="item-actions" class="actions" />

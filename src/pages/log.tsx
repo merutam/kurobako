@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { type AccessLogEntry, locationOf } from "../core/visits";
-import { Icon } from "./components/icons";
 import { Page, type SiteView } from "./components/layout";
 
 const LogContent = ({
@@ -26,11 +25,7 @@ const LogContent = ({
       Access log · <span id="log-title">{title}</span>
     </h1>
     <p class="intro">
-      {entries.length} IP{entries.length === 1 ? "" : "s"} ·{" "}
-      <a data-icon="json" href={jsonHref}>
-        <Icon name="json" />
-        See JSON
-      </a>
+      {entries.length} IP{entries.length === 1 ? "" : "s"} · <a href={jsonHref}>As JSON</a>
     </p>
     {entries.length ? (
       <div class="table-scroll">

@@ -4,18 +4,11 @@
 import { secretNameProblem, splitFragment } from "../../../public/k.mjs";
 // Namespace page entry point. Each feature owns its DOM and state; this file
 // only wires them together and starts the selected plain or encrypted mode.
-import {
-  copyText,
-  element,
-  iconLink,
-  ignoreStrayDrops,
-  readConfig,
-  SITE,
-  setBusy,
-} from "../lib/common.js";
+import { copyText, element, ignoreStrayDrops, readConfig, SITE, setBusy } from "../lib/common.js";
 import { loadHighlighter } from "../lib/highlight.js";
 import { createStatus } from "../lib/status.js";
 import { failUnlocking, finishUnlocking } from "../lib/unlocking.js";
+import { h } from "../shared/dom.js";
 import { createAccess } from "./namespace/access.js";
 import { createForms } from "./namespace/forms.js";
 import { createItemList } from "./namespace/item-list.js";
@@ -62,9 +55,9 @@ const showPage = (mode) => {
       " · ",
       // The name or read token stays in the fragment, including when the
       // log's Back link returns to this page.
-      iconLink(`${mode.basePath}/log${window.location.hash}`, "Access log", "users"),
+      h("a", { href: `${mode.basePath}/log${window.location.hash}` }, "Access log"),
       " · ",
-      iconLink(`${mode.basePath}/ls`, "See JSON", "json"),
+      h("a", { href: `${mode.basePath}/ls` }, "As JSON"),
     );
     document.title = `${mode.title} · Kurobako`;
   }
@@ -79,10 +72,10 @@ const showPage = (mode) => {
 };
 
 const disableAll = (message) => {
-  for (const selector of ["#text-form", "#file-form", "#restore-form"]) {
+  for (const selector of ["#send-form", "#restore-form"]) {
     setBusy(element(selector), true);
   }
-  for (const selector of ["#backup-zip", "#backup-tar", "#refresh"]) {
+  for (const selector of ["#backup-zip", "#backup-tar"]) {
     element(selector).disabled = true;
   }
   status.error(message);
@@ -103,11 +96,13 @@ try {
     // A read-only link is #/<token>; a name may be followed by a CLI command.
     const { name: secretName, readToken } = splitFragment(window.location.hash.slice(1));
     if (!secretName && !readToken) {
-      throw new Error("Missing name. Open an encrypted namespace from the home page.");
+      throw Object.assign(new Error("This link has no name after its #."), {
+        retry: false,
+      });
     }
     if (!readToken) {
       const problem = secretNameProblem(secretName, config.sealed.maxNameLength);
-      if (problem) throw new Error(problem);
+      if (problem) throw Object.assign(new Error(problem), { retry: false });
     }
     // The page's loading screen (see namespace.tsx) says what is happening.
     mode = await sealedMode({ secretName, readToken }, access.writeHeaders);
@@ -151,5 +146,5 @@ try {
   setInterval(items.updateExpiries, 30_000);
 } catch (error) {
   disableAll(error.message);
-  failUnlocking(error.message);
+  failUnlocking(error.message, { retry: error.retry !== false });
 }

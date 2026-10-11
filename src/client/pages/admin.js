@@ -5,7 +5,6 @@ import {
   element,
   formatBytes,
   formatDuration,
-  iconLink,
   ignoreStrayDrops,
   numberFormatter,
   request,
@@ -18,7 +17,6 @@ import { createStatus } from "../lib/status.js";
 // link to the request logs where the platform keeps them, and backups of the
 // whole instance.
 import { h } from "../shared/dom.js";
-import { icon } from "../shared/icons.js";
 
 const status = createStatus(element("#status"));
 const summary = element("#summary");
@@ -107,7 +105,6 @@ const renderOverview = (overview) => {
             "a",
             { class: "external-link", href: overview.logsUrl, target: "_blank", rel: "noopener" },
             "Open logs",
-            icon("external", 14),
           ),
           ` on ${new URL(overview.logsUrl).hostname}`,
         ]
@@ -149,7 +146,7 @@ const renderNamespaces = (namespaces) => {
               { class: "links" },
               h("a", { href: `${SITE}/${encodeURIComponent(name)}` }, "Open"),
               " · ",
-              iconLink(`${SITE}/${encodeURIComponent(name)}/log`, "Access log", "users"),
+              h("a", { href: `${SITE}/${encodeURIComponent(name)}/log` }, "Access log"),
             ),
           ),
         )

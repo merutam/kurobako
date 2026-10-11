@@ -34,19 +34,26 @@ main[data-loading] {
   min-height: 100dvh;
   flex-direction: column;
 }
-/* No spinner: a line of output, as a terminal would print it. */
+/* No spinner: lines of output, one under the other, in the middle:
+   "> Decrypting…", or an error with what to do next (see unlocking.js). */
 .page-loading {
   display: flex;
   min-height: 0;
   flex: 1;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1ch;
+  gap: var(--space-3);
+  padding: 0 var(--page-gutter);
   color: var(--muted);
   font-size: var(--text-small);
+  text-align: center;
 }
-.page-loading::before {
-  content: ">" / "";
+.page-loading > * {
+  margin: 0;
+}
+.page-loading > :first-child::before {
+  content: "> " / "";
 }
 
 body {
@@ -99,26 +106,16 @@ a:hover {
   white-space: nowrap;
 }
 
-/* Icons stay in the markup for the controls that come with one, but a
-   control is known by its words here: only the theme button and the editor's
-   resize handle draw theirs. */
-:where(#viewers) svg,
-button > svg,
-[data-icon] > svg,
-.external-link svg,
-a.button > svg {
+/* The theme button draws the choice's icon: auto, sun or moon. */
+.theme-toggle > svg {
   display: none;
 }
-button.text-resize-handle > svg {
-  display: block;
-}
-/* The theme button draws the choice's icon: auto, sun or moon. */
 .theme-toggle[data-theme-choice="auto"] > svg:nth-of-type(1),
 .theme-toggle[data-theme-choice="light"] > svg:nth-of-type(2),
 .theme-toggle[data-theme-choice="dark"] > svg:nth-of-type(3) {
   display: block;
 }
-/* A link to another site, marked as such: an arrow in place of the icon. */
+/* A link to another site, marked as such: an arrow after its words. */
 .external-link::after {
   content: " ↗" / "";
 }
@@ -343,6 +340,7 @@ p {
 }
 .file-list li {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   padding: 6px var(--space-3);
@@ -355,7 +353,10 @@ p {
   white-space: nowrap;
 }
 .file-list .file-size {
+  display: inline-flex;
   flex: none;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--dim);
 }
 .file-list .too-large,
@@ -401,13 +402,15 @@ button:disabled:hover {
   cursor: not-allowed;
 }
 /* One per screen, for the main action. */
-button.primary {
+button.primary,
+a.button.primary {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--on-accent);
   font-weight: 700;
 }
-button.primary:hover {
+button.primary:hover,
+a.button.primary:hover {
   border-color: var(--accent-hover);
   background: var(--accent-hover);
   color: var(--on-accent);
@@ -463,11 +466,6 @@ input[type="radio"] {
   width: 18px;
   height: 18px;
   margin: 0;
-}
-.setting-check span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 /* Text fields: the same box wherever they are. */
@@ -638,13 +636,6 @@ select {
 }
 .section-heading .actions {
   justify-content: flex-end;
-}
-.media-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--hit);
-  padding: 0 var(--space-2);
-  font-size: var(--text-list);
 }
 
 /* --- Status messages ------------------------------------------------------ */
@@ -868,23 +859,6 @@ main.media-feed-open > :not(.site-header, #media-feed) {
 }
 .media-feed-heading h1 {
   margin: 0;
-}
-/* The views are tags: "[ list ]", filled when chosen. */
-.media-view-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.media-view-options button::before {
-  content: "[ " / "";
-}
-.media-view-options button::after {
-  content: " ]" / "";
-}
-.media-view-options button[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
 }
 .media-feed-item {
   margin: 0 0 var(--space-6);
@@ -1214,11 +1188,6 @@ button.media-preview:hover img {
   }
 }
 
-/* How items open, beside the list actions. */
-.section-heading select {
-  min-height: var(--hit);
-}
-
 /* Renaming an item in place, where its name was. */
 .rename-input {
   min-height: 36px;
@@ -1240,13 +1209,6 @@ button.media-preview:hover img {
 .live-status.offline {
   color: var(--err);
 }
-/* The others connected, in words: "· 3 connected". */
-#viewers .visually-hidden {
-  position: static;
-  width: auto;
-  height: auto;
-  clip-path: none;
-}
 
 /* --- Editors -------------------------------------------------------------- */
 
@@ -1265,36 +1227,6 @@ button.media-preview:hover img {
   min-width: 0;
   flex: 0 1 auto;
   max-width: 16rem;
-}
-.text-name-row {
-  margin-bottom: var(--space-3);
-}
-.text-name-control {
-  display: inline-flex;
-  max-width: 100%;
-  align-items: stretch;
-  border: 1px solid var(--border);
-  background: var(--panel);
-}
-.text-name-control:focus-within {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-.text-name-control input[type="text"],
-.text-name-control input[type="text"]:focus {
-  width: min(24rem, 60vw);
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-}
-.text-name-control span {
-  display: flex;
-  flex: none;
-  align-items: center;
-  padding: 0 var(--space-3);
-  background: var(--chip);
-  color: var(--muted);
 }
 .editor-toolbar .hint,
 .form-footer .hint {
@@ -1534,7 +1466,8 @@ button.media-preview:hover img {
   font-size: var(--text-small);
   font-weight: 400;
 }
-/* Native details, in a box: the summary is the line that opens it. */
+/* Native details, in a box: the summary is the line that opens it. Kept
+   weak (:where), so a component's own details style wins whatever the order. */
 details {
   border: 1px solid var(--border);
 }
@@ -1555,13 +1488,13 @@ summary::before {
   content: "▸" / "";
   color: var(--accent);
 }
-details[open] > summary::before {
+:where(details[open]) > summary::before {
   content: "▾" / "";
 }
-details[open] > summary {
+:where(details[open]) > summary {
   border-bottom: 1px dashed var(--rule);
 }
-details > :not(summary) {
+:where(details) > :where(:not(summary)) {
   margin: var(--space-3);
   color: var(--dim);
 }
@@ -1725,16 +1658,6 @@ details > :not(summary) {
 
 /* --- Settings ------------------------------------------------------------- */
 
-/* Settings belong only to the namespace page. */
-.namespace-settings {
-  margin-bottom: var(--gap-section);
-}
-.settings-grid {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-6);
-}
 .expiry-setting {
   display: flex;
   align-items: center;
@@ -1749,9 +1672,6 @@ details > :not(summary) {
   width: fit-content;
   max-width: 100%;
 }
-.setting-row label.setting-check {
-  margin: 0;
-}
 .setting-check:has(input:disabled) {
   color: var(--muted);
   cursor: not-allowed;
@@ -1765,4 +1685,304 @@ details > :not(summary) {
 .text-editor.markdown .text-editor-highlight code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* --- Tabs, the composer and bundles ------------------------------------------ */
+
+/* Tabs: muted words over a line; the chosen one in the text's color, its
+   line in the accent (docs/design.md). */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.tabs [role="tab"],
+.tabs [role="tab"]:hover,
+.tab-add,
+.tab-add:hover {
+  min-height: var(--hit);
+  margin-bottom: -1px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-list);
+}
+.tabs [role="tab"]:hover,
+.tab-add:hover {
+  color: var(--fg);
+}
+.tabs [role="tab"][aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--fg);
+}
+.text-tabs {
+  display: contents;
+}
+.tab-add {
+  color: var(--accent);
+}
+/* The files tab ends the row, apart from the texts. */
+#files-tab {
+  margin-left: auto;
+}
+/* A text tab with its close button, and its name being edited in place. */
+.text-tab {
+  display: inline-flex;
+  align-items: stretch;
+}
+.tab-close,
+.tab-close:hover {
+  min-height: var(--hit);
+  margin-bottom: -1px;
+  padding: 0 var(--space-2) 0 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+}
+.tab-close:hover {
+  color: var(--err);
+}
+.text-tab:has([aria-selected="true"]) .tab-close {
+  border-bottom-color: var(--accent);
+}
+.tabs input.tab-rename,
+.tabs input.tab-rename:focus {
+  width: auto;
+  min-height: 0;
+  align-self: center;
+  margin: 0 var(--space-2);
+  padding: 4px var(--space-2);
+  border-color: var(--accent);
+  font-size: var(--text-list);
+}
+#send-form .form-footer {
+  margin-top: var(--space-4);
+}
+#send-summary:empty {
+  display: none;
+}
+
+/* Markdown, rendered: the page's own type, a document's rhythm. */
+.markdown-body {
+  max-width: var(--prose-width);
+  overflow-wrap: anywhere;
+}
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body :is(h1, h2, h3, h4, h5, h6) {
+  margin: var(--space-5) 0 var(--space-2);
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+.markdown-body h1 {
+  font-size: 26px;
+}
+.markdown-body h2 {
+  font-size: 20px;
+}
+.markdown-body :is(h3, h4, h5, h6) {
+  font-size: 16px;
+}
+.markdown-body h3::before {
+  content: "### " / "";
+  color: var(--accent);
+}
+.markdown-body :is(p, ul, ol, blockquote, pre, .table-scroll) {
+  margin: 0 0 var(--space-3);
+}
+.markdown-body :is(ul, ol) {
+  padding-left: 3ch;
+}
+.markdown-body li::marker {
+  color: var(--muted);
+}
+.markdown-body li.task {
+  list-style: none;
+}
+.markdown-body li.task input {
+  margin: 0 1ch 0 -3ch;
+}
+.markdown-body blockquote {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border);
+  color: var(--dim);
+}
+.markdown-body hr {
+  margin: var(--space-5) 0;
+  border: 0;
+  border-top: 1px dashed var(--border);
+}
+/* biome-ignore lint/style/noDescendingSpecificity: a document's images, unrelated to the media preview's. */
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: var(--space-2) 0;
+  border: 1px solid var(--border);
+}
+.markdown-body pre {
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: var(--text-list);
+  white-space: pre;
+}
+/* biome-ignore lint/style/noDescendingSpecificity: a document's code, unrelated to the editor's. */
+.markdown-body pre code {
+  padding: 0;
+  background: none;
+}
+.markdown-body del {
+  color: var(--muted);
+}
+.markdown-missing {
+  color: var(--muted);
+}
+.markdown-body [data-align="center"] {
+  text-align: center;
+}
+.markdown-body [data-align="right"] {
+  text-align: right;
+}
+.markdown-preview {
+  min-height: 18rem;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* A bundle in a list or on its own page: its tabs, then the tab's text. */
+.bundle .tabs {
+  margin-top: var(--space-1);
+}
+.bundle-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0;
+}
+.bundle-files a.file-name {
+  color: var(--accent);
+}
+
+/* A picked file's [remove], and the list's [clear]: compact, red on hover. */
+.file-list .row-action {
+  min-height: 32px;
+}
+.file-list .row-action:hover {
+  color: var(--err);
+}
+
+/* "[settings]" beside the Send heading: a details that opens a small panel
+   over the page, below it and to its right. */
+.send-settings {
+  position: relative;
+  border: 0;
+}
+.send-settings > summary {
+  gap: 0;
+  min-height: var(--hit);
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  font-size: var(--text-small);
+}
+.send-settings > summary::before {
+  content: "[" / "";
+  color: var(--muted);
+}
+.send-settings > summary::after {
+  content: "]" / "";
+  color: var(--muted);
+}
+.send-settings > summary:hover {
+  color: var(--accent-hover);
+}
+#settings-state {
+  color: var(--fg);
+}
+#settings-state:not(:empty)::before {
+  content: "\00a0·\00a0";
+  color: var(--muted);
+}
+.send-settings > .settings-popup {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: var(--space-3);
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--page-gutter));
+  margin: var(--space-1) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+}
+.settings-popup label.checkbox-label {
+  margin: 0;
+}
+
+/* A choice among a few options (components/choices.tsx): "open: one
+   [several] [all]". The chosen one reads as plain text, as the current
+   page does in a navigation; the others are bracketed actions. */
+fieldset.choices {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-1);
+}
+.choices-label {
+  margin-right: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+.choices .row-action[aria-pressed="true"] {
+  color: var(--fg);
+  cursor: default;
+}
+.choices .row-action[aria-pressed="true"]::before,
+.choices .row-action[aria-pressed="true"]::after {
+  content: none;
+}
+.media-feed-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-5);
+}
+
+/* On a phone, a row's five actions fit on one line with less room between. */
+@media (max-width: 640px) {
+  .item-actions .row-action {
+    padding: 0 1px;
+  }
+}
+
+/* A picked file's folder in a bundle, shown so a text knows how to refer to it. */
+.file-folder {
+  color: var(--muted);
+}
+
+/* A picked file's name copies its path: it reads as the name, not a button. */
+.file-list button.file-name,
+.file-list button.file-name:hover {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font-size: inherit;
+  text-align: left;
+  cursor: copy;
+}
+.file-list button.file-name:hover {
+  color: var(--accent);
 }

@@ -3,7 +3,7 @@
 
 import { publicItem, SHARE_TOKEN_PATTERN, type StoredItem, sharedItem } from "../core/model";
 import type { ViewEntry } from "../core/namespace/views";
-import { renderSharedViewPage } from "../pages/shared-view";
+import { renderGoneViewPage, renderSharedViewPage } from "../pages/shared-view";
 import {
   type Api,
   type App,
@@ -112,7 +112,8 @@ export const mountViews = (app: App, api: Api) => {
   app.get("/v/:token", async (c) => {
     c.header("Cache-Control", "no-store");
     const view = await describeView(c, c.req.param("token"));
-    if (!view) return jsonError(c, 404, "Shared view not found.");
+    // A browser gets a page saying so, as a gone share link does; .json stays JSON.
+    if (!view) return c.html(renderGoneViewPage(siteView), 404);
     return pageView(c, renderSharedViewPage(siteView, view));
   });
 };

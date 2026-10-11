@@ -292,6 +292,57 @@
   <code>pingSeconds</code>; the answer is <code>pong</code>.
 </p>
 
+<h2 id="bundles">Bundles</h2>
+<p>
+  A bundle sends texts and files together as one item, so that a Markdown
+  text shows with its images. It is a plain tar whose first entry is
+  <code>kurobako.json</code>; any file whose first bytes are
+  <code>kurobako.json</code> and a NUL is typed
+  <code>application/vnd.kurobako.bundle+tar</code> and named
+  <code>.tar</code> (by the server for plain sends, by the client for
+  encrypted ones). It is otherwise a file like any other: one item, within
+  <code>maxFileBytes</code>, downloaded as the tar it is.
+</p>
+<div class="table-scroll">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Command</th>
+        <th>Does</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>tar -cf notes.tar kurobako.json notes.md assets/photo.png</code></td>
+        <td>makes one, the manifest first</td>
+      </tr>
+      <tr>
+        <td><code>curl -T notes.tar $BOX/ns/</code></td>
+        <td>sends it</td>
+      </tr>
+      <tr>
+        <td><code>curl -OJ $BOX/ns/1/d &amp;&amp; tar -xf notes.tar</code></td>
+        <td>gets it back</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  The manifest lists the entries in the order a client shows them, and
+  which text comes first:
+  <code>{"kurobako": "bundle", "version": 1, "main": "notes.md", "entries":
+  [{"path": "notes.md", "type": "text/markdown", "text": true}, {"path":
+  "assets/photo.png", "type": "image/png"}]}</code>. Texts sit at the root
+  and files under <code>assets/</code>; paths are unique and at most 100
+  bytes of UTF-8. Entries with <code>"text": true</code> are texts, shown as
+  tabs (Markdown, by a <code>.md</code> name, rendered); the others are
+  files. A text refers to a file by its path, as
+  <code>![](assets/photo.png)</code> or
+  <code>[notes](assets/report.pdf)</code>, which also reads right once the
+  tar is extracted. Clients show only what the bundle
+  holds: no HTML, and no images from elsewhere.
+</p>
+
 <h2 id="encrypted">Encrypted namespaces</h2>
 <p>
   The secret name derives the <strong>namespace ID</strong> (the address),

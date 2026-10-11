@@ -6,9 +6,7 @@
 // and, when it holds the name (not a read-only link's token), to show it.
 import { splitFragment } from "../../../public/k.mjs";
 import { finishUnlocking } from "../lib/unlocking.js";
-import { decorateIcons } from "../shared/icons.js";
 
-decorateIcons();
 const back = document.querySelector("#log-back");
 if (back && window.location.hash) {
   const namespacePage = window.location.pathname.replace(/\/[^/]+\/log\/?$/, "");

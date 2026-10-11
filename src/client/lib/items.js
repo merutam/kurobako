@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import { BUNDLE_MIME } from "../shared/bundle.js";
 // Items as the namespace page and the shared-item page show them: what to
 // call one, the line under its title, and copying or saving its contents.
 import { h } from "../shared/dom.js";
@@ -14,23 +15,19 @@ export const extensionOf = (title) => /\.([A-Za-z0-9_+-]+)$/.exec(title)?.[1]?.t
 
 /** Longer texts show plain: coloring them would hold up the page. */
 export const MAX_HIGHLIGHT_CHARACTERS = 100_000;
-/** Guessing a language runs every grammar: over this many characters at most. */
-export const DETECTION_CHARACTERS = 10_000;
 
 /**
- * Highlighted source code. A known extension picks its grammar; without one,
- * highlight.js guesses from the text's start, then colors all of it with
- * that one grammar. Very long texts stay plain. The code shows plain until
+ * Highlighted source code. A known extension picks its grammar; without one
+ * the text stays plain, as text: a guess colors ordinary words ("from", "a")
+ * as code. Very long texts stay plain too. The code shows plain until
  * highlight.js is here (see highlight.js), then takes its colors.
  */
 export const highlightedCode = (text, title) => {
   const code = h("code", { class: "hljs" }, text);
-  if (text.length > MAX_HIGHLIGHT_CHARACTERS) return code;
+  if (text.length > MAX_HIGHLIGHT_CHARACTERS || !extensionOf(title)) return code;
   const color = (hljs) => {
     const extension = extensionOf(title);
-    const language = extension
-      ? hljs.getLanguage(extension) && extension
-      : hljs.highlightAuto(text.slice(0, DETECTION_CHARACTERS)).language;
+    const language = hljs.getLanguage(extension) && extension;
     if (!language) return;
     code.innerHTML = hljs.highlight(text, { language }).value;
     code.className = `hljs language-${language}`;
@@ -69,6 +66,7 @@ export const describeOpened = (metadata) => ({
   isImage: metadata.mime?.startsWith("image/") ?? false,
   isVideo: metadata.mime?.startsWith("video/") ?? false,
   isAudio: metadata.mime?.startsWith("audio/") ?? false,
+  isBundle: metadata.mime === BUNDLE_MIME,
 });
 
 /**
@@ -80,9 +78,7 @@ export const describeOpened = (metadata) => ({
 export const videoPlayer = (src) => {
   const video = h("video", { src: src, controls: true, preload: "metadata", playsinline: true });
   video.addEventListener("error", () => {
-    video.replaceWith(
-      h("p", { class: "hint" }, "This browser can't play this video. Use Download."),
-    );
+    video.replaceWith(h("p", { class: "hint" }, "This browser can't play this video. Use Save."));
   });
   return video;
 };
@@ -115,7 +111,7 @@ export const canCopyImages = () =>
 
 /** Puts an image on the clipboard, as PNG: the one type every browser takes. */
 export const copyImage = async (blob) => {
-  if (!canCopyImages()) throw new Error("This browser can't copy images. Use Download.");
+  if (!canCopyImages()) throw new Error("This browser can't copy images. Use Save.");
   const png = await asPng(blob);
   await navigator.clipboard.write([new ClipboardItem({ [png.type]: png })]);
 };

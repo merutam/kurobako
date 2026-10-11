@@ -52,8 +52,12 @@ const languageOptions = (selected) => {
 
 /** Fills a language picker with `selected` chosen, and with every language once they are known. */
 export const fillLanguages = (select, selected) => {
+  // The first fill takes `selected` over what the page came with; later
+  // fills (once highlight.js is here) keep what has been picked since.
+  let first = true;
   const fill = () => {
-    const value = select.value || selected;
+    const value = first ? selected : select.value || selected;
+    first = false;
     select.replaceChildren(...languageOptions(selected));
     select.value = value;
   };

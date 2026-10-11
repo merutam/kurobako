@@ -6,6 +6,7 @@
 // the rest and takes over the server's rows as they are (namespaces/item-list.js).
 // It only describes the markup, through h (see dom.js); what the controls do
 // is wired up in the browser, found by their data-action.
+import { BUNDLE_MIME } from "./bundle.js";
 import {
   compactText,
   dateFormatter,
@@ -43,6 +44,7 @@ export const describePlain = (item) =>
         isImage: item.kind === "image",
         isVideo: item.mime?.startsWith("video/") ?? false,
         isAudio: item.mime?.startsWith("audio/") ?? false,
+        isBundle: item.mime === BUNDLE_MIME,
       };
 
 const kindLabel = (info) =>
@@ -54,7 +56,9 @@ const kindLabel = (info) =>
         ? "Video"
         : info.isAudio
           ? "Audio"
-          : "File";
+          : info.isBundle
+            ? "Bundle"
+            : "File";
 
 /** "Text · 23 B · 10/6/26, 9:10 AM": the start of the line under an item's title. */
 export const itemSummary = (item, info) =>
@@ -118,6 +122,7 @@ const KIND_NAMES = {
   image: "image",
   video: "video",
   audio: "audio",
+  bundle: "bundle",
   file: "file",
 };
 
@@ -149,7 +154,9 @@ export const itemRow = (
             ? "video"
             : info.isAudio
               ? "audio"
-              : "file";
+              : info.isBundle
+                ? "bundle"
+                : "file";
   const renamable = expandable && !opened && info.kind !== "unreadable" && canWrite;
   const heading = [
     h("span", { class: "item-kind" }, KIND_NAMES[kind]),
@@ -200,8 +207,8 @@ export const itemRow = (
       // Decrypted (or already consumed) files are fetched only on click.
       actions.push(
         !opened && downloadUrl
-          ? actionLink("save", downloadUrl, "Download")
-          : actionButton("save", "download", "Download"),
+          ? actionLink("save", downloadUrl, "Save to this device")
+          : actionButton("save", "download", "Save to this device"),
       );
     }
   }

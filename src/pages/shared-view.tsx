@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { Icon } from "./components/icons";
 import { firstMediaId, ItemsSection, type ListedItem, viewRows } from "./components/items";
 import { Page, type SiteView } from "./components/layout";
 import { MediaFeed } from "./components/media-feed";
@@ -9,6 +8,21 @@ import { MediaFeed } from "./components/media-feed";
 type ViewPageData = {
   entries: ReadonlyArray<{ url: string; item: ListedItem }>;
 };
+
+/** A view link that leads nowhere: deleted with its namespace, or never made. */
+export const renderGoneViewPage = (site: SiteView) =>
+  Page({
+    site,
+    title: "Shared view · Kurobako",
+    scripts: [],
+    noIndex: true,
+    children: (
+      <>
+        <h1>Shared view</h1>
+        <p class="intro">This shared view is gone, or the link is mistyped.</p>
+      </>
+    ),
+  });
 
 export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
   const sealed = view.entries.some(({ item }) => item.kind === "sealed");
@@ -91,8 +105,7 @@ export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
               consumes one read)
             </label>
             <p class="actions">
-              <button type="submit" data-icon="copy">
-                <Icon name="copy" />
+              <button type="submit" class="primary">
                 Clone
               </button>
             </p>

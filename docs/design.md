@@ -74,6 +74,7 @@ Every component follows the same recipe: inherited font, 1 px border, square cor
 | Secondary button | Transparent background, `border` border, `fg` text | Hover turns the border `accent` |
 | Disabled button | Dashed border, `muted` text | A real `disabled` attribute |
 | Bracketed action | `accent` text between `muted` `[` `]`, no border: `[copy]`, `[settings]` | Hover lightens the accent; an action that deletes turns `err` |
+| Choice | A `muted` label, then the options: `open: one [several] [all]` | The chosen one as plain `fg` text, without brackets; the others are bracketed actions |
 | Filter / clickable tag | Text in brackets: `[ note ]`, `border` border | `accent` background, `on-accent` text, `aria-pressed="true"` |
 | Text field | `panel` background, `border` border, a prompt-style label above (`> name`) | Focus outlined in `accent` |
 | Search | A `$ grep` label in a `chip` box against the field's left | Filters while typing; empty shows `grep: no results` |
@@ -90,8 +91,10 @@ Every component follows the same recipe: inherited font, 1 px border, square cor
 **Which button.** Visual weight follows the action's importance:
 
 1. **Primary**: the screen's main action, only one (Send, Open, Log in, Restore).
-2. **Secondary**: actions complete in themselves, worth a large touch target (Random name, Copy link, Create shared view, Download zip).
-3. **Bracketed**: actions tied to a piece of content or repeated per row (`[edit]`, `[remove]`), and helper controls of a heading or field (`[refresh]`, `[media]`, `[settings]`, `[preview]`). Bordered buttons on every row of a list would make a wall of boxes.
+2. **Secondary**: actions complete in themselves, worth a large touch target (Random name, Copy link, Create shared view, Save zip).
+3. **Bracketed**: actions tied to a piece of content or repeated per row (`[edit]`, `[remove]`), and helper controls of a heading or field (`[media]`, `[settings]`, `[preview]`). Bordered buttons on every row of a list would make a wall of boxes.
+
+Buttons are written in sentence case (`Copy link`, `Open once`); bracketed actions, choices and tabs in lowercase, as commands (`[copy]`, `open: one`, `files`). A missing page (a gone share link or view) says so in its text, under its heading, never only in a passing status line.
 
 ## Interaction and accessibility
 

@@ -122,17 +122,6 @@ itemList = createItemList({
   loadItems: refresh,
 });
 itemList.setMode(mode);
-const refreshButton = element("#refresh");
-refreshButton.addEventListener("click", async () => {
-  refreshButton.disabled = true;
-  try {
-    await refresh();
-  } catch (error) {
-    status.error(error.message);
-  } finally {
-    refreshButton.disabled = false;
-  }
-});
 // An encrypted view shows only once decrypted, as a namespace does.
 show(view)
   .then(finishUnlocking)

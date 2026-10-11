@@ -6,7 +6,6 @@
 // restore of a backup.
 
 import { h } from "../shared/dom.js";
-import { decorateIcons, icon } from "../shared/icons.js";
 
 export {
   compactText,
@@ -128,32 +127,12 @@ export const request = async (url, options) => {
   return response;
 };
 
-/** A button; `iconName` (see icons.js) puts that icon before its label. */
-export const button = (label, onClick, className, iconName) => {
-  const control = h(
-    "button",
-    { type: "button", class: className },
-    iconName && icon(iconName),
-    label,
-  );
+/** A button with its label and what a click does. */
+export const button = (label, onClick, className) => {
+  const control = h("button", { type: "button", class: className }, label);
   control.addEventListener("click", onClick);
   return control;
 };
-
-/** A native link with the site's decorative icon. */
-export const iconLink = (href, label, iconName) => {
-  return h("a", { href, "data-icon": iconName }, icon(iconName, 14), label);
-};
-
-// Buttons in the pages' markup ask for their icon with data-icon="send";
-// links to other sites, class="external-link", are marked as such.
-// (Tests import this module too, with no page around it.)
-if (typeof document !== "undefined") {
-  decorateIcons();
-  for (const link of document.querySelectorAll("a.external-link")) {
-    if (link.lastElementChild?.localName !== "svg") link.append(icon("external", 14));
-  }
-}
 
 /**
  * Puts text on the clipboard: through the Clipboard API on HTTPS pages (and
@@ -235,4 +214,27 @@ export const ignoreStrayDrops = () => {
       if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
     });
   }
+};
+
+/**
+ * Wires a choice group (see src/pages/components/choices.tsx): marks `value`
+ * chosen, and calls `onPick(value)` when another is clicked. Returns a way
+ * to mark one chosen from outside.
+ */
+export const choiceGroup = (group, value, onPick) => {
+  const buttons = [...group.querySelectorAll("[data-choice]")];
+  const mark = (chosen) => {
+    for (const button of buttons) {
+      button.setAttribute("aria-pressed", String(button.dataset.choice === chosen));
+    }
+  };
+  mark(value);
+  for (const button of buttons) {
+    button.addEventListener("click", () => {
+      if (button.getAttribute("aria-pressed") === "true") return;
+      mark(button.dataset.choice);
+      onPick(button.dataset.choice);
+    });
+  }
+  return { mark };
 };

@@ -57,7 +57,7 @@ export const Page = ({
   config = false,
   data,
   noIndex = false,
-  decrypting: unlocking,
+  decrypting,
   mainClass,
   children,
 }: {
@@ -107,7 +107,7 @@ export const Page = ({
         ) : null}
       </head>
       <body>
-        <main class={mainClass} data-loading={unlocking ? "" : undefined}>
+        <main class={mainClass} data-loading={decrypting ? "" : undefined}>
           <header class="site-header">
             <p class="site-name">
               <a href={`${basePath}/`}>
@@ -130,9 +130,9 @@ export const Page = ({
               theme: <span id="theme-name">auto</span>
             </button>
           </header>
-          {unlocking ? (
+          {decrypting ? (
             <div id="page-loading" class="page-loading" role="status" aria-live="polite">
-              <span>{unlocking}</span>
+              <span>{decrypting}</span>
             </div>
           ) : null}
           {children}
@@ -148,7 +148,6 @@ export const Page = ({
               rel="noopener"
             >
               Source
-              <Icon name="external" size={14} />
             </a>
           </p>
         </footer>

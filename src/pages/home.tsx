@@ -3,7 +3,6 @@
 
 import { formatBytes, formatDuration } from "../client/shared/format.js";
 import type { AppConfig } from "../config";
-import { Icon } from "./components/icons";
 import { Page, type SiteView } from "./components/layout";
 
 const number = new Intl.NumberFormat("en-US");
@@ -76,12 +75,10 @@ export const renderHomePage = (site: SiteView, config: AppConfig) => {
               </p>
               <p id="name-strength" class="hint" aria-live="polite" hidden />
               <p class="actions">
-                <button data-icon="random" id="random-name" type="button">
-                  <Icon name="random" />
+                <button id="random-name" type="button">
                   Random name
                 </button>
-                <button data-icon="open" type="submit" class="primary">
-                  <Icon name="open" />
+                <button type="submit" class="primary">
                   Open
                 </button>
               </p>
@@ -117,10 +114,7 @@ export const renderHomePage = (site: SiteView, config: AppConfig) => {
             </tbody>
           </table>
           <p>
-            <a data-icon="json" href={`${site.basePath}/stats.json`}>
-              <Icon name="json" />
-              Full statistics
-            </a>
+            <a href={`${site.basePath}/stats.json`}>Full statistics</a>
           </p>
         </section>
       </>

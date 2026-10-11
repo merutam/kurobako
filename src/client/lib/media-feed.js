@@ -6,7 +6,7 @@
 // Music keeps playing out of view; videos pause. A namespace's live changes
 // keep the cards they do not touch, so what plays goes on playing.
 import { h } from "../shared/dom.js";
-import { element, storage } from "./common.js";
+import { choiceGroup, element, storage } from "./common.js";
 import { audioPlayer, itemSummary, videoPlayer } from "./items.js";
 
 const VIEW_KEY = "kurobako-media-view-v2";
@@ -16,8 +16,8 @@ export const createMediaFeed = (sourceOf) => {
   const page = element("#media-feed");
   const list = element("#media-feed-list");
   const back = element("#media-feed-back");
-  const filterInput = element("#media-filter");
-  const viewButtons = [...page.querySelectorAll("[data-media-view]")];
+  const filterChoices = element("#media-filter");
+  const viewChoices = element("#media-view");
   const previousView = { large: "list", grid: "grid", list: "details" }[
     storage.get("kurobako-media-view")
   ];
@@ -30,18 +30,12 @@ export const createMediaFeed = (sourceOf) => {
   let filter = "all";
 
   list.dataset.view = view;
-  for (const button of viewButtons) {
-    button.setAttribute("aria-pressed", String(button.dataset.mediaView === view));
-  }
 
   const setView = (next) => {
     if (next === view) return;
     view = next;
     list.dataset.view = view;
     storage.set(VIEW_KEY, view);
-    for (const button of viewButtons) {
-      button.setAttribute("aria-pressed", String(button.dataset.mediaView === view));
-    }
     for (const card of cards.values()) {
       card.slot.style.removeProperty("min-height");
       const video = card.slot.querySelector("video");
@@ -51,9 +45,7 @@ export const createMediaFeed = (sourceOf) => {
       }
     }
   };
-  for (const button of viewButtons) {
-    button.addEventListener("click", () => setView(button.dataset.mediaView));
-  }
+  choiceGroup(viewChoices, view, setView);
   const matchesFilter = (entry) =>
     filter === "all" ||
     (filter === "images" && entry.info.isImage) ||
@@ -65,8 +57,8 @@ export const createMediaFeed = (sourceOf) => {
       if (card.figure.hidden) card.slot.querySelector("video, audio")?.pause();
     }
   };
-  filterInput.addEventListener("change", () => {
-    filter = filterInput.value;
+  choiceGroup(filterChoices, filter, (picked) => {
+    filter = picked;
     applyFilter();
   });
   const mediaUrl = (id) => {

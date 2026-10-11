@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { Icon } from "./components/icons";
 import { Page, type SiteView } from "./components/layout";
 
 /**
@@ -29,8 +28,7 @@ export const renderLoginPage = (site: SiteView, { next = "/", error = "" } = {})
             <label for="key">Key</label>
             <input id="key" name="key" type="password" autocomplete="current-password" required />
             <p class="actions">
-              <button data-icon="login" type="submit" class="primary">
-                <Icon name="login" />
+              <button type="submit" class="primary">
                 Log in
               </button>
             </p>

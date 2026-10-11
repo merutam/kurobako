@@ -12,7 +12,6 @@ import {
 } from "../client/shared/limits.js";
 import type { AppConfig } from "../config";
 import { FileField } from "./components/file-field";
-import { Icon } from "./components/icons";
 import { firstMediaId, ItemsSection, type ListedItem, namespaceRows } from "./components/items";
 import { Page, type SiteView } from "./components/layout";
 import { MediaFeed } from "./components/media-feed";
@@ -56,113 +55,122 @@ export const renderNamespacePage = (
             {plain ? (
               <>
                 {" · "}
-                <a data-icon="users" href={`${path}/log`}>
-                  <Icon name="users" />
-                  Access log
-                </a>
+                <a href={`${path}/log`}>Access log</a>
                 {" · "}
-                <a data-icon="json" href={`${path}/ls`}>
-                  <Icon name="json" />
-                  See JSON
-                </a>
+                <a href={`${path}/ls`}>As JSON</a>
               </>
             ) : null}
           </span>
         </p>
         <p id="status" class="status" role="status" aria-live="polite" />
         <MediaFeed />
-        <section id="access-options" class="namespace-settings" aria-labelledby="settings-title">
-          <h2 id="settings-title">Settings</h2>
-          <div class="settings-grid">
-            <div id="burn-option" class="setting-row">
-              <label class="checkbox-label setting-check">
-                <input id="burn" type="checkbox" />
-                <span data-icon="burn">
-                  <Icon name="burn" />
-                  Delete after first open
-                </span>
-              </label>
-            </div>
-            <div class="setting-row expiry-setting">
-              <label for="expires-in">Expires after</label>
-              <select id="expires-in">
-                {expiryOptions(ttlSeconds).map(([label, value]) => (
-                  <option value={value}>{label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </section>
         <section id="send-section" class="stack" aria-labelledby="send-title">
-          <h2 id="send-title">Send</h2>
-          <form id="text-form">
-            <fieldset>
-              <div id="text-name-row" class="text-name-row">
-                <label for="text-name">File name</label>
-                <div class="text-name-control">
-                  <input
-                    id="text-name"
-                    type="text"
-                    value="text"
-                    maxlength={100}
-                    autocomplete="off"
-                    spellcheck={false}
-                    aria-describedby="text-extension"
-                  />
-                  <span id="text-extension">.txt</span>
+          <div class="section-heading">
+            <h2 id="send-title">Send</h2>
+            {/* How sends go: closed, it says what differs from the defaults (forms.js). */}
+            <details id="send-settings" class="send-settings">
+              <summary>
+                settings
+                <span id="settings-state" />
+              </summary>
+              <div class="settings-popup">
+                <label class="checkbox-label setting-check">
+                  <input id="burn" type="checkbox" /> Delete after first open
+                </label>
+                <div class="expiry-setting">
+                  <label for="expires-in">Expires after</label>
+                  <select id="expires-in">
+                    {expiryOptions(ttlSeconds).map(([label, value]) => (
+                      <option value={value}>{label}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
-              <textarea
-                id="text"
-                name="text"
-                rows={8}
-                aria-label="Text"
-                maxlength={maxTextBytes}
-                aria-describedby="text-limit"
-                required
-              />
-              <div class="editor-toolbar">
-                <select id="text-language" aria-label="Syntax highlighting">
-                  <option value="">Plain text</option>
-                </select>
-                <p id="text-limit" class="hint">
-                  {textSizeText(0, maxTextBytes)}
+            </details>
+          </div>
+          {/* One composer: text tabs and files, sent as a text, as files, or
+              together as one bundle (forms.js decides, by what it holds). */}
+          {/* No native validation: a send may be texts, files or both (forms.js). */}
+          <form id="send-form" novalidate>
+            <fieldset>
+              <div class="tabs composer-tabs" role="tablist" aria-label="What to send">
+                <span id="text-tabs" class="text-tabs">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="text-panel"
+                    data-tab="0"
+                    title="Click again, double-click or press F2 to rename"
+                  >
+                    text.md
+                  </button>
+                </span>
+                <button
+                  id="add-tab"
+                  type="button"
+                  class="tab-add"
+                  aria-label="New text tab"
+                  title="New text tab"
+                >
+                  +
+                </button>
+                <button
+                  id="files-tab"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="files-panel"
+                >
+                  files
+                </button>
+              </div>
+              <div id="text-panel" role="tabpanel">
+                <textarea
+                  id="text"
+                  name="text"
+                  rows={8}
+                  aria-label="Text"
+                  maxlength={maxTextBytes}
+                  aria-describedby="text-limit"
+                />
+                <div id="markdown-preview" class="markdown-preview" hidden />
+                <div class="editor-toolbar">
+                  {/* Markdown by default; forms.js adds every language. */}
+                  <select id="text-language" aria-label="Syntax highlighting">
+                    <option value="">Plain text</option>
+                    <option value="md" selected>
+                      Markdown · .md
+                    </option>
+                  </select>
+                  <button id="preview-toggle" type="button" class="row-action" aria-pressed="false">
+                    preview
+                  </button>
+                  <p id="text-limit" class="hint">
+                    {textSizeText(0, maxTextBytes)}
+                  </p>
+                </div>
+              </div>
+              <div id="files-panel" role="tabpanel" hidden>
+                <FileField
+                  id="file"
+                  name="file"
+                  multiple
+                  labelledBy="files-tab"
+                  describedBy="file-limit"
+                />
+                {/* What is picked, one per line with its size (forms.js). */}
+                <ul id="file-list" class="file-list" aria-label="Files to send" hidden />
+                <p id="file-limit" class="hint">
+                  {fileLimitText(maxFilesAtOnce(config), fileLimit)}
                 </p>
               </div>
               <div class="form-footer">
-                <button data-icon="send" type="submit" class="primary">
-                  <Icon name="send" />
+                <p id="send-summary" class="hint" aria-live="polite" />
+                <button type="submit" class="primary">
                   Send
                 </button>
               </div>
-            </fieldset>
-          </form>
-          <form id="file-form">
-            <fieldset>
-              <legend id="file-legend">File</legend>
-              <FileField
-                id="file"
-                name="file"
-                multiple
-                labelledBy="file-legend"
-                describedBy="file-limit"
-              />
-              {/* What is picked, one per line with its size (forms.js). */}
-              <ul id="file-list" class="file-list" aria-label="Files to send" hidden />
-              <p id="file-limit" class="hint">
-                {fileLimitText(maxFilesAtOnce(config), fileLimit)}
-              </p>
-              <p class="actions">
-                {/* Phones offer no Paste in a text box when the clipboard holds
-                    only an image: this reads it (forms.js), where browsers can. */}
-                <button id="paste-files" type="button">
-                  Paste from clipboard
-                </button>
-                <button data-icon="send" type="submit" class="primary">
-                  <Icon name="send" />
-                  Send
-                </button>
-              </p>
             </fieldset>
           </form>
         </section>
@@ -185,22 +193,19 @@ export const renderNamespacePage = (
           />
           <div class="copy-link">
             <input id="page-url" type="text" readOnly aria-label="Link to this page" />
-            <button data-icon="copy" id="copy-link" type="button">
-              <Icon name="copy" />
+            <button id="copy-link" type="button">
               Copy link
             </button>
           </div>
           <p>
             {/* A plain address writes; an encrypted page knows only once opened. */}
-            <button id="create-view" data-icon="share" type="button" hidden={!plain}>
-              <Icon name="share" />
+            <button id="create-view" type="button" hidden={!plain}>
               Create shared view
             </button>
           </p>
           <div id="view-link-row" class="copy-link" hidden>
             <input id="view-link" type="text" readOnly aria-label="Shared view link" />
-            <button id="copy-view-link" data-icon="copy" type="button">
-              <Icon name="copy" />
+            <button id="copy-view-link" type="button">
               Copy link
             </button>
           </div>
@@ -211,13 +216,11 @@ export const renderNamespacePage = (
             {backupHint(!plain)}
           </p>
           <p class="actions">
-            <button data-icon="download" id="backup-zip" type="button">
-              <Icon name="download" />
-              Download zip
+            <button id="backup-zip" type="button">
+              Save zip
             </button>
-            <button data-icon="download" id="backup-tar" type="button">
-              <Icon name="download" />
-              Download tar
+            <button id="backup-tar" type="button">
+              Save tar
             </button>
           </p>
           <form id="restore-form">
@@ -233,8 +236,7 @@ export const renderNamespacePage = (
                 A backup of a namespace (zip or tar); items already here are skipped.
               </p>
               <p class="actions">
-                <button data-icon="upload" type="submit" class="primary">
-                  <Icon name="upload" />
+                <button type="submit" class="primary">
                   Restore
                 </button>
               </p>

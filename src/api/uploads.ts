@@ -4,6 +4,7 @@
 // Receiving items: small texts stay in SQLite; files and larger texts stream
 // to the blob store.
 import { createHash } from "node:crypto";
+import { BUNDLE_MIME, isBundle } from "../client/shared/bundle.js";
 import { detectMedia, SIGNATURE_BYTES, safeFileName, safeMediaName } from "../core/media";
 import {
   type NamespaceRef,
@@ -226,6 +227,17 @@ export const describePlainFile = (upload: Upload, filename: string | null): Obje
       kind: detected.kind === "image" ? "image" : "file",
       mime: detected.mime,
       filename: safeMediaName(filename ?? "file", detected.extension, detected.kind),
+      named,
+    };
+  }
+  // A bundle (texts and files sent as one tar) keeps its type, so pages can
+  // show what it holds; it is downloaded as the tar it is.
+  if (isBundle(upload.head)) {
+    const name = safeFileName(filename ?? "bundle");
+    return {
+      kind: "file",
+      mime: BUNDLE_MIME,
+      filename: name.toLowerCase().endsWith(".tar") ? name : `${name}.tar`,
       named,
     };
   }

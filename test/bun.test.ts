@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   bodyKey,
+  BUNDLE_MIME as CLI_BUNDLE_MIME,
   TEXT_PREVIEW_CHARS as CLI_TEXT_PREVIEW_CHARS,
   detectMedia as cliDetectMedia,
   defaultTextName as clientDefaultName,
@@ -42,6 +43,13 @@ import { FIXED_FILES, ICON_FILES, STYLES } from "../src/assets";
 import { bundle } from "../src/client/build";
 import { formatBytes as pageFormatBytes } from "../src/client/lib/common.js";
 import { coverFromTag } from "../src/client/lib/cover.js";
+import {
+  BUNDLE_MIME,
+  isBundle,
+  readBundle,
+  uniqueNames,
+  writeBundle,
+} from "../src/client/shared/bundle.js";
 import { sealedFileLimit } from "../src/client/shared/limits.js";
 import { type AppConfig, loadConfig } from "../src/config";
 import { readArchive, writeArchive } from "../src/core/archive";
@@ -1240,6 +1248,34 @@ describe("rules kept in two places", () => {
       }
     }
     expect(CLI_TEXT_PREVIEW_CHARS).toBe(TEXT_PREVIEW_CHARS);
+  });
+
+  test("bundles: a tar any tool reads, told the same way by the server and k.mjs", () => {
+    const encoder = new TextEncoder();
+    const entries = [
+      { path: "notes.md", type: "text/markdown", text: true, bytes: encoder.encode("# hi") },
+      { path: "olá.txt", type: "text/plain", text: true, bytes: encoder.encode("x".repeat(600)) },
+      { path: "photo.png", type: "image/png", bytes: new Uint8Array([1, 2, 3]) },
+    ];
+    const bytes = writeBundle({ main: "olá.txt", entries, mtime: 0 });
+    expect(bytes.length % 512).toBe(0);
+    expect(isBundle(bytes)).toBe(true);
+    const back = readBundle(bytes);
+    expect(back.main).toBe("olá.txt");
+    expect(back.entries).toEqual(entries.map((entry) => ({ text: false, ...entry })));
+    // k.mjs, which seals an encrypted namespace's files, types it the same.
+    expect(CLI_BUNDLE_MIME).toBe(BUNDLE_MIME);
+    expect(fileMetadata(bytes, "notes")).toMatchObject({
+      mime: BUNDLE_MIME,
+      filename: "notes.tar",
+    });
+    expect(fileMetadata(bytes.slice(512), "notes").mime).toBe("application/octet-stream");
+    expect(uniqueNames(["a.png", "a.png", "kurobako.json"])).toEqual([
+      "a.png",
+      "a-2.png",
+      "kurobako-2.json",
+    ]);
+    expect(() => readBundle(new Uint8Array(1024))).toThrow("not a bundle");
   });
 
   test("the protocol's version: k.mjs speaks the server's", () => {

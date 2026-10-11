@@ -7,6 +7,7 @@
 
 import type { expect as vitestExpect } from "vitest";
 import { newViewId, openSealedSpace, openSharedItem, openViewEntry } from "../public/k.mjs";
+import { BUNDLE_MIME, readBundle, writeBundle } from "../src/client/shared/bundle.js";
 import { describePlain, rowHash, rowState } from "../src/client/shared/item-row.js";
 import type { AppConfig } from "../src/config";
 import type { AccessLogEntry } from "../src/core/visits";
@@ -198,6 +199,36 @@ export const sharedTests = (harness: Harness) => {
       expect(part.status).toBe(206);
       expect(part.headers.get("content-type")).toBe("audio/mpeg");
       expect(new Uint8Array(await part.arrayBuffer())).toEqual(bytes.slice(0, 3));
+    });
+
+    test("tells a bundle by its manifest and serves it as the tar it is", async () => {
+      const ns = fresh("bundle");
+      const encoder = new TextEncoder();
+      const bytes = writeBundle({
+        main: "notes.md",
+        entries: [
+          { path: "notes.md", type: "text/markdown", text: true, bytes: encoder.encode("# hi") },
+          { path: "photo.png", type: "image/png", bytes: png },
+        ],
+      });
+      // curl -T notes.tar <site>/<ns>/
+      const sent = await json<FileItem>(`/${ns}/notes`, { method: "PUT", body: bytes });
+      expect(sent).toMatchObject({ kind: "file", mime: BUNDLE_MIME, filename: "notes.tar" });
+      const download = await call(`/${ns}/${sent.id}/d`);
+      expect(download.headers.get("content-type")).toBe(BUNDLE_MIME);
+      const back = readBundle(new Uint8Array(await download.arrayBuffer()));
+      expect(back.main).toBe("notes.md");
+      expect(
+        back.entries.map((entry: { path: string; text: boolean }) => [entry.path, entry.text]),
+      ).toEqual([
+        ["notes.md", true],
+        ["photo.png", false],
+      ]);
+      // Any other tar stays a plain download.
+      const tar = new Uint8Array(1024);
+      tar.set(encoder.encode("other.txt"), 0);
+      const other = await json<FileItem>(`/${ns}/other.tar`, { method: "PUT", body: tar });
+      expect(other.mime).toBe("application/octet-stream");
     });
 
     test("takes what curl sends by hand", async () => {
@@ -883,7 +914,7 @@ export const sharedTests = (harness: Harness) => {
       expect(alphaLog).toContain("Itabirito, Minas Gerais, BR");
       expect(alphaLog).not.toContain("198.51.100.20");
       expect(alphaLog).toContain(`href="/${alpha}">Back to namespace</a>`);
-      expect(alphaLog).toContain('data-icon="json"');
+      expect(alphaLog).toContain(`href="/${alpha}/log.json">As JSON</a>`);
       expect(alphaLog).toMatch(/type="module" src="\/k\/assets\/log-[0-9a-z]+\.js"/);
       expect(alphaLog).not.toContain("<main data-loading>");
       expect(alphaLog).not.toContain('id="log-back-row" hidden');
@@ -1637,9 +1668,9 @@ export const sharedTests = (harness: Harness) => {
       expect(home).toMatch(
         /href="\/k\/assets\/styles-[0-9a-f]+\.css"[\s\S]*src="\/k\/assets\/theme-[0-9a-z]+\.js"/,
       );
-      expect(home).toMatch(/id="random-name"[^>]*><svg[^>]*>/);
-      expect(home).toMatch(/data-icon="json" href="\/stats\.json"><svg[^>]*>/);
-      expect(home).toMatch(/>Source<svg[^>]*>/);
+      expect(home).toMatch(/id="random-name"[^>]*>Random name<\/button>/);
+      expect(home).toContain('href="/stats.json">Full statistics</a>');
+      expect(home).toMatch(/class="external-link"[^>]*>Source<\/a>/);
       expect(home).toContain('id="namespace-hint" class="hint">E2EE. Max 256 characters.</p>');
       expect(home).toContain('maxlength="256"');
       expect(home).toContain(
@@ -1655,7 +1686,6 @@ export const sharedTests = (harness: Harness) => {
         `<td id="sends-per-minute">${config.sendsPerMinute.toLocaleString("en-US")}</td>`,
       );
       expect(home).not.toContain("%MAX_FILE_SIZE%");
-      expect(home).toContain("</svg>Full statistics</a>");
 
       const embedded = html.match(
         /<script type="application\/json" id="config">(.*?)<\/script>/s,
@@ -1665,16 +1695,14 @@ export const sharedTests = (harness: Harness) => {
       );
     });
 
-    test("draws every icon on the server: nothing left for the browser to add", async () => {
+    test("controls are words: the only icons are the theme button's", async () => {
       const ns = fresh();
-      await sendText(ns, "with icons");
+      await sendText(ns, "no icons");
       for (const path of ["/", `/${ns}`, `/${ns}/log`, "/k/protocol", "/k/licenses"]) {
         const html = await (await call(path)).text();
-        const controls = [...html.matchAll(/<[a-z-]+[^>]*\sdata-icon="[^"]*"[^>]*>(.{4})/g)];
-        for (const [tag, start] of controls) expect(start, `${path}: ${tag}`).toBe("<svg");
-        for (const [link] of html.matchAll(/<a class="external-link"[\s\S]*?<\/a>/g)) {
-          expect(link, path).toMatch(/<\/svg><\/a>$/);
-        }
+        expect(html, path).not.toContain("data-icon");
+        // The theme button's three (auto, light, dark), and nothing else.
+        expect(html.match(/<svg/g), path).toHaveLength(3);
       }
     });
 

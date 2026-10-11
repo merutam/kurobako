@@ -1086,8 +1086,32 @@ export const detectMedia = (bytes) => {
  * image or a video is told by its bytes and named with its own extension;
  * anything else is application/octet-stream under its own (safe) name.
  */
+/**
+ * A bundle: texts and files sent as one tar whose first entry is the manifest,
+ * kurobako.json (see the protocol page). Told by those first bytes, as the
+ * server tells it for plain files.
+ */
+export const BUNDLE_MIME = "application/vnd.kurobako.bundle+tar";
+const isBundle = (bytes) => {
+  const signature = new TextEncoder().encode("kurobako.json\0");
+  return (
+    bytes.length >= signature.length && signature.every((byte, index) => bytes[index] === byte)
+  );
+};
+
 export const fileMetadata = (bytes, name) => {
   const media = detectMedia(bytes);
+  if (!media && isBundle(bytes)) {
+    const named = safeName(name, "bundle");
+    const filename = named.toLowerCase().endsWith(".tar") ? named : `${named}.tar`;
+    return {
+      kind: "file",
+      title: filename,
+      filename,
+      mime: BUNDLE_MIME,
+      size: bytes.byteLength,
+    };
+  }
   // A file sent without a name is called "file", as on the server.
   const filename = media
     ? `${safeName(

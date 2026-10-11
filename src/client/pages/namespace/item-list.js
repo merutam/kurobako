@@ -2,8 +2,10 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { defaultTextName, textDownloadName } from "../../../../public/k.mjs";
+import { bundleView } from "../../lib/bundle-view.js";
 import {
   button,
+  choiceGroup,
   compactText,
   copyText,
   element,
@@ -41,7 +43,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
   const emptyMessage = element("#empty");
   const itemCount = element("#item-count");
   const openMediaLink = element("#open-media");
-  const expandModeSelect = element("#expand-mode");
+  const expandModeChoices = element("#expand-mode");
   const { canWrite, writeHeaders } = access;
   let config = null;
   /** Items shown open; with "all", the ones closed by hand instead. */
@@ -348,7 +350,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       renderedSignature = "";
       void renderItems(serverItems, { force: true });
     });
-    const save = h("button", { type: "submit", class: "primary" }, "Save");
+    const save = h("button", { type: "submit", class: "primary" }, "Save changes");
     const toolbar = h("div", { class: "editor-toolbar" }, language, size, editor.position);
     const details = preview.nextElementSibling;
     // Only the date (and the expiry) stays: "Text · 23 B · " goes.
@@ -417,7 +419,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     if (toggle) {
       const body = listItem.querySelector(".item-body");
       const title = listItem.querySelector(".item-title");
-      const previewable = info.kind === "text" || info.isImage || info.isVideo || info.isAudio;
+      const previewable =
+        info.kind === "text" || info.isImage || info.isVideo || info.isAudio || info.isBundle;
 
       let loaded = false;
       const load = async () => {
@@ -426,6 +429,12 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
         try {
           if (info.kind === "text") {
             preview.replaceChildren(highlightedText(await textOf(entry), info.title));
+          } else if (info.isBundle) {
+            // A bundle is fetched (and decrypted) whole, then shown as its texts and files.
+            const bytes = new Uint8Array(await (await blobOf(entry)).arrayBuffer());
+            preview.replaceChildren(
+              bundleView(bytes, { objectUrl: (blob) => objectUrl(blob, item.id) }),
+            );
           } else {
             // Plain images and videos load straight from the server (a video
             // in parts, as it plays); an encrypted video plays in parts too,
@@ -545,9 +554,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     return node;
   };
 
-  expandModeSelect.value = expandMode;
-  expandModeSelect.addEventListener("change", () => {
-    expandMode = expandModeSelect.value;
+  choiceGroup(expandModeChoices, expandMode, (picked) => {
+    expandMode = picked;
     storage.set(EXPAND_MODE_KEY, expandMode);
     closedItems.clear();
     // One at a time keeps the newest of those open.

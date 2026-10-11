@@ -14,8 +14,8 @@ import {
   rowHash,
   rowState,
 } from "../../client/shared/item-row.js";
+import { Choices } from "./choices";
 import { h } from "./html";
-import { Icon } from "./icons";
 
 export { formatBytes };
 
@@ -121,23 +121,24 @@ export const ItemsSection = ({
       </h2>
       <span class="actions">
         <a
-          class="media-link"
-          data-icon="image"
+          class="row-action"
           id="open-media"
           href={mediaId ? `?media=${mediaId}` : "?media"}
           hidden={!mediaId}
         >
-          <Icon name="image" />
-          Media
+          media
         </a>
-        <select id="expand-mode" aria-label="Show contents">
-          <option value="one">One at a time</option>
-          <option value="several">Several at once</option>
-          <option value="all">All</option>
-        </select>
-        <button id="refresh" type="button" title="Refresh items">
-          refresh
-        </button>
+        <Choices
+          id="expand-mode"
+          label="open"
+          name="Open items"
+          choices={[
+            ["one", "one"],
+            ["several", "several"],
+            ["all", "all"],
+          ]}
+          current="one"
+        />
       </span>
     </div>
     <ol id="items" class="items">

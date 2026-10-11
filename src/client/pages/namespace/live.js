@@ -2,8 +2,6 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { element, numberFormatter, request } from "../../lib/common.js";
-import { h } from "../../shared/dom.js";
-import { icon } from "../../shared/icons.js";
 
 /**
  * `initial` is the queue the page came with ({ items, revision }), when the
@@ -11,7 +9,6 @@ import { icon } from "../../shared/icons.js";
  * again only if it changed before the live connection was up.
  */
 export const createLive = ({ status, renderItems, isItemsShown, onReady, onError, initial }) => {
-  const refreshButton = element("#refresh");
   const liveStatus = element("#live-status");
   const viewersLabel = element("#viewers");
   let mode = null;
@@ -46,7 +43,6 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
   };
 
   const loadItems = async () => {
-    refreshButton.disabled = true;
     try {
       const response = await request(`${mode.basePath}/ls?summary`, {
         cache: "no-store",
@@ -57,8 +53,6 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
     } catch (error) {
       status.error(`Could not refresh: ${error.message}`);
       if (!isItemsShown()) onError?.(`Could not load namespace: ${error.message}`);
-    } finally {
-      refreshButton.disabled = false;
     }
   };
 
@@ -101,12 +95,7 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
       viewersLabel.replaceChildren();
       return;
     }
-    viewersLabel.replaceChildren(
-      "· ",
-      icon("eye", 14),
-      ` ${numberFormatter.format(count)}`,
-      h("span", { class: "visually-hidden" }, " connected"),
-    );
+    viewersLabel.textContent = `· ${numberFormatter.format(count)} connected`;
   };
 
   const setLive = (live) => {
@@ -175,8 +164,6 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
     // Closed (or still closing) while hidden or after a drop: start over.
     if (!socket || socket.readyState >= WebSocket.CLOSING) connectLive();
   });
-
-  refreshButton.addEventListener("click", loadItems);
 
   return {
     /** Shows the page's own queue, before any connection. */

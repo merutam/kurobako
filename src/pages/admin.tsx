@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { FileField } from "./components/file-field";
-import { Icon } from "./components/icons";
 import { Page, type SiteView } from "./components/layout";
 
 /**
@@ -46,8 +45,7 @@ export const renderAdminPage = (
             <label for="key">Admin key</label>
             <input id="key" name="key" type="password" autocomplete="current-password" required />
             <p class="actions">
-              <button data-icon="login" type="submit" class="primary">
-                <Icon name="login" />
+              <button type="submit" class="primary">
                 Log in
               </button>
             </p>
@@ -69,12 +67,10 @@ export const renderAdminPage = (
               </option>
               <option value="30">30 s</option>
             </select>
-            <button data-icon="refresh" id="refresh" type="button">
-              <Icon name="refresh" />
+            <button id="refresh" type="button">
               Refresh
             </button>
-            <button data-icon="logout" id="logout" type="submit" form="logout-form">
-              <Icon name="logout" />
+            <button id="logout" type="submit" form="logout-form">
               Log out
             </button>
           </p>
@@ -100,13 +96,11 @@ export const renderAdminPage = (
               backup larger than a request may be split in parts: see the README.
             </p>
             <p class="actions">
-              <button data-icon="download" id="backup-zip" type="button">
-                <Icon name="download" />
-                Download zip
+              <button id="backup-zip" type="button">
+                Save zip
               </button>
-              <button data-icon="download" id="backup-tar" type="button">
-                <Icon name="download" />
-                Download tar
+              <button id="backup-tar" type="button">
+                Save tar
               </button>
             </p>
             <form id="restore-form">
@@ -122,8 +116,7 @@ export const renderAdminPage = (
                   A backup of the instance or of a namespace (zip or tar).
                 </p>
                 <p class="actions">
-                  <button data-icon="upload" type="submit" class="primary">
-                    <Icon name="upload" />
+                  <button type="submit" class="primary">
                     Restore
                   </button>
                 </p>
