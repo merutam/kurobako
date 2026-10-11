@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Markdown, shown: the common part of it (headings, paragraphs, lists and
-// task lists, quotes, code, rules, tables, emphasis, links and images),
-// written as elements, never as HTML. HTML in the text stays text, so a
-// document cannot run or load anything. Links go to http(s), mailto, or a
-// file beside the text in its bundle; images come only from that bundle
-// (resolve), since the page loads nothing from elsewhere.
+// HTML in the text stays text, so andocument cannot run
+// or load anything. Links go to http(s), mailto, or a
+// file beside the text in its bundle; images come only
+//  from that bundle (resolve).
 
 import { h } from "../shared/dom.js";
 import { highlightedCode } from "./items.js";

@@ -75,21 +75,19 @@ export const renderAdminPage = (
             </button>
           </p>
 
-          <div class="columns">
-            <section class="stack" aria-labelledby="system-title">
-              <h2 id="system-title">System</h2>
-              <div class="table-scroll">
-                <table class="data-table stats-table">
-                  <tbody id="system-stats" />
-                </table>
-              </div>
-            </section>
+          <section class="stack" aria-labelledby="system-title">
+            <h2 id="system-title">System</h2>
+            <div class="table-scroll">
+              <table class="data-table stats-table">
+                <tbody id="system-stats" />
+              </table>
+            </div>
+          </section>
 
-            <section id="logs" class="stack" aria-labelledby="logs-title" hidden>
-              <h2 id="logs-title">Requests, errors and logs</h2>
-              <p id="logs-link" />
-            </section>
-          </div>
+          <section id="logs" class="stack" aria-labelledby="logs-title" hidden>
+            <h2 id="logs-title">Requests, errors and logs</h2>
+            <p id="logs-link" />
+          </section>
 
           <section class="stack" aria-labelledby="backup-title">
             <h2 id="backup-title">Backup</h2>
