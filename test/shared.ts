@@ -4,7 +4,9 @@
 // Tests that hold on every platform: they only speak HTTP to the server, and
 // reach its storage through the harness. The Worker and the Bun server each
 // run them with their own harness, next to their platform-specific tests.
+
 import type { expect as vitestExpect } from "vitest";
+import { describePlain, rowHash, rowState } from "../public/item-row.js";
 import { newViewId, openSealedSpace, openSharedItem, openViewEntry } from "../public/k.mjs";
 import type { AppConfig } from "../src/config";
 import type { AccessLogEntry } from "../src/request-info";
@@ -270,7 +272,15 @@ export const sharedTests = (harness: Harness) => {
       const page = await (await call(`/${ns}`)).text();
       expect(page).toContain("<main>");
       expect(page).not.toContain('id="page-loading"');
-      expect(page).toContain('class="item-title">visible on first paint');
+      expect(page).toContain(">visible on first paint</span>");
+      // The browser keeps the server's row only if it would make the same one:
+      // the hash of what it makes it from, out of /ls?summary, must match.
+      const [item] = await json<Item[]>(`/${ns}/ls?summary`);
+      const made = rowHash(rowState(item, describePlain(item), false, true));
+      expect(page).toContain(`data-id="${defined(item, "the item").id}" data-made="${made}"`);
+      // Ready to use as it is: actions and icons included.
+      expect(page).toContain('data-action="delete"');
+      expect(page).toMatch(/class="item-kind"><svg /);
     });
 
     test("gives items short IDs, unique in their namespace, apart from positions", async () => {
@@ -1093,6 +1103,14 @@ export const sharedTests = (harness: Harness) => {
       expect(page).toContain('id="media-feed-list"');
       expect(page).toContain('id="items" class="items"');
       expect(page).toContain('class="item-title">two');
+      // Rows as view.js would make them (named by their link's token), so it keeps them.
+      for (const { url, item } of contents.entries) {
+        const shown = { ...item, id: url.split("/").pop() };
+        const made = rowHash(
+          rowState(shown, { ...describePlain(item), itemUrl: url }, false, false),
+        );
+        expect(page).toContain(`data-id="${shown.id}" data-made="${made}"`);
+      }
       expect(page).not.toContain('id="page-loading"');
       expect(page).not.toContain("%MEDIA_FEED%");
       expect(page).not.toContain(ns);
@@ -1617,6 +1635,19 @@ export const sharedTests = (harness: Harness) => {
       expect(JSON.parse(defined(embedded, "the embedded config"))).toEqual(
         await json("/.well-known/kurobako"),
       );
+    });
+
+    test("draws every icon on the server: nothing left for the browser to add", async () => {
+      const ns = fresh();
+      await sendText(ns, "with icons");
+      for (const path of ["/", `/${ns}`, `/${ns}/log`, "/k/protocol", "/k/licenses"]) {
+        const html = await (await call(path)).text();
+        const controls = [...html.matchAll(/<[a-z-]+[^>]*\sdata-icon="[^"]*"[^>]*>(.{4})/g)];
+        for (const [tag, start] of controls) expect(start, `${path}: ${tag}`).toBe("<svg");
+        for (const [link] of html.matchAll(/<a class="external-link"[\s\S]*?<\/a>/g)) {
+          expect(link, path).toMatch(/<\/svg><\/a>$/);
+        }
+      }
     });
 
     test("publishes the project and production dependency licenses separately", async () => {

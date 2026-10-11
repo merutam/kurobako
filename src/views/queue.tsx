@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { ItemRows, type ListedItem } from "./items";
+import type { HtmlEscapedString } from "hono/utils/html";
+import { Icon } from "./icons";
 
+/** The items' section: `rows` from namespaceRows or viewRows, `size` how many. */
 export const ItemsSection = ({
-  entries,
+  rows,
+  size,
   count,
   live = false,
   known = true,
 }: {
-  entries: ReadonlyArray<{ item: ListedItem; href: string; id?: string }>;
+  rows: HtmlEscapedString | null;
+  size: number;
   count: string;
   live?: boolean;
   known?: boolean;
@@ -27,6 +31,7 @@ export const ItemsSection = ({
       </h2>
       <span class="actions">
         <a class="media-link" data-icon="image" id="open-media" href="?media" hidden>
+          <Icon name="image" />
           Media
         </a>
         <select id="expand-mode" aria-label="Show contents">
@@ -41,13 +46,15 @@ export const ItemsSection = ({
           type="button"
           aria-label="Refresh items"
           title="Refresh items"
-        />
+        >
+          <Icon name="refresh" />
+        </button>
       </span>
     </div>
     <ol id="items" class="items">
-      <ItemRows entries={entries} />
+      {rows}
     </ol>
-    <p id="empty" class="empty" hidden={!known || entries.length > 0}>
+    <p id="empty" class="empty" hidden={!known || size > 0}>
       No items.
     </p>
   </section>

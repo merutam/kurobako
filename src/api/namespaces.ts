@@ -15,6 +15,7 @@ import {
   sealedName,
   summaryItem,
 } from "../model";
+import type { ListedItem } from "../views/items";
 import { renderLogPage } from "../views/log";
 import { renderNamespacePage } from "../views/namespace";
 import { type Api, type App, type AppContext, jsonError } from "./context";
@@ -93,7 +94,7 @@ export const mountNamespaces = (
           renderNamespacePage(
             siteView,
             ref.name,
-            items.map((item) => ({ item: summaryItem(item), id: item.id })),
+            items.map((item) => summaryItem(item) as ListedItem & { id: string }),
             config.maxItems,
           ),
         );

@@ -8,6 +8,8 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
+    // The markup shared with the browser, in public/ (see src/views/html.ts).
+    "allowJs": true,
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
     "noEmit": true,

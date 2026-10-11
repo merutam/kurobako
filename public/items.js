@@ -3,18 +3,11 @@
 
 // Items as the namespace page and the shared-item page show them: what to
 // call one, the line under its title, and copying or saving its contents.
-import {
-  asPng,
-  compactText,
-  dateFormatter,
-  el,
-  formatBytes,
-  HIDDEN_TITLE,
-  SITE,
-} from "./common.js";
+import { asPng, el, HIDDEN_TITLE, SITE } from "./common.js";
+import { describePlain, itemSummary, limitedItem } from "./item-row.js";
 import hljs from "./vendor/highlight.js";
 
-export const limitedItem = (item) => Boolean(item.burn || item.readsLeft !== undefined);
+export { describePlain, itemSummary, limitedItem };
 
 export const extensionOf = (title) => /\.([A-Za-z0-9_+-]+)$/.exec(title)?.[1]?.toLowerCase() ?? "";
 export const languageOf = (title) => {
@@ -65,34 +58,6 @@ export const highlightedText = (text, title) =>
     el("pre", {}, highlightedCode(text, title)),
   );
 
-/**
- * A plain item, as the pages show it: { kind: "text" | "file", title,
- * filename?, mime?, size, isImage, isVideo }. A text goes by its name, or by its start
- * (long texts arrive as a preview; the whole text is fetched when needed).
- */
-export const describePlain = (item) =>
-  item.kind === "text"
-    ? {
-        kind: "text",
-        title:
-          item.name ??
-          (limitedItem(item) ? HIDDEN_TITLE : compactText(item.text ?? item.preview ?? "")),
-        size: item.size,
-        isImage: false,
-        isVideo: false,
-        isAudio: false,
-      }
-    : {
-        kind: "file",
-        title: item.filename,
-        filename: item.filename,
-        mime: item.mime,
-        size: item.size,
-        isImage: item.kind === "image",
-        isVideo: item.mime?.startsWith("video/") ?? false,
-        isAudio: item.mime?.startsWith("audio/") ?? false,
-      };
-
 /** An encrypted item, from its opened metadata, in the same shape. */
 export const describeOpened = (metadata) => ({
   ...metadata,
@@ -124,21 +89,6 @@ export const videoPlayer = (src) => {
 /** Native audio controls keep seeking, downloads and accessibility in the browser. */
 export const audioPlayer = (src) =>
   el("audio", { src, controls: true, preload: "metadata", playsInline: true });
-
-/** "Text · 23 B · 10/6/26, 9:10 AM": the start of the line under an item's title. */
-export const itemSummary = (item, info) => {
-  const kind =
-    info.kind === "text"
-      ? "Text"
-      : info.isImage
-        ? "Image"
-        : info.isVideo
-          ? "Video"
-          : info.isAudio
-            ? "Audio"
-            : "File";
-  return `${kind} · ${formatBytes(info.size ?? item.size)} · ${dateFormatter.format(new Date(item.createdAt))}`;
-};
 
 /** Whether this browser can put an image on the clipboard. */
 export const canCopyImages = () =>

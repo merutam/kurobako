@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { type AccessLogEntry, locationOf } from "../request-info";
+import { Icon } from "./icons";
 import { Page, type SiteView } from "./layout";
 
 const LogContent = ({
@@ -25,6 +26,7 @@ const LogContent = ({
     <p class="intro">
       {entries.length} IP{entries.length === 1 ? "" : "s"} ·{" "}
       <a data-icon="json" href={jsonHref}>
+        <Icon name="json" />
         See JSON
       </a>
     </p>

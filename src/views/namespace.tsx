@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import type { ListedItem } from "./items";
+import { FileField } from "./file-field";
+import { Icon } from "./icons";
+import { type ListedItem, namespaceRows } from "./items";
 import { Page, type SiteView } from "./layout";
 import { MediaFeed } from "./media-feed";
 import { ItemsSection } from "./queue";
@@ -9,12 +11,11 @@ import { ItemsSection } from "./queue";
 export const renderNamespacePage = (
   site: SiteView,
   name: string | null,
-  items: ReadonlyArray<{ item: ListedItem; id: string }>,
+  items: ReadonlyArray<ListedItem & { id: string }>,
   maxItems: number,
 ) => {
   const plain = name !== null;
   const path = plain ? `${site.basePath}/${name}` : "";
-  const entries = items.map(({ item, id }) => ({ item, id, href: `${path}/${id}` }));
   return Page({
     site,
     title: plain ? `/${name} · Kurobako` : "Kurobako",
@@ -38,10 +39,12 @@ export const renderNamespacePage = (
               <>
                 {" · "}
                 <a data-icon="users" href={`${path}/log`}>
+                  <Icon name="users" />
                   Access log
                 </a>
                 {" · "}
                 <a data-icon="json" href={`${path}/ls`}>
+                  <Icon name="json" />
                   See JSON
                 </a>
               </>
@@ -56,7 +59,10 @@ export const renderNamespacePage = (
             <div id="burn-option" class="setting-row">
               <label class="checkbox-label setting-check">
                 <input id="burn" type="checkbox" disabled />
-                <span data-icon="burn">Delete after first open</span>
+                <span data-icon="burn">
+                  <Icon name="burn" />
+                  Delete after first open
+                </span>
               </label>
             </div>
             <div class="setting-row expiry-setting">
@@ -100,6 +106,7 @@ export const renderNamespacePage = (
               </div>
               <div class="form-footer">
                 <button data-icon="send" type="submit" class="primary">
+                  <Icon name="send" />
                   Send
                 </button>
               </div>
@@ -108,24 +115,19 @@ export const renderNamespacePage = (
           <form id="file-form">
             <fieldset>
               <legend id="file-legend">File</legend>
-              <k-file-field>
-                <input
-                  id="file"
-                  class="visually-hidden"
-                  name="file"
-                  type="file"
-                  multiple
-                  aria-labelledby="file-legend"
-                  aria-describedby="file-limit"
-                  required
-                />
-                <label id="file-zone" class="dropzone" for="file">
-                  Drop files here, or click to pick them
-                </label>
-              </k-file-field>
+              <FileField
+                id="file"
+                zoneId="file-zone"
+                name="file"
+                multiple
+                labelledBy="file-legend"
+                describedBy="file-limit"
+                placeholder="Drop files here, or click to pick them"
+              />
               <p id="file-limit" class="hint" />
               <p class="actions">
                 <button data-icon="send" type="submit" class="primary">
+                  <Icon name="send" />
                   Send
                 </button>
               </p>
@@ -133,7 +135,8 @@ export const renderNamespacePage = (
           </form>
         </section>
         <ItemsSection
-          entries={entries}
+          rows={plain ? namespaceRows(path, items) : null}
+          size={items.length}
           count={plain ? `${items.length}/${maxItems}` : ""}
           live
           known={plain}
@@ -150,17 +153,20 @@ export const renderNamespacePage = (
           <div class="copy-link">
             <input id="page-url" type="text" readOnly aria-label="Link to this page" />
             <button data-icon="copy" id="copy-link" type="button">
+              <Icon name="copy" />
               Copy link
             </button>
           </div>
           <p>
             <button id="create-view" data-icon="share" type="button" hidden>
+              <Icon name="share" />
               Create shared view
             </button>
           </p>
           <div id="view-link-row" class="copy-link" hidden>
             <input id="view-link" type="text" readOnly aria-label="Shared view link" />
             <button id="copy-view-link" data-icon="copy" type="button">
+              <Icon name="copy" />
               Copy link
             </button>
           </div>
@@ -172,34 +178,31 @@ export const renderNamespacePage = (
           </p>
           <p class="actions">
             <button data-icon="download" id="backup-zip" type="button">
+              <Icon name="download" />
               Download zip
             </button>
             <button data-icon="download" id="backup-tar" type="button">
+              <Icon name="download" />
               Download tar
             </button>
           </p>
           <form id="restore-form">
             <fieldset>
               <legend id="restore-legend">Restore</legend>
-              <k-file-field>
-                <input
-                  id="restore-file"
-                  class="visually-hidden"
-                  type="file"
-                  accept=".zip,.tar,application/zip,application/x-tar"
-                  aria-labelledby="restore-legend"
-                  aria-describedby="restore-hint"
-                  required
-                />
-                <label id="restore-zone" class="dropzone" for="restore-file">
-                  Drop a backup here, or click to pick one
-                </label>
-              </k-file-field>
+              <FileField
+                id="restore-file"
+                zoneId="restore-zone"
+                accept=".zip,.tar,application/zip,application/x-tar"
+                labelledBy="restore-legend"
+                describedBy="restore-hint"
+                placeholder="Drop a backup here, or click to pick one"
+              />
               <p id="restore-hint" class="hint">
                 A backup of a namespace (zip or tar); items already here are skipped.
               </p>
               <p class="actions">
                 <button data-icon="upload" type="submit" class="primary">
+                  <Icon name="upload" />
                   Restore
                 </button>
               </p>

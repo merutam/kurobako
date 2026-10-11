@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import { raw } from "hono/html";
+import { formatBytes } from "../../public/format.js";
+import { describePlain, itemRow, rowHash, rowState } from "../../public/item-row.js";
+import { h } from "./html";
+
+export { formatBytes };
+
 export type ListedItem = {
   kind: "text" | "image" | "file" | "sealed";
   createdAt: string;
@@ -14,26 +21,6 @@ export type ListedItem = {
   readsLeft?: number;
 };
 
-export const formatBytes = (size: number) => {
-  if (size < 1000) return `${size} B`;
-  const units = ["kB", "MB", "GB"];
-  let value = size / 1000;
-  let unit = 0;
-  while (value >= 1000 && unit < units.length - 1) {
-    value /= 1000;
-    unit += 1;
-  }
-  return `${Number(value.toFixed(value < 10 ? 1 : 0))} ${units[unit]}`;
-};
-
-const age = (date: string) => {
-  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(date)) / 60_000));
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes} min`;
-  if (minutes < 1440) return `${Math.floor(minutes / 60)} h`;
-  return `${Math.floor(minutes / 1440)} d`;
-};
-
 export const titleOf = (item: ListedItem) => {
   if (item.kind !== "text") return item.filename ?? "file";
   if (item.name) return item.name;
@@ -41,59 +28,51 @@ export const titleOf = (item: ListedItem) => {
   return (item.text ?? item.preview ?? "").replace(/\s+/gu, " ").trim() || "(blank)";
 };
 
-const kindOf = (item: ListedItem) => {
-  if (item.burn || item.readsLeft !== undefined) return "burn";
-  if (item.kind === "image") return "image";
-  if (item.mime?.startsWith("video/")) return "video";
-  if (item.mime?.startsWith("audio/")) return "audio";
-  return item.kind;
-};
+type Row = { item: ListedItem & { id: string }; info: object; downloadUrl: string | null };
 
-export const ItemRow = ({
-  item,
-  position,
-  href,
-  id,
-}: {
-  item: ListedItem;
-  position: number;
-  href: string;
-  id?: string;
-}) => {
-  const limited = item.burn || item.readsLeft !== undefined;
-  return (
-    <li class={limited ? "item burn" : "item"} data-ssr-id={id}>
-      <div class="item-row">
-        <span class="item-position">{position}</span>
-        {limited ? (
-          <span class="item-toggle">
-            <span class="item-kind" data-icon={kindOf(item)} aria-hidden="true" />
-            <span class="item-title">{titleOf(item)}</span>
-          </span>
-        ) : (
-          <a class="item-toggle" href={href}>
-            <span class="item-kind" data-icon={kindOf(item)} aria-hidden="true" />
-            <span class="item-title">{titleOf(item)}</span>
-          </a>
-        )}
-        <span class="item-facts">
-          {formatBytes(item.size)} ·{" "}
-          <span data-created-at={item.createdAt}>{age(item.createdAt)}</span>
-        </span>
-        <span class="item-actions" />
-      </div>
-    </li>
+/**
+ * Rows as the browser makes them (public/item-row.js), each with the hash of
+ * what it was made from, so the browser keeps them instead of making them again.
+ */
+const itemRows = (rows: readonly Row[], canWrite: boolean) =>
+  raw(
+    rows
+      .map(({ item, info, downloadUrl }, index) =>
+        itemRow(h, {
+          item,
+          info,
+          position: index + 1,
+          canWrite,
+          // Unknown here: a browser that cannot drops the button.
+          canCopyImages: true,
+          downloadUrl,
+          made: rowHash(rowState(item, info, false, canWrite)),
+        }),
+      )
+      .join(""),
   );
-};
 
-export const ItemRows = ({
-  entries,
-}: {
-  entries: ReadonlyArray<{ item: ListedItem; href: string; id?: string }>;
-}) => (
-  <>
-    {entries.map(({ item, href, id }, index) => (
-      <ItemRow item={item} position={index + 1} href={href} id={id} />
-    ))}
-  </>
-);
+/** A plain namespace's rows, at `path` (/<name>): its address writes. */
+export const namespaceRows = (path: string, items: ReadonlyArray<ListedItem & { id: string }>) =>
+  itemRows(
+    items.map((item) => ({
+      item,
+      info: describePlain(item),
+      downloadUrl: `${path}/${item.id}/d`,
+    })),
+    true,
+  );
+
+/**
+ * A plain shared view's rows. Its items carry no IDs; the browser names them
+ * by their link's token (see view.js), and so does this.
+ */
+export const viewRows = (entries: ReadonlyArray<{ url: string; item: ListedItem }>) =>
+  itemRows(
+    entries.map(({ url, item }) => ({
+      item: { ...item, id: url.split("/").pop() ?? "" },
+      info: { ...describePlain(item), itemUrl: url },
+      downloadUrl: `${url}/d`,
+    })),
+    false,
+  );

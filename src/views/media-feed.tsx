@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import { Icon } from "./icons";
+
 /** The browser fills this feed near the viewport; both page types share it. */
 export const MediaFeed = () => (
   <section id="media-feed" class="media-feed" aria-labelledby="media-feed-title" hidden>
@@ -14,12 +16,15 @@ export const MediaFeed = () => (
       <fieldset class="media-view-options">
         <legend class="visually-hidden">Media view</legend>
         <button data-icon="image" data-media-view="list" type="button" aria-pressed="true">
+          <Icon name="image" />
           List
         </button>
         <button data-icon="grid" data-media-view="grid" type="button" aria-pressed="false">
+          <Icon name="grid" />
           Grid
         </button>
         <button data-icon="list" data-media-view="details" type="button" aria-pressed="false">
+          <Icon name="list" />
           Details
         </button>
       </fieldset>

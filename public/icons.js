@@ -5,7 +5,7 @@
 // pages need no icon font or library. They take the text's color, and are
 // hidden from screen readers: the control around one carries its label.
 
-const SVG = "http://www.w3.org/2000/svg";
+import { h } from "./dom.js";
 
 /** Each icon as the SVG elements it is made of: [tag, attributes]. */
 const ICONS = {
@@ -117,30 +117,27 @@ const ICONS = {
   external: [["path", { d: "M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4" }]],
 };
 
+/** The icon `name`, `size` pixels wide and high, as `h` makes it (see dom.js). */
+export const iconTree = (h, name, size = 16) =>
+  h(
+    "svg",
+    {
+      width: size,
+      height: size,
+      viewBox: "0 0 16 16",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "1.4",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+      focusable: "false",
+    },
+    ICONS[name].map(([tag, attributes]) => h(tag, attributes)),
+  );
+
 /** A new <svg> of the icon `name`, `size` pixels wide and high. */
-export const icon = (name, size = 16) => {
-  const svg = document.createElementNS(SVG, "svg");
-  for (const [key, value] of Object.entries({
-    width: size,
-    height: size,
-    viewBox: "0 0 16 16",
-    fill: "none",
-    stroke: "currentColor",
-    "stroke-width": "1.4",
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round",
-    "aria-hidden": "true",
-    focusable: "false",
-  })) {
-    svg.setAttribute(key, String(value));
-  }
-  for (const [tag, attributes] of ICONS[name]) {
-    const part = document.createElementNS(SVG, tag);
-    for (const [key, value] of Object.entries(attributes)) part.setAttribute(key, value);
-    svg.append(part);
-  }
-  return svg;
-};
+export const icon = (name, size = 16) => iconTree(h, name, size);
 
 /** Decorate controls made by JS; SVGs already in initial HTML are left alone. */
 export const decorateIcons = (root = document) => {
