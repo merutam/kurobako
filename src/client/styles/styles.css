@@ -1270,11 +1270,13 @@ button.media-preview:hover img {
   height: min(45dvh, 30rem);
   min-height: 18rem;
   overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel);
   resize: vertical;
   /* `--line-number-width` is set here in ch: measure it in the gutter's font. */
   font-family: var(--font);
   font-size: var(--text-list);
-  --gutter-size: calc(var(--line-number-width, 3ch) + 2 * var(--space-2) + 2px);
+  --gutter-size: calc(var(--line-number-width, 3ch) + 2 * var(--space-2) + 1px);
 }
 .text-editor > textarea,
 .text-editor > pre.text-editor-highlight {
@@ -1287,8 +1289,7 @@ button.media-preview:hover img {
   margin: 0;
   padding: 6px var(--space-2);
   overflow: auto;
-  border: 1px solid var(--border);
-  border-left: 0;
+  border: 0;
   font-family: var(--font);
   font-size: var(--text-list);
   line-height: 1.6;
@@ -1310,7 +1311,7 @@ button.media-preview:hover img {
   margin: 0;
   padding: 6px var(--space-2);
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 0;
   border-right: 1px solid var(--rule);
   background: var(--panel);
   color: var(--muted);
