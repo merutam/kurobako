@@ -131,7 +131,8 @@ const addResizeHandle = (editor) => {
  */
 export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   const highlight = h("pre", { class: "text-editor-highlight", "aria-hidden": "true" });
-  const gutter = h("pre", { class: "text-editor-lines", "aria-hidden": "true" });
+  const gutterText = h("span");
+  const gutter = h("pre", { class: "text-editor-lines", "aria-hidden": "true" }, gutterText);
   const emptySelection = h("div", { class: "text-editor-selection", "aria-hidden": "true" });
   let lineCount = 0;
   let lineStarts = [0];
@@ -139,6 +140,15 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   let frame = null;
   /** Whether coloring the whole text took too long to do on every keystroke. */
   let slow = false;
+  // Scroll the contents, not their <pre> containers: the textarea can scroll
+  // farther at the bottom, where a <pre>'s own scrollTop would be clamped.
+  const syncScroll = () => {
+    const x = textarea.scrollLeft;
+    const y = textarea.scrollTop;
+    gutterText.style.transform = `translateY(${-y}px)`;
+    const code = highlight.firstElementChild;
+    if (code) code.style.transform = `translate(${-x}px, ${-y}px)`;
+  };
   const updateWrapping = () => {
     const markdown = /\.(?:md|markdown)$/i.test(title());
     editor.classList.toggle("markdown", markdown);
@@ -156,12 +166,11 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     } else {
       code = h("code", { class: "hljs" }, text);
     }
-    // A visible character after a final newline keeps both layers' scroll
-    // heights equal at the bottom of the document.
+    // A visible character after a final newline keeps the last empty line
+    // visible when the textarea scrolls to the bottom.
     if (text.endsWith("\n")) code.append(" ");
     highlight.replaceChildren(code);
-    highlight.scrollTop = textarea.scrollTop;
-    highlight.scrollLeft = textarea.scrollLeft;
+    syncScroll();
   };
 
   const refresh = ({ immediate = false } = {}) => {
@@ -178,9 +187,9 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     const count = starts.length;
     if (count !== lineCount) {
       lineCount = count;
-      gutter.textContent = lineNumbers(textarea.value);
+      gutterText.textContent = lineNumbers(textarea.value);
       editor.style.setProperty("--line-number-width", `${Math.max(3, String(count).length)}ch`);
-      gutter.scrollTop = textarea.scrollTop;
+      syncScroll();
     }
     clearTimeout(colorTimer);
     if (immediate) {
@@ -269,9 +278,7 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   updateWrapping();
   textarea.addEventListener("input", () => refresh());
   textarea.addEventListener("scroll", () => {
-    gutter.scrollTop = textarea.scrollTop;
-    highlight.scrollTop = textarea.scrollTop;
-    highlight.scrollLeft = textarea.scrollLeft;
+    syncScroll();
     updatePosition();
   });
   // A phone's keyboard composes a word before it is typed, and some browsers

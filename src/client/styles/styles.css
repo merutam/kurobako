@@ -1319,7 +1319,12 @@ button.media-preview:hover img {
 }
 .text-editor > pre.text-editor-highlight {
   background: var(--panel);
+  overflow: hidden;
   pointer-events: none;
+}
+.text-editor-highlight code,
+.text-editor-lines > span {
+  display: block;
 }
 .text-editor-highlight code {
   padding: 0;

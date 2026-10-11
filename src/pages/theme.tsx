@@ -24,7 +24,7 @@ export const renderThemePage = (site: SiteView) => {
         <p id="status" class="status" role="status" aria-live="polite" />
         <section aria-labelledby="theme-presets-title">
           <h2 id="theme-presets-title">Ready-made themes</h2>
-          <p class="hint">Click a CSS file to copy its contents.</p>
+          <p class="hint">Click a CSS file to copy its contents, then paste it bellow to try it out.</p>
           <div id="theme-preset-list" class="theme-preset-list">
             {Object.keys(presets).map((name) => (
               <button type="button" data-preset={name}>
