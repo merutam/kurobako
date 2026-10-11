@@ -31,7 +31,7 @@ The first run writes `~/.config/ksync/config.toml` (under
 
 ```toml
 server = "https://k.mugens.org"
-namespace = "e#Ab3d-9xYz-Qw12-Lm8N"   # a random one, made on the first run
+namespace = "e#ab3d-9xyz-qw2k-mn8p"   # a random one, made on the first run
 
 [clipboard]
 selection = "clipboard"   # or "primary", the middle-click selection

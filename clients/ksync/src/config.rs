@@ -5,10 +5,6 @@ use std::{
     io,
     path::{Path, PathBuf},
 };
-use base64::{
-    Engine as _,
-    engine::general_purpose::URL_SAFE_NO_PAD,
-};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -77,19 +73,28 @@ impl Default for SyncConfig {
     }
 }
 
+/// The home page's alphabet for random names (src/client/pages/home.js): no
+/// capitals, and none of l, o, 0 and 1 to mistake for one another. 32 letters
+/// divide 256, so a byte picks one without bias.
+const RANDOM_ALPHABET: &[u8; 32] = b"abcdefghijkmnpqrstuvwxyz23456789";
+
+/// An encrypted namespace as the home page's Random name makes one: four
+/// groups of four letters, 80 bits, which its strength check knows as random.
 fn random_namespace() -> String {
-    let mut bytes = [0u8; 12];
+    let mut bytes = [0u8; 16];
     rand::fill(&mut bytes);
 
-    let encoded = URL_SAFE_NO_PAD.encode(bytes);
+    let groups: Vec<String> = bytes
+        .chunks(4)
+        .map(|group| {
+            group
+                .iter()
+                .map(|&byte| char::from(RANDOM_ALPHABET[usize::from(byte) % RANDOM_ALPHABET.len()]))
+                .collect()
+        })
+        .collect();
 
-    format!(
-        "e#{}-{}-{}-{}",
-        &encoded[0..4],
-        &encoded[4..8],
-        &encoded[8..12],
-        &encoded[12..16],
-    )
+    format!("e#{}", groups.join("-"))
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -190,7 +195,20 @@ fn keep_private(_path: &Path) -> io::Result<()> {
 mod tests {
     use std::{fs, os::unix::fs::PermissionsExt};
 
-    use super::{keep_private, write_private};
+    use super::{RANDOM_ALPHABET, keep_private, random_namespace, write_private};
+
+    #[test]
+    fn random_namespaces_look_like_the_home_pages() {
+        let namespace = random_namespace();
+        let name = namespace.strip_prefix("e#").expect("encrypted");
+        let groups: Vec<&str> = name.split('-').collect();
+        assert_eq!(groups.len(), 4, "{namespace}");
+        for group in groups {
+            assert_eq!(group.len(), 4, "{namespace}");
+            assert!(group.bytes().all(|byte| RANDOM_ALPHABET.contains(&byte)), "{namespace}");
+        }
+        assert_ne!(random_namespace(), namespace);
+    }
 
     #[test]
     fn the_config_is_its_owners_alone() {
