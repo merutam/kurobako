@@ -8,20 +8,20 @@
  */
 
 :root {
-  color-scheme: dark;
-  --bg: #101711;
-  --fg: #c0d9ba;
-  --dim: #94ac90;
-  --muted: #789275;
-  --border: #344536;
-  --rule: #29372b;
-  --panel: #172119;
-  --chip: #203024;
-  --accent: #91d68a;
-  --accent-hover: #b5e9a9;
-  --on-accent: #101711;
-  --ok: #91d68a;
-  --err: #e28b77;
+  color-scheme: light dark;
+  --bg: light-dark(#edf3e9, #101711);
+  --fg: light-dark(#1b3020, #c0d9ba);
+  --dim: light-dark(#415b44, #94ac90);
+  --muted: light-dark(#607560, #789275);
+  --border: light-dark(#a8bca8, #344536);
+  --rule: light-dark(#ccd9ca, #29372b);
+  --panel: light-dark(#e0eadd, #172119);
+  --chip: light-dark(#d1e0ce, #203024);
+  --accent: light-dark(#276b30, #91d68a);
+  --accent-hover: light-dark(#35823e, #b5e9a9);
+  --on-accent: light-dark(#ffffff, #101711);
+  --ok: light-dark(#276b30, #91d68a);
+  --err: light-dark(#a33d31, #e28b77);
 
   /* Spacing */
   --space-1: 4px;
@@ -36,8 +36,8 @@
 
   /* Typography */
   --font:
-    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas,
-    "DejaVu Sans Mono", "Courier New", monospace;
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Courier New",
+    monospace;
   --text-body: 15px;
   --text-list: 14px;
   --text-small: 13px;
@@ -51,40 +51,11 @@
   --prose-width: 72ch;
 }
 
-/* Auto follows the operating-system preference. */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]):not([data-theme="light"]) {
-  color-scheme: light;
-  --bg: #edf3e9;
-  --fg: #1b3020;
-  --dim: #415b44;
-  --muted: #607560;
-  --border: #a8bca8;
-  --rule: #ccd9ca;
-  --panel: #e0eadd;
-  --chip: #d1e0ce;
-  --accent: #276b30;
-  --accent-hover: #35823e;
-  --on-accent: #ffffff;
-  --ok: #276b30;
-  --err: #a33d31;
-  }
-}
-
-/* Explicit light overrides system preference. */
+/* Follow the system by default; the header toggle can force either scheme. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #edf3e9;
-  --fg: #1b3020;
-  --dim: #415b44;
-  --muted: #607560;
-  --border: #a8bca8;
-  --rule: #ccd9ca;
-  --panel: #e0eadd;
-  --chip: #d1e0ce;
-  --accent: #276b30;
-  --accent-hover: #35823e;
-  --on-accent: #ffffff;
-  --ok: #276b30;
-  --err: #a33d31;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }

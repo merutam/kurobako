@@ -1855,7 +1855,6 @@ export const sharedTests = (harness: Harness) => {
         ),
       ) as Record<string, string>;
       expect(Object.keys(presets).sort()).toEqual([
-        "amber-terminal.css",
         "midnight-plum.css",
         "nordic-slate.css",
         "paper-and-ink.css",
@@ -1879,7 +1878,7 @@ export const sharedTests = (harness: Harness) => {
       expect(response.headers.get("content-type")).toContain("text/css");
       const css = await response.text();
       expect(css).toContain("SPDX-License-Identifier");
-      expect(css).toMatch(/\n {2}--accent: #[0-9a-f]{6};\n/);
+      expect(css).toMatch(/\n {2}--accent: light-dark\(#[0-9a-f]{6}, #[0-9a-f]{6}\);\n/);
     });
 
     test("offers no notifications without VAPID keys", async () => {
