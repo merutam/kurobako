@@ -6,6 +6,8 @@ import { secretNameProblem, splitFragment } from "../../../public/k.mjs";
 // only wires them together and starts the selected plain or encrypted mode.
 import { copyText, element, ignoreStrayDrops, readConfig, SITE, setBusy } from "../lib/common.js";
 import { loadHighlighter } from "../lib/highlight.js";
+import { rememberNamespace } from "../lib/recent.js";
+import { dropShare, readShare } from "../lib/shares.js";
 import { createStatus } from "../lib/status.js";
 import { failUnlocking, finishUnlocking } from "../lib/unlocking.js";
 import { h } from "../shared/dom.js";
@@ -114,6 +116,24 @@ try {
   live.setMode(mode);
   forms.setMode(mode);
   showPage(mode);
+  // Where this device can send: offered on the share page (see lib/recent.js).
+  if (access.canWrite()) rememberNamespace({ url: mode.shareUrl, title: mode.title });
+  // Opened from the share page: what was shared goes into the composer.
+  const shareId = new URLSearchParams(window.location.search).get("share");
+  if (shareId) {
+    // Off the address: a reload must not bring it back.
+    const address = new URL(window.location.href);
+    address.searchParams.delete("share");
+    window.history.replaceState(null, "", address.href);
+    const shared = await readShare(shareId).catch(() => null);
+    if (!shared) status.error("That share is gone: share it again.");
+    else if (!access.canWrite()) status.error("This namespace is read-only here: share it again.");
+    else {
+      forms.takeShare(shared);
+      await dropShare(shareId);
+      status.success("Shared here: check it, then Send.");
+    }
+  }
   element("#create-view").addEventListener("click", async () => {
     const create = element("#create-view");
     create.disabled = true;

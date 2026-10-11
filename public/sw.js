@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Encrypted contents in parts. A page hands this worker an item's body key
+// Encrypted contents in parts, and what is shared to the installed app (see
+// SHARE_PATH below). A page hands this worker an item's body key
 // (a CryptoKey, never its bytes) and gets back an address, <site>/k/stream/
 // <token>, to give a <video> or a download link. Each request for it fetches
 // only the sealed segments it needs (with Range), opens them as they arrive
@@ -17,6 +18,16 @@ const SEGMENT_BYTES = 65_536;
 const TAG_BYTES = 16;
 const SEALED_SEGMENT_BYTES = SEGMENT_BYTES + TAG_BYTES;
 const STREAM_PATH = "k/stream/";
+/**
+ * The installed app's share target (see manifest.webmanifest): what is shared
+ * waits in this cache, on the device, until a page takes it. Each share is
+ * <scope>k/share/<id> (its text, as JSON) and <id>/<n> (its files), read by
+ * src/client/lib/shares.js, which names the same cache.
+ */
+const SHARE_PATH = "k/share";
+const SHARE_CACHE = "kurobako-shares";
+/** A share no page took within a day is gone. */
+const SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * What each token reads: { url, key, sealedSize, size, mime, filename }, url
@@ -198,13 +209,76 @@ const answer = async (request, clientId, token, download) => {
   });
 };
 
+/** Forgets the shares older than SHARE_TTL_MS, files included. */
+const forgetOldShares = async (cache) => {
+  const requests = await cache.keys();
+  const stale = [];
+  for (const request of requests) {
+    const id = /\/k\/share\/([0-9a-f]{32})$/.exec(new URL(request.url).pathname)?.[1];
+    if (!id) continue;
+    const details = await (await cache.match(request))?.json().catch(() => null);
+    if (!details || Date.now() - details.at > SHARE_TTL_MS) stale.push(id);
+  }
+  await Promise.all(
+    requests
+      .filter((request) => stale.some((id) => request.url.includes(`/k/share/${id}`)))
+      .map((request) => cache.delete(request)),
+  );
+};
+
+/** Keeps a share, then sends the app to the page that asks where it goes. */
+const keepShare = async (request, scope) => {
+  const form = await request.formData();
+  const field = (name) => {
+    const value = form.get(name);
+    return typeof value === "string" ? value : "";
+  };
+  const files = form.getAll("files").filter((value) => typeof value !== "string" && value.size);
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const address = `${scope}${SHARE_PATH}/${id}`;
+  const cache = await caches.open(SHARE_CACHE);
+  await forgetOldShares(cache);
+  await Promise.all(
+    files.map((file, index) =>
+      cache.put(
+        `${address}/${index}`,
+        new Response(file, {
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+        }),
+      ),
+    ),
+  );
+  // Written last: a share whose details are there has all its files.
+  await cache.put(
+    address,
+    Response.json({
+      title: field("title"),
+      text: field("text"),
+      url: field("url"),
+      files: files.map((file) => ({ name: file.name, type: file.type })),
+      at: Date.now(),
+    }),
+  );
+  return Response.redirect(`${scope}${SHARE_PATH}?id=${id}`, 303);
+};
+
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   const scope = new URL(self.registration.scope);
-  if (url.origin !== scope.origin || !url.pathname.startsWith(`${scope.pathname}${STREAM_PATH}`)) {
+  if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
+  const path = url.pathname.slice(scope.pathname.length);
+  if (event.request.method === "POST" && path === SHARE_PATH) {
+    event.respondWith(
+      keepShare(event.request, scope.href).catch(() =>
+        Response.redirect(`${scope.href}${SHARE_PATH}?lost`, 303),
+      ),
+    );
     return;
   }
-  const token = url.pathname.slice(scope.pathname.length + STREAM_PATH.length);
+  if (!path.startsWith(STREAM_PATH)) return;
+  const token = path.slice(STREAM_PATH.length);
   event.respondWith(
     answer(
       event.request,

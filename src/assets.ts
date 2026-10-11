@@ -39,7 +39,14 @@ export type WebAssets = {
 export const FIXED_FILES = ["sw.js", "k.mjs"];
 
 /** Binary files served as they are at /<path>: the icons browsers and iOS ask for. */
-export const ICON_FILES = ["favicon.ico", "apple-touch-icon.png", "logo.png"];
+export const ICON_FILES = [
+  "favicon.ico",
+  "apple-touch-icon.png",
+  "logo.png",
+  "icon-192.png",
+  "icon-512.png",
+  "icon-maskable.png",
+];
 
 /**
  * Pages rendered ahead by ops/build.ts, which Cloudflare serves at /<page>

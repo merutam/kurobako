@@ -744,6 +744,30 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     return sentMessage(await mode.sendFile(file, sendSettings()));
   };
 
+  // --- Taking a share ---------------------------------------------------------
+
+  /**
+   * What was shared to the installed app (see pages/share.js): its text, with
+   * its link unless the text holds it, in the text tab, named after its title;
+   * its files in files. Nothing is sent until Send.
+   */
+  const takeShare = ({ title, text, url, files }) => {
+    if (editing) clearComposer();
+    const body = url && !text.includes(url) ? [text, url].filter(Boolean).join("\n\n") : text;
+    const tab = newTab();
+    tab.text = body;
+    if (title && body) rename(tab, title);
+    tabs = [tab];
+    active = null;
+    const picked = new DataTransfer();
+    for (const file of files) picked.items.add(file);
+    fileInput.files = picked.files;
+    showFiles();
+    select(body || !files.length ? 0 : "files");
+    suggestName();
+    sendForm.scrollIntoView({ block: "start" });
+  };
+
   // --- Editing an item ---------------------------------------------------------
 
   /** Send, or Save changes: what the form says it does. */
@@ -973,5 +997,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     },
     showPage,
     edit,
+    takeShare,
   };
 };

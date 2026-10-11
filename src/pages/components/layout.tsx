@@ -86,8 +86,10 @@ export const Page = ({
         <link rel="stylesheet" href={assetUrl(site, entryOf(site, STYLES).file)} />
         <script src={assetUrl(site, entryOf(site, "theme").file)} />
         <script src={assetUrl(site, entryOf(site, "scroll-top").file)} defer />
+        <script src={assetUrl(site, entryOf(site, "service-worker").file)} defer />
         <link rel="icon" href={`${basePath}/favicon.ico`} sizes="any" />
         <link rel="apple-touch-icon" href={`${basePath}/apple-touch-icon.png`} />
+        <link rel="manifest" href={`${basePath}/manifest.webmanifest`} />
         {noIndex ? <meta name="robots" content="noindex" /> : null}
         <title>{title}</title>
         <Scripts site={site} entries={scripts} />

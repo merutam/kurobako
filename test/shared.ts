@@ -1789,12 +1789,47 @@ export const sharedTests = (harness: Harness) => {
     test("controls are words: the only icons are the theme button's", async () => {
       const ns = fresh();
       await sendText(ns, "no icons");
-      for (const path of ["/", `/${ns}`, `/${ns}/log`, "/k/protocol", "/k/licenses"]) {
+      for (const path of ["/", `/${ns}`, `/${ns}/log`, "/k/protocol", "/k/licenses", "/k/share"]) {
         const html = await (await call(path)).text();
         expect(html, path).not.toContain("data-icon");
         // The theme button's three (auto, light, dark), and nothing else.
         expect(html.match(/<svg/g), path).toHaveLength(3);
       }
+    });
+
+    test("installs as an app whose shares never reach the server", async () => {
+      const response = await call("/manifest.webmanifest");
+      expect(response.headers.get("content-type")).toContain("application/manifest+json");
+      const manifest = (await response.json()) as {
+        icons: { src: string; sizes: string; purpose: string }[];
+      };
+      expect(manifest).toMatchObject({
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        share_target: { action: "/k/share", method: "POST", enctype: "multipart/form-data" },
+      });
+      // Every icon is there, at the size it says, and Android gets one to shape.
+      expect(manifest.icons.map((icon) => icon.purpose)).toContain("maskable");
+      for (const icon of manifest.icons) {
+        const image = await call(icon.src);
+        expect(image.headers.get("content-type"), icon.src).toBe("image/png");
+        const header = new DataView(await image.arrayBuffer());
+        expect(`${header.getUint32(16)}x${header.getUint32(20)}`, icon.src).toBe(icon.sizes);
+      }
+      // Every page links it, and installs the Service Worker that takes shares.
+      const home = await (await call("/")).text();
+      expect(home).toContain('<link rel="manifest" href="/manifest.webmanifest"/>');
+      expect(home).toMatch(/src="\/k\/assets\/service-worker-[0-9a-z]+\.js" defer/);
+      // Without the Service Worker, a share is turned back unread.
+      const form = new FormData();
+      form.set("text", "never stored");
+      const lost = await call("/k/share", { method: "POST", body: form, redirect: "manual" });
+      expect(lost.status).toBe(303);
+      expect(lost.headers.get("location")).toBe("/k/share?lost");
+      const page = await (await call("/k/share")).text();
+      expect(page).toContain('id="share-form"');
+      expect(page).toContain('<meta name="robots" content="noindex"/>');
     });
 
     test("publishes the project and production dependency licenses separately", async () => {
