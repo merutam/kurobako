@@ -230,6 +230,12 @@
   making another freezes which items the old one lists, while their
   contents stay live. A namespace keeps at most 100 views.
 </p>
+<p>
+  <code>curl $BOX/v/&lt;token&gt;/ls</code> lists its items as JSON, with
+  each share token as the item ID. <code>/i/&lt;token&gt;/ls</code> lists
+  the one shared item. Both accept <code>?summary</code> and
+  <code>?limit=1</code> like a namespace's <code>/ls</code>.
+</p>
 
 <h3 id="cli">Command line: k.mjs</h3>
 <p>
@@ -703,6 +709,12 @@
   <li>
     <code>GET /v/&lt;token&gt;.json</code> gives the <code>viewId</code>,
     whether it is active, and each entry's <code>/i/</code> URL and item.
+  </li>
+  <li>
+    <code>GET /v/&lt;token&gt;/ls</code> gives an array of items with their
+    public share tokens as IDs. Encrypted entries also carry their
+    <code>viewId</code> and <code>envelope</code>.
+    <code>GET /i/&lt;token&gt;/ls</code> gives a one-item array.
   </li>
   <li>
     Encrypted: the link is <code>/v/&lt;token&gt;#&lt;base64url(view key)&gt;</code>,

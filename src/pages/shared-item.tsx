@@ -33,8 +33,10 @@ const SharedItemContent = ({
   return (
     <>
       <h1 id="item-title">{title}</h1>
-      <p id="item-meta" class="intro">
-        {itemMeta(h, shared, describePlain(shared))}
+      <p class="intro">
+        <span id="item-meta">{itemMeta(h, shared, describePlain(shared))}</span>
+        {" · "}
+        <a href={`${url}/ls`}>As JSON</a>
       </p>
       <p id="status" class="status" role="status" aria-live="polite" />
       <section
@@ -92,8 +94,16 @@ export const renderSharedItemPage = (
       ) : (
         <>
           <h1 id="item-title">Shared item</h1>
-          <p id="item-meta" class="intro">
-            {item ? null : "This shared item is gone: deleted, expired or already read."}
+          <p class="intro">
+            <span id="item-meta">
+              {item ? null : "This shared item is gone: deleted, expired or already read."}
+            </span>
+            {item ? (
+              <>
+                {" · "}
+                <a href={`${url}/ls`}>As JSON</a>
+              </>
+            ) : null}
           </p>
           <p id="status" class="status" role="status" aria-live="polite" />
           <section id="item" class="shared-item stack" aria-labelledby="item-title" hidden>

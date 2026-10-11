@@ -69,6 +69,19 @@ export const mountShares = (
 
   // /i/<token> is the page, with the item embedded so it needs no request
   // for it; /i/<token>.json is the item alone.
+  app.get("/i/:token/ls", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const limit = c.req.query("limit");
+    if (limit !== undefined && !/^[1-9]\d{0,5}$/.test(limit)) {
+      return jsonError(c, 400, "limit must be a positive whole number.");
+    }
+    const token = c.req.param("token");
+    const stored = await peekShared(c, token);
+    return stored
+      ? c.json([{ id: token, ...sharedItem(stored, c.req.query("summary") !== undefined) }])
+      : jsonError(c, 404, SHARE_GONE);
+  });
+
   app.get("/i/:token", async (c) => {
     const param = c.req.param("token");
     const asJson = param.endsWith(".json");

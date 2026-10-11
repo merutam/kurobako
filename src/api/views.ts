@@ -81,28 +81,55 @@ export const mountViews = (app: App, api: Api) => {
     );
   }
 
-  const describeView = async (c: AppContext, token: string) => {
+  const describeView = async (
+    c: AppContext,
+    token: string,
+    { summary = false, limit }: { summary?: boolean; limit?: number } = {},
+  ) => {
     if (!SHARE_TOKEN_PATTERN.test(token)) return null;
     const ref = await hub().resolveView(token);
     if (!ref) return null;
     const view = await namespace(ref).viewContents(token, visit(c));
     if (!view) return null;
+    const selected = limit === undefined ? view.entries : view.entries.slice(0, limit);
     const tokens = await hub().createShares(
       ref,
-      view.entries.map(({ item }) => ({
+      selected.map(({ item }) => ({
         id: item.id,
         expiresAt: item.expiresAt,
       })),
     );
-    const entries = view.entries.map(
+    const entries = selected.map(
       ({ item, envelope }: { item: StoredItem; envelope?: string }, index) => ({
         url: `${config.basePath}/i/${tokens[index]}`,
-        item: sharedItem(item),
+        item: sharedItem(item, summary),
         ...(envelope ? { envelope } : {}),
       }),
     );
     return { viewId: view.viewId, active: view.active, createdAt: view.createdAt, entries };
   };
+
+  // The same array shape as a namespace's /ls, with public share tokens as IDs.
+  app.get("/v/:token/ls", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const limit = c.req.query("limit");
+    if (limit !== undefined && !/^[1-9]\d{0,5}$/.test(limit)) {
+      return jsonError(c, 400, "limit must be a positive whole number.");
+    }
+    const view = await describeView(c, c.req.param("token"), {
+      summary: c.req.query("summary") !== undefined,
+      limit: limit === undefined ? undefined : Number(limit),
+    });
+    if (!view) return jsonError(c, 404, "Shared view not found.");
+    return c.json(
+      view.entries.map(({ url, item, ...extra }) => ({
+        id: url.slice(url.lastIndexOf("/") + 1),
+        ...item,
+        ...extra,
+        ...(extra.envelope ? { viewId: view.viewId } : {}),
+      })),
+    );
+  });
 
   app.get("/v/:token{.+\\.json}", async (c) => {
     c.header("Cache-Control", "no-store");
@@ -114,6 +141,9 @@ export const mountViews = (app: App, api: Api) => {
     const view = await describeView(c, c.req.param("token"));
     // A browser gets a page saying so, as a gone share link does; .json stays JSON.
     if (!view) return c.html(renderGoneViewPage(siteView), 404);
-    return pageView(c, renderSharedViewPage(siteView, view));
+    return pageView(
+      c,
+      renderSharedViewPage(siteView, view, `${config.basePath}/v/${c.req.param("token")}`),
+    );
   });
 };

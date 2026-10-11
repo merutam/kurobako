@@ -24,7 +24,7 @@ export const renderGoneViewPage = (site: SiteView) =>
     ),
   });
 
-export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
+export const renderSharedViewPage = (site: SiteView, view: ViewPageData, url: string) => {
   const sealed = view.entries.some(({ item }) => item.kind === "sealed");
   return Page({
     site,
@@ -39,7 +39,8 @@ export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
         <h1>Shared view</h1>
         <p class="intro">
           Read-only. New items appear here while this view is active; existing items stay live after
-          it freezes.
+          it freezes.{" · "}
+          <a href={`${url}/ls`}>As JSON</a>
         </p>
         <p id="view-status" class="status" role="status" aria-live="polite" />
         <MediaFeed />

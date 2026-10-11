@@ -1233,6 +1233,19 @@ export const sharedTests = (harness: Harness) => {
       expect(contents.entries.map(({ item }) => item.text)).toEqual(["two", "one"]);
       expect(JSON.stringify(contents)).not.toContain(ns);
       const page = await (await call(created.url)).text();
+      const listing = await json<Item[]>(`${created.url}/ls`);
+      expect(listing.map(({ text }) => text)).toEqual(["two", "one"]);
+      expect(listing.map(({ id }) => id)).toEqual(
+        contents.entries.map(({ url }) => url.split("/").pop()),
+      );
+      expect(JSON.stringify(listing)).not.toContain(ns);
+      expect(JSON.stringify(listing)).not.toContain(first.id);
+      expect(JSON.stringify(listing)).not.toContain(second.id);
+      expect((await json<Item[]>(`${created.url}/ls?limit=1`)).map(({ text }) => text)).toEqual([
+        "two",
+      ]);
+      expect((await call(`${created.url}/ls?limit=0`)).status).toBe(400);
+      expect(page).toContain(`href="${created.url}/ls">As JSON</a>`);
       expect(page).toContain('id="view-data"');
       expect(page).toContain('id="clone-field" class="namespace-input"');
       expect(page).toContain('id="clone-encrypted"');
@@ -1299,6 +1312,27 @@ export const sharedTests = (harness: Harness) => {
       ).toHaveProperty("readsLeft", 1);
     });
 
+    test("shared listings preview long text with ?summary", async () => {
+      const ns = fresh("viewsummary");
+      const text = "long shared text ".repeat(30);
+      const item = await parse<Item>(sendText(ns, text));
+      const created = await json<{ url: string }>(`/${ns}/views`, {
+        method: "POST",
+        body: JSON.stringify({
+          viewId: viewId(),
+          previousToken: null,
+          entries: [{ id: item.id }],
+        }),
+      });
+      const { id } = defined((await json<Item[]>(`${created.url}/ls`))[0], "shared item");
+      const [summary] = await json<Item[]>(`${created.url}/ls?summary`);
+      expect(summary).toMatchObject({ id, preview: text.slice(0, 280) });
+      expect(summary?.text).toBeUndefined();
+      const [single] = await json<Item[]>(`/i/${id}/ls?summary`);
+      expect(single).toEqual(summary);
+      expect((await json<Item[]>(`/i/${id}/ls`))[0]?.text).toBe(text);
+    });
+
     test("encrypted sends require an envelope for the current view", async () => {
       const space = await freshSealedSpace();
       const path = `/e/${space.id}`;
@@ -1353,6 +1387,10 @@ export const sharedTests = (harness: Harness) => {
       expect(sent.status).toBe(201);
       const view = await json<{ entries: { envelope: string }[] }>(`${created.url}.json`);
       expect(view.entries).toHaveLength(2);
+      expect(await json<unknown[]>(`${created.url}/ls`)).toMatchObject([
+        { kind: "sealed", envelope: view.entries[0]?.envelope, viewId: id },
+        { kind: "sealed", envelope: view.entries[1]?.envelope, viewId: id },
+      ]);
       const page = await (await call(created.url)).text();
       expect(page).not.toContain(space.id);
       expect(page).toContain("Decrypting shared view…");
@@ -1549,6 +1587,9 @@ export const sharedTests = (harness: Harness) => {
       });
       // The page carries the item itself, so it needs no request of its own.
       expect(embeddedItem(page)).toEqual(item);
+      expect(page).toContain(`href="${url}/ls">As JSON</a>`);
+      expect(await json<Item[]>(`${url}/ls`)).toEqual([{ id: url.split("/").pop(), ...item }]);
+      expect((await call(`${url}/ls?limit=0`)).status).toBe(400);
       expect(item).toMatchObject({ kind: "text", text: "just this one" });
       expect(item).not.toHaveProperty("id");
       for (const body of [page, JSON.stringify(item)]) {
@@ -1601,6 +1642,7 @@ export const sharedTests = (harness: Harness) => {
       expect(gone.status).toBe(404);
       expect(embeddedItem(await gone.text())).toBeNull();
       expect((await call(`${url}.json`)).status).toBe(404);
+      expect((await call(`${url}/ls`)).status).toBe(404);
       expect((await call(`${url}/c`)).status).toBe(404);
       expect((await call("/i/not-a-token")).status).toBe(404);
     });

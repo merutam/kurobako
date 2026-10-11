@@ -222,7 +222,7 @@ export const summaryItem = (item: StoredItem) => {
  * A shared item, without its ID: nothing that leads back to the namespace.
  * Its contents are at /i/<token>/c, a download at /i/<token>/d.
  */
-export const sharedItem = (item: StoredItem) => {
-  const { id: _id, ...rest } = exposeItem(item);
+export const sharedItem = (item: StoredItem, summary = false) => {
+  const { id: _id, ...rest } = summary ? summaryItem(item) : publicItem(item);
   return rest;
 };

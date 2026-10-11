@@ -1995,6 +1995,26 @@ describe("under a base path", () => {
     const described = (await (await at("/k/notes/1.json")).json()) as { shareUrl: string };
     expect(described.shareUrl).toStartWith(`${origin}/k/i/`);
     expect(await (await fetch(`${described.shareUrl}/c`)).text()).toBe("under k");
+    const sharePath = new URL(described.shareUrl).pathname;
+    expect(await (await at(`${sharePath}/ls`)).json()).toMatchObject([
+      { kind: "text", text: "under k" },
+    ]);
+    expect(await (await at(sharePath)).text()).toContain(`href="${sharePath}/ls">As JSON</a>`);
+    const view = (await (
+      await at("/k/notes/views", {
+        method: "POST",
+        body: JSON.stringify({
+          viewId: newViewId(),
+          previousToken: null,
+          entries: [{ id: sent.id }],
+        }),
+      })
+    ).json()) as { url: string };
+    expect(view.url).toStartWith("/k/v/");
+    expect(await (await at(`${view.url}/ls`)).json()).toMatchObject([
+      { kind: "text", text: "under k" },
+    ]);
+    expect(await (await at(view.url)).text()).toContain(`href="${view.url}/ls">As JSON</a>`);
 
     const socket = new WebSocket(`${origin.replace("http", "ws")}/k/notes/live`);
     const first = await nextMessage(socket, "ready");
