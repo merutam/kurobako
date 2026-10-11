@@ -16,6 +16,7 @@ import {
   setBusy,
   storage,
 } from "../../lib/common.js";
+import { confirmAction } from "../../lib/dialog.js";
 import { extensionOf } from "../../lib/items.js";
 import { isMarkdown, renderMarkdown } from "../../lib/markdown.js";
 import {
@@ -775,7 +776,14 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     const holding = filledTabs().length > 0 || fileInput.files.length > 0;
     if (
       (editing || holding) &&
-      !window.confirm("Open this item in the composer? What it holds now is dropped.")
+      !(await confirmAction({
+        title: "Open this item in the composer?",
+        message: editing
+          ? `Your changes to ${editing.entry.info.title} are dropped.`
+          : "What the composer holds now is dropped.",
+        confirm: "Open",
+        destructive: true,
+      }))
     ) {
       return;
     }

@@ -419,6 +419,14 @@ button.destructive:hover {
   border-color: var(--err);
   color: var(--err);
 }
+/* A confirmation's button for what cannot be undone (lib/dialog.js). */
+button.danger,
+button.danger:hover {
+  border-color: var(--err);
+  background: var(--err);
+  color: var(--on-accent);
+  font-weight: 700;
+}
 
 /* --- Forms ---------------------------------------------------------------- */
 
@@ -562,7 +570,8 @@ select {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.e2ee-dialog {
+/* The page's dialogs: the encryption notes, and confirmations (lib/dialog.js). */
+.dialog {
   width: min(36rem, calc(100% - 2 * var(--page-gutter)));
   max-height: calc(100dvh - 2 * var(--page-gutter));
   padding: var(--space-5);
@@ -570,15 +579,20 @@ select {
   background: var(--bg);
   color: var(--fg);
 }
-.e2ee-dialog::backdrop {
+.dialog::backdrop {
   background: rgb(0 0 0 / 60%);
 }
-.e2ee-dialog p {
+.dialog h2 {
+  margin-top: 0;
+}
+.dialog p {
   color: var(--dim);
 }
-.e2ee-dialog-actions {
+.dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: var(--space-2);
   margin: var(--space-5) 0 0;
 }
 

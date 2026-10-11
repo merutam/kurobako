@@ -110,7 +110,7 @@ export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
               </button>
             </p>
           </form>
-          <dialog id="clone-e2ee-dialog" class="e2ee-dialog" aria-labelledby="clone-e2ee-title">
+          <dialog id="clone-e2ee-dialog" class="dialog" aria-labelledby="clone-e2ee-title">
             <h2 id="clone-e2ee-title">End-to-end encryption</h2>
             <p>
               Your browser encrypts items before sending them. The server stores ciphertext and
@@ -120,7 +120,7 @@ export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
               The secret name after <code>#</code> stays in the browser. Anyone with the full link
               can read the items; without that name, they cannot be recovered.
             </p>
-            <form method="dialog" class="e2ee-dialog-actions">
+            <form method="dialog" class="dialog-actions">
               <button type="submit">Close</button>
             </form>
           </dialog>

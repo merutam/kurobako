@@ -14,6 +14,7 @@ import {
   request,
   storage,
 } from "../../lib/common.js";
+import { confirmAction } from "../../lib/dialog.js";
 import {
   audioPlayer,
   canCopyImages,
@@ -171,8 +172,15 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     }
   };
 
-  const deleteItem = async (item) => {
-    if (!window.confirm("Delete this item?")) return;
+  const deleteItem = async (entry) => {
+    const { item, info } = entry;
+    const deleting = await confirmAction({
+      title: "Delete this item?",
+      message: `${info.title} is deleted for everyone, and its share link stops working.`,
+      confirm: "Delete",
+      destructive: true,
+    });
+    if (!deleting) return;
     try {
       await request(`${mode.basePath}/${encodeURIComponent(item.id)}`, {
         method: "DELETE",
@@ -415,7 +423,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     on("download", () => downloadItem(entry));
     on("share", () => shareItem(item));
     on("dismiss", () => dismiss(item.id));
-    on("delete", () => deleteItem(item));
+    on("delete", () => deleteItem(entry));
   };
 
   const renderItem = (entry, position) => {
