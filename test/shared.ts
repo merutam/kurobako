@@ -1731,18 +1731,23 @@ export const sharedTests = (harness: Harness) => {
   describe("site", () => {
     test("assembles pages: bundled scripts, footer and the embedded config", async () => {
       const html = await (await call(`/${fresh()}`)).text();
-      // The page's script, named by its contents, and every chunk it imports
-      // preloaded at once.
+      // The page's script, named by its contents: one file, with everything
+      // it imports at once, so nothing to preload and no import left in it.
       const script = html.match(
         /<script type="module" src="(\/k\/assets\/namespace-[0-9a-z]+\.js)"/,
       )?.[1];
       const response = await call(defined(script, "the namespace page's script"));
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("javascript");
-      const chunks = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)];
-      expect(chunks.length).toBeGreaterThan(0);
-      for (const [, chunk] of chunks)
-        expect((await call(defined(chunk, "a chunk"))).status).toBe(200);
+      expect(html).not.toContain('rel="modulepreload"');
+      const code = await response.text();
+      expect(code).not.toMatch(/\bfrom\s*"\.\//);
+      // What it loads later (highlight.js, the QR code) is there to load.
+      const later = [...code.matchAll(/import\("\.\/([^"]+\.js)"\)/g)];
+      expect(later.length).toBeGreaterThan(0);
+      for (const [, file] of later) {
+        expect((await call(`/k/assets/${defined(file, "a later file")}`)).status).toBe(200);
+      }
       expect(html).toMatch(/\(build [0-9a-f]{12}\)/);
       expect(html.match(/<input id="[a-z-]+" class="file-drop"/g)).toHaveLength(2);
       // The limits come written: the page's script does not fill them in.
@@ -1762,7 +1767,7 @@ export const sharedTests = (harness: Harness) => {
       expect(home).toContain('id="e2ee-help"');
       expect(home).toContain('id="e2ee-dialog" class="dialog"');
       expect(home).toMatch(
-        /href="\/k\/assets\/styles-[0-9a-f]+\.css"[\s\S]*src="\/k\/assets\/theme-[0-9a-z]+\.js"/,
+        /href="\/k\/assets\/styles-[0-9a-f]+\.css"[\s\S]*src="\/k\/assets\/site-[0-9a-z]+\.js"/,
       );
       expect(home).toMatch(/id="random-name"[^>]*>Random name<\/button>/);
       expect(home).toContain('href="/stats.json">Full statistics</a>');
@@ -1825,7 +1830,9 @@ export const sharedTests = (harness: Harness) => {
       // Every page links it, and installs the Service Worker that takes shares.
       const home = await (await call("/")).text();
       expect(home).toContain('<link rel="manifest" href="/manifest.webmanifest"/>');
-      expect(home).toMatch(/src="\/k\/assets\/service-worker-[0-9a-z]+\.js" defer/);
+      // In head/site.js, every page's one classic script, before the first paint.
+      expect(home).toMatch(/<script src="\/k\/assets\/site-[0-9a-z]+\.js"><\/script>/);
+      expect(home.match(/<script src=/g)).toHaveLength(1);
       // Without the Service Worker, a share is turned back unread.
       const form = new FormData();
       form.set("text", "never stored");

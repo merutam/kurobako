@@ -19,7 +19,7 @@ export const STYLES = "styles";
 export type Manifest = {
   /** A hash of every file built, shown in the footer. */
   build: string;
-  /** By name ("namespace", "theme", "styles"): its file in ASSETS_PATH, and the chunks it imports. */
+  /** By name ("namespace", "site", "styles"): its file in ASSETS_PATH, and the chunks it imports. */
   files: Record<
     string,
     { file: string; kind: "module" | "classic" | "style"; preload: readonly string[] }

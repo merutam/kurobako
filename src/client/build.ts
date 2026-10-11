@@ -5,11 +5,15 @@
 //
 //   pages/<name>.js   a page's script, a module (src/pages/<name>.tsx loads it)
 //   head/<name>.js    a classic script, run in <head> before the first paint
+//                     (head/parts/ holds what they bundle)
 //   styles/           tokens.css then styles.css, as one file
 //
-// Each is named in the manifest by <name> ("namespace", "theme", "styles").
-// Files are minified, named by their contents and come with source maps; the
-// chunks pages share are split out, and each page preloads those it imports.
+// Each is named in the manifest by <name> ("namespace", "site", "styles").
+// Files are minified, named by their contents and come with source maps. Each
+// page is bundled on its own: everything it imports comes in its one file,
+// and only what it loads later (highlight.js, the QR code) apart. Shared
+// chunks would save a little when going from page to page, at the price of a
+// request for each set of pages sharing a module, some of a few hundred bytes.
 // The Bun server bundles in memory when it starts (it takes milliseconds);
 // for Cloudflare, ops/build.ts writes the result into dist/.
 import { createHash } from "node:crypto";
@@ -47,46 +51,54 @@ export const bundle = async (): Promise<Bundle> => {
     ["head", "classic", "iife", false],
   ] as const) {
     const entrypoints = scripts(folder);
-    const result = await Bun.build({
-      entrypoints,
-      root: CLIENT_DIR,
-      target: "browser",
-      format,
-      splitting,
-      minify: true,
-      sourcemap: "linked",
-      metafile: true,
-      naming: { entry: "[name]-[hash].[ext]", chunk: "chunk-[hash].[ext]" },
-    });
-    if (!result.success) throw new AggregateError(result.logs, "The browser's code did not build.");
-    for (const output of result.outputs) {
-      files.set(outputName(output.path), {
-        body: new Uint8Array(await output.arrayBuffer()),
-        type: output.type,
+    for (const group of splitting ? entrypoints.map((entry) => [entry]) : [entrypoints]) {
+      const result = await Bun.build({
+        entrypoints: group,
+        root: CLIENT_DIR,
+        target: "browser",
+        format,
+        // Only for what a page imports later: it imports nothing else apart.
+        splitting,
+        minify: true,
+        sourcemap: "linked",
+        metafile: true,
+        // k.mjs's command line imports Node's modules, which no page runs.
+        external: ["node:*"],
+        // No page runs k.mjs's command line: this leaves it out (see its last lines).
+        define: { KUROBAKO_PAGE: "true" },
+        naming: { entry: "[name]-[hash].[ext]", chunk: "chunk-[hash].[ext]" },
       });
-    }
-
-    const outputs = result.metafile?.outputs ?? {};
-    /** What a file imports, all the way down; dynamic imports load later, if ever. */
-    const imported = (file: string, seen = new Set<string>()) => {
-      for (const { path, kind } of outputs[file]?.imports ?? []) {
-        if (kind !== "import-statement" || seen.has(path)) continue;
-        seen.add(path);
-        imported(path, seen);
+      if (!result.success)
+        throw new AggregateError(result.logs, "The browser's code did not build.");
+      for (const output of result.outputs) {
+        files.set(outputName(output.path), {
+          body: new Uint8Array(await output.arrayBuffer()),
+          type: output.type,
+        });
       }
-      return seen;
-    };
-    const names = new Set(entrypoints.map(nameOf));
-    for (const [file, output] of Object.entries(outputs)) {
-      const name = output.entryPoint && nameOf(output.entryPoint);
-      // k.mjs's Node imports become entries of their own; no page loads them.
-      if (!name || !names.has(name)) continue;
-      if (manifest.files[name]) throw new Error(`Two of the client's scripts are named ${name}.`);
-      manifest.files[name] = {
-        file: outputName(file),
-        kind,
-        preload: [...imported(file)].map(outputName),
+
+      const outputs = result.metafile?.outputs ?? {};
+      /** What a file imports, all the way down; dynamic imports load later, if ever. */
+      const imported = (file: string, seen = new Set<string>()) => {
+        for (const { path, kind } of outputs[file]?.imports ?? []) {
+          if (kind !== "import-statement" || seen.has(path)) continue;
+          seen.add(path);
+          imported(path, seen);
+        }
+        return seen;
       };
+      const names = new Set(group.map(nameOf));
+      for (const [file, output] of Object.entries(outputs)) {
+        const name = output.entryPoint && nameOf(output.entryPoint);
+        // What a page imports later is an entry of its own, named after its module.
+        if (!name || !names.has(name)) continue;
+        if (manifest.files[name]) throw new Error(`Two of the client's scripts are named ${name}.`);
+        manifest.files[name] = {
+          file: outputName(file),
+          kind,
+          preload: [...imported(file)].map(outputName),
+        };
+      }
     }
   }
 

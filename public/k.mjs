@@ -2723,4 +2723,9 @@ const main = async (args) => {
   }
 };
 
-if (await runningAsScript()) await main(process.argv.slice(2));
+// Pages bundle this file with KUROBAKO_PAGE defined (src/client/build.ts):
+// there this is dead code, and with it the whole command line is left out.
+// biome-ignore lint/correctness/noUndeclaredVariables: only a page's build defines it; typeof is safe anywhere.
+if (typeof KUROBAKO_PAGE === "undefined" && (await runningAsScript())) {
+  await main(process.argv.slice(2));
+}

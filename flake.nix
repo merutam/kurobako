@@ -8,6 +8,7 @@
 #   nix run github:merutam/kurobako#with-garage   # the server and Garage together
 #   nix build                           # ./result/bin/kurobako
 #   nix run github:merutam/kurobako#k   # k.mjs, the client for encrypted namespaces
+#   nix run github:merutam/kurobako#ksync   # clipboard sync for a Linux desktop
 #   nix develop                         # bun, node and Garage
 #
 # The server needs an S3-compatible store (S3_ENDPOINT, S3_BUCKET, S3_REGION,
@@ -16,7 +17,7 @@
 #   PORT      3000
 #   DATA_DIR  $XDG_DATA_HOME/kurobako (~/.local/share/kurobako), where it keeps its SQLite files.
 {
-  description = "Kurobako, a web clipboard: the self-hosted server, its client and a development shell";
+  description = "Kurobako, a web clipboard: the self-hosted server, its clients and a development shell";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -152,6 +153,34 @@
             };
           };
         }
+        # The desktop's clipboard and a namespace in step (clients/ksync): Wayland
+        # or X11, so Linux only.
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          ksync = pkgs.rustPlatform.buildRustPackage {
+            pname = "ksync";
+            version = (lib.importTOML ./clients/ksync/Cargo.toml).package.version;
+            src = lib.fileset.toSource {
+              root = ./clients/ksync;
+              fileset = lib.fileset.unions [
+                ./clients/ksync/Cargo.toml
+                ./clients/ksync/Cargo.lock
+                ./clients/ksync/src
+              ];
+            };
+            cargoLock.lockFile = ./clients/ksync/Cargo.lock;
+            # aws-lc-rs, the cryptography under rustls, builds its C with these.
+            nativeBuildInputs = [
+              pkgs.cmake
+              pkgs.perl
+            ];
+            meta = {
+              description = "Keeps a Linux desktop's clipboard and a Kurobako namespace in step";
+              license = lib.licenses.agpl3Plus;
+              platforms = lib.platforms.linux;
+              mainProgram = "ksync";
+            };
+          };
+        }
       );
 
       apps = forAllSystems (
@@ -174,6 +203,13 @@
             type = "app";
             program = lib.getExe packages.k;
             meta.description = "Kurobako's client for encrypted namespaces, like curl";
+          };
+        }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          ksync = {
+            type = "app";
+            program = lib.getExe packages.ksync;
+            meta.description = "Keep this desktop's clipboard and a Kurobako namespace in step";
           };
         }
       );

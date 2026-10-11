@@ -33,7 +33,7 @@ export const pushAvailable = (config) =>
       globalThis.caches,
   );
 
-/** The Service Worker's registration (head/service-worker.js registers it too). */
+/** The Service Worker's registration (head/parts/service-worker.js registers it too). */
 const registration = () => navigator.serviceWorker.register(`${SITE}/sw.js`, { scope: `${SITE}/` });
 
 /** This device's subscription, if any. */

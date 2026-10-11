@@ -1322,6 +1322,12 @@ describe("rules kept in two places", () => {
         const code = new TextDecoder().decode(defined(files.get(built.file), name).body);
         expect(code).not.toMatch(/^import|\bexport\s*[{*]/m);
       }
+      // k.mjs's command line is no page's (KUROBAKO_PAGE leaves it out).
+      if (built.kind === "module") {
+        const code = new TextDecoder().decode(defined(files.get(built.file), name).body);
+        expect(code, name).not.toContain("Usage: node k.mjs");
+        expect(code, name).not.toContain('import("node:');
+      }
     }
     // public/ holds only what is served as it is.
     expect(readdirSync(join(import.meta.dir, "..", "public")).sort()).toEqual(
@@ -1963,12 +1969,11 @@ describe("under a base path", () => {
     const script = await at(defined(src, "the namespace page's script"));
     expect(script.headers.get("content-type")).toContain("javascript");
     expect(script.headers.get("cache-control")).toContain("immutable");
-    // Chunks are imported by relative paths, which stay under the path.
-    expect(await script.text()).toMatch(/from"\.\/chunk-[0-9a-z]+\.js"/);
-    const chunks = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)];
-    for (const [, chunk] of chunks) {
-      expect(chunk).toStartWith("/k/k/assets/chunk-");
-      expect((await at(defined(chunk, "a chunk"))).status).toBe(200);
+    // What it loads later is imported by relative paths, which stay under the path.
+    const later = [...(await script.text()).matchAll(/import\("\.\/([^"]+\.js)"\)/g)];
+    expect(later.length).toBeGreaterThan(0);
+    for (const [, file] of later) {
+      expect((await at(`/k/k/assets/${defined(file, "a later file")}`)).status).toBe(200);
     }
     expect((await at("/k/common.js")).status).toBe(404);
   });

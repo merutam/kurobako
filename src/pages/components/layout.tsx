@@ -63,7 +63,7 @@ export const Page = ({
 }: {
   site: SiteView;
   title: string;
-  /** The page's scripts, by name in the manifest ("namespace", "read-link"). */
+  /** The page's scripts, by name in the manifest ("namespace", "share"). */
   scripts: readonly string[];
   config?: boolean;
   data?: { id: string; value: unknown };
@@ -84,9 +84,8 @@ export const Page = ({
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="stylesheet" href={assetUrl(site, entryOf(site, STYLES).file)} />
-        <script src={assetUrl(site, entryOf(site, "theme").file)} />
-        <script src={assetUrl(site, entryOf(site, "scroll-top").file)} defer />
-        <script src={assetUrl(site, entryOf(site, "service-worker").file)} defer />
+        {/* The theme, before the first paint, and every page's small parts (head/site.js). */}
+        <script src={assetUrl(site, entryOf(site, "site").file)} />
         <link rel="icon" href={`${basePath}/favicon.ico`} sizes="any" />
         <link rel="apple-touch-icon" href={`${basePath}/apple-touch-icon.png`} />
         <link rel="manifest" href={`${basePath}/manifest.webmanifest`} />

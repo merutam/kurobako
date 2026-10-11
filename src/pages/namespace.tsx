@@ -40,7 +40,7 @@ export const renderNamespacePage = (
   return Page({
     site,
     title: plain ? `/${name} · Kurobako` : "Kurobako",
-    scripts: ["read-link", "namespace"],
+    scripts: ["namespace"],
     config: true,
     data: plain ? { id: "queue-data", value: queue } : undefined,
     decrypting: plain ? undefined : "Decrypting namespace…",

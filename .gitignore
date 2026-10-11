@@ -5,8 +5,6 @@ coverage/
 *.log
 .wrangler/
 .dev.vars*
-clients/
-apps/
 # nix build
 /result*
 # Built by ops/build.ts
