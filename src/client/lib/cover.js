@@ -99,7 +99,7 @@ export const coverFromTag = (bytes) => {
   return found && new Blob([found], { type: imageType(found) });
 };
 
-/** The cover of the audio at `src`, as a Blob URL to show, or null. */
+/** The cover of the audio at `src`, as a Blob, or null. */
 export const coverOf = async (src) => {
   const response = await fetch(src);
   if (!response.ok || !response.body) return null;
@@ -135,6 +135,5 @@ export const coverOf = async (src) => {
     // The rest of the file is the music, which the player fetches itself.
     void reader.cancel().catch(() => {});
   }
-  const cover = coverFromTag(bytes());
-  return cover && URL.createObjectURL(cover);
+  return coverFromTag(bytes());
 };

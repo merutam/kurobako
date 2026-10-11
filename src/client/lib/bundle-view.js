@@ -8,6 +8,7 @@
 import { readBundle } from "../shared/bundle.js";
 import { h } from "../shared/dom.js";
 import { formatBytes } from "../shared/format.js";
+import { objectAddress, SVG_TYPE, svgAddress } from "./addresses.js";
 import { highlightedText } from "./items.js";
 import { isMarkdown, renderMarkdown } from "./markdown.js";
 
@@ -76,12 +77,17 @@ const markdownPanel = (text, path, resolve) => {
  * The view of a bundle's bytes. `objectUrl(blob)` makes the address of one
  * of its files (the caller frees them along with its own).
  */
-export const bundleView = (bytes, { objectUrl = (blob) => URL.createObjectURL(blob) } = {}) => {
+export const bundleView = (bytes, { objectUrl = objectAddress } = {}) => {
   const { main, entries } = readBundle(bytes);
   const urls = new Map();
   const urlOf = (entry) => {
     if (!urls.has(entry.path)) {
-      urls.set(entry.path, objectUrl(new Blob([entry.bytes], { type: entry.type })));
+      urls.set(
+        entry.path,
+        entry.type === SVG_TYPE
+          ? svgAddress(entry.bytes)
+          : objectUrl(new Blob([entry.bytes], { type: entry.type })),
+      );
     }
     return urls.get(entry.path);
   };

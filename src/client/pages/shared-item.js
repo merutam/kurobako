@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { openSharedItem, textDownloadName } from "../../../public/k.mjs";
+import { objectAddress, SVG_TYPE, svgAddress } from "../lib/addresses.js";
 import { bundleView } from "../lib/bundle-view.js";
 // The page behind a share link, /i/<token>: one item, and nothing that leads
 // back to its namespace. Encrypted items carry their own key after the #.
@@ -63,11 +64,12 @@ const showContent = (item, info, content) => {
     body.replaceChildren(highlightedText(content.text, info.title));
     title.textContent = compactText(content.text).slice(0, 120);
   } else if (info.isImage) {
-    body.replaceChildren(h("img", { alt: info.title, src: URL.createObjectURL(content.blob) }));
+    const src = info.mime === SVG_TYPE ? svgAddress(content.bytes) : objectAddress(content.blob);
+    body.replaceChildren(h("img", { alt: info.title, src }));
   } else if (info.isVideo) {
-    body.replaceChildren(videoPlayer(URL.createObjectURL(content.blob)));
+    body.replaceChildren(videoPlayer(objectAddress(content.blob)));
   } else if (info.isAudio) {
-    body.replaceChildren(audioPlayer(URL.createObjectURL(content.blob)));
+    body.replaceChildren(audioPlayer(objectAddress(content.blob)));
   } else if (info.isBundle) {
     body.replaceChildren(bundleView(content.bytes));
   } else {

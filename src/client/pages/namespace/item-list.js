@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { defaultTextName, textDownloadName } from "../../../../public/k.mjs";
+import { objectAddress, SVG_TYPE, svgAddress } from "../../lib/addresses.js";
 import { bundleView } from "../../lib/bundle-view.js";
 import {
   choiceGroup,
@@ -81,7 +82,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
   };
 
   const objectUrl = (blob, id) => {
-    const url = URL.createObjectURL(blob);
+    const url = objectAddress(blob);
     objectUrls.set(id, [...(objectUrls.get(id) ?? []), url]);
     return url;
   };
@@ -126,8 +127,10 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
 
   /**
    * A medium's browser address. Plain media stays streamed from the
-   * server. Decrypted media becomes a Blob URL, kept by its row or by the media
-   * feed for only as long as it needs it.
+   * server. Decrypted video, audio and SVG come through the Service Worker,
+   * which serves them sandboxed; other media, or all of it without a worker,
+   * becomes a Blob URL, kept by its row or by the media feed for only as long
+   * as it needs it, and an SVG a data: address (see addresses.js).
    */
   const mediaAddress = async (entry, { preview = false } = {}) => {
     const { item, info } = entry;
@@ -137,11 +140,13 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
         revoke: null,
       };
     }
-    const streamed = info.isVideo || info.isAudio ? await partsAddress(entry) : null;
+    const isSvg = info.mime === SVG_TYPE;
+    const streamed = info.isVideo || info.isAudio || isSvg ? await partsAddress(entry) : null;
     if (streamed) return { src: streamed, revoke: null };
     const blob = await blobOf(entry);
+    if (isSvg) return { src: svgAddress(new Uint8Array(await blob.arrayBuffer())), revoke: null };
     if (preview) return { src: objectUrl(blob, item.id), revoke: null };
-    const src = URL.createObjectURL(blob);
+    const src = objectAddress(blob);
     return { src, revoke: () => URL.revokeObjectURL(src) };
   };
 

@@ -1232,7 +1232,28 @@ export const detectMedia = (bytes) => {
       break;
     }
   }
-  return null;
+  // SVG: text whose root element is <svg, after an optional BOM, XML
+  // declaration, comments and a doctype without an internal subset ([), all
+  // within the first 1024 bytes (the server's SIGNATURE_BYTES).
+  let text = new TextDecoder().decode(bytes.subarray(0, 1024));
+  for (;;) {
+    text = text.trimStart();
+    if (text.startsWith("<?xml")) {
+      const end = text.indexOf("?>");
+      if (end === -1) return null;
+      text = text.slice(end + 2);
+    } else if (text.startsWith("<!--")) {
+      const end = text.indexOf("-->", 4);
+      if (end === -1) return null;
+      text = text.slice(end + 3);
+    } else if (/^<!doctype\s/i.test(text)) {
+      const end = text.indexOf(">");
+      if (end === -1 || text.slice(0, end).includes("[")) return null;
+      text = text.slice(end + 1);
+    } else {
+      return /^<svg[\s/>]/.test(text) ? image("svg", "image/svg+xml") : null;
+    }
+  }
 };
 
 /**

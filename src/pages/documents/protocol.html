@@ -324,8 +324,13 @@
   <code>text</code> or <code>preview</code>), <code>image</code> or
   <code>file</code> (with <code>filename</code> and <code>mime</code>).
   Types come from the bytes: PNG, JPEG, GIF, WebP, AVIF and HEIC are
-  images; MP4, MOV, WebM and Matroska are files with a <code>video/*</code>
-  type; anything else is <code>application/octet-stream</code>.
+  images, and so is SVG (text whose root element is <code>&lt;svg</code>,
+  within its first 1,024 bytes, after at most a declaration, comments and a
+  doctype without <code>[</code>); MP4, MOV, WebM and Matroska are files with a
+  <code>video/*</code> type; anything else is
+  <code>application/octet-stream</code>. Contents are served with
+  <code>Content-Security-Policy: default-src 'none'; sandbox</code>, so an
+  SVG's scripts never run.
 </p>
 
 <h3>Sending, in detail</h3>

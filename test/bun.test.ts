@@ -1594,6 +1594,7 @@ describe("rules kept in two places", () => {
   test("file types and names: k.mjs describes files as the server does", () => {
     const head = (...bytes: number[]) => new Uint8Array([...bytes, ...new Array(12).fill(0)]);
     const ascii = (text: string) => [...text].map((character) => character.charCodeAt(0));
+    const svg = (text: string) => new TextEncoder().encode(text);
     const samples = [
       head(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a),
       head(0xff, 0xd8, 0xff, 0xe0),
@@ -1642,6 +1643,16 @@ describe("rules kept in two places", () => {
       head(...ascii("RIFF"), 0, 0, 0, 0, ...ascii("WAVE")),
       head(...ascii("%PDF-1.7")),
       new Uint8Array([0x89, 0x50]),
+      svg('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+      svg(
+        '\uFEFF<?xml version="1.0"?>\n<!-- by hand -->\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n<svg\tviewBox="0 0 1 1">',
+      ),
+      // Entities are no image's business.
+      svg('<!DOCTYPE svg [<!ENTITY a "b">]><svg>'),
+      svg("<html><svg>"),
+      svg("<svgs>"),
+      // Past the first 1024 bytes, nothing is looked at.
+      svg(`<!-- ${"x".repeat(1100)} --><svg>`),
     ];
     const kinds = samples.map((bytes) => detectMedia(bytes)?.extension ?? null);
     expect(kinds).toEqual([
@@ -1661,6 +1672,12 @@ describe("rules kept in two places", () => {
       "mp3",
       "flac",
       "wav",
+      null,
+      null,
+      "svg",
+      "svg",
+      null,
+      null,
       null,
       null,
     ]);

@@ -6,6 +6,7 @@
 // restore of a backup.
 
 import { h } from "../shared/dom.js";
+import { imageAddress, SVG_TYPE } from "./addresses.js";
 
 export {
   compactText,
@@ -158,14 +159,24 @@ export const copyText = async (text) => {
   if (!copied) throw new Error("The browser blocked clipboard access.");
 };
 
+/** An image's pixels; an SVG, which createImageBitmap does not take, through an <img>. */
+const decoded = async (blob) => {
+  if (blob.type !== SVG_TYPE) return createImageBitmap(blob);
+  const image = new Image();
+  image.src = await imageAddress(blob);
+  await image.decode();
+  return image;
+};
+
 export const asPng = async (blob) => {
   if (blob.type === "image/png") return blob;
-  const bitmap = await createImageBitmap(blob);
+  const picture = await decoded(blob);
   const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  canvas.getContext("2d").drawImage(bitmap, 0, 0);
-  bitmap.close();
+  // An SVG without a size of its own is drawn at an <img>'s default one.
+  canvas.width = picture.naturalWidth ?? picture.width;
+  canvas.height = picture.naturalHeight ?? picture.height;
+  canvas.getContext("2d").drawImage(picture, 0, 0);
+  picture.close?.();
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (png) => (png ? resolve(png) : reject(new Error("The image could not be converted."))),

@@ -14,6 +14,7 @@ export type AcceptedMedia = {
     | "webp"
     | "avif"
     | "heic"
+    | "svg"
     | "mp4"
     | "mov"
     | "webm"
@@ -29,8 +30,14 @@ export type AcceptedMedia = {
 const ascii = (bytes: Uint8Array, start: number, length: number): string =>
   String.fromCharCode(...bytes.subarray(start, start + length));
 
-/** detectMedia never looks past this many bytes. */
-export const SIGNATURE_BYTES = 64;
+/**
+ * detectMedia never looks past this many bytes: binary formats say what they
+ * are in a few, an SVG may first have a declaration, comments and a doctype.
+ */
+export const SIGNATURE_BYTES = 1024;
+
+/** How far into a Matroska header its DocType is looked for. */
+const EBML_SCAN_BYTES = 64;
 
 /** MP4 brands (an ISO media file's first "ftyp") that hold video. */
 const MP4_BRANDS = [
@@ -54,13 +61,42 @@ const MP4_BRANDS = [
 const ebmlDocType = (bytes: Uint8Array): string | null => {
   if (bytes.length < 4 || bytes[0] !== 0x1a || bytes[1] !== 0x45 || bytes[2] !== 0xdf) return null;
   if (bytes[3] !== 0xa3) return null;
-  for (let index = 4; index + 2 < Math.min(bytes.length, SIGNATURE_BYTES); index += 1) {
+  for (let index = 4; index + 2 < Math.min(bytes.length, EBML_SCAN_BYTES); index += 1) {
     if (bytes[index] !== 0x42 || bytes[index + 1] !== 0x82) continue;
     const size = bytes[index + 2] ?? 0;
     if (!(size & 0x80)) return null;
     return ascii(bytes, index + 3, size & 0x7f);
   }
   return null;
+};
+
+/**
+ * Whether a file is an SVG: text whose root element is <svg, after an optional
+ * BOM, XML declaration, comments and doctype. A doctype with an internal
+ * subset ([) declares entities, which no image needs: such a file is not one.
+ * An SVG can hold scripts: it is served, like everything, in a sandbox.
+ */
+const isSvg = (bytes: Uint8Array): boolean => {
+  // The decoder drops a UTF-8 BOM.
+  let text = new TextDecoder().decode(bytes.subarray(0, SIGNATURE_BYTES));
+  for (;;) {
+    text = text.trimStart();
+    if (text.startsWith("<?xml")) {
+      const end = text.indexOf("?>");
+      if (end === -1) return false;
+      text = text.slice(end + 2);
+    } else if (text.startsWith("<!--")) {
+      const end = text.indexOf("-->", 4);
+      if (end === -1) return false;
+      text = text.slice(end + 3);
+    } else if (/^<!doctype\s/i.test(text)) {
+      const end = text.indexOf(">");
+      if (end === -1 || text.slice(0, end).includes("[")) return false;
+      text = text.slice(end + 1);
+    } else {
+      return /^<svg[\s/>]/.test(text);
+    }
+  }
 };
 
 const image = (extension: AcceptedMedia["extension"], mime: string): AcceptedMedia => ({
@@ -140,6 +176,8 @@ export const detectMedia = (bytes: Uint8Array): AcceptedMedia | null => {
   const docType = ebmlDocType(bytes);
   if (docType === "webm") return video("webm", "video/webm");
   if (docType === "matroska") return video("mkv", "video/x-matroska");
+
+  if (isSvg(bytes)) return image("svg", "image/svg+xml");
 
   return null;
 };

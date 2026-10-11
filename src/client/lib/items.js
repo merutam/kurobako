@@ -6,6 +6,7 @@ import { BUNDLE_MIME } from "../shared/bundle.js";
 // call one, the line under its title, and copying or saving its contents.
 import { h } from "../shared/dom.js";
 import { describePlain, itemSummary, limitedItem } from "../shared/item-row.js";
+import { isShownImage, objectAddress } from "./addresses.js";
 import { asPng, HIDDEN_TITLE, SITE } from "./common.js";
 import { highlighter, loadHighlighter } from "./highlight.js";
 
@@ -63,7 +64,9 @@ export const highlightedText = (text, title) =>
 export const describeOpened = (metadata) => ({
   ...metadata,
   title: metadata.title || HIDDEN_TITLE,
-  isImage: metadata.mime?.startsWith("image/") ?? false,
+  // The type is the sender's word: only what the server would show as an
+  // image is shown as one.
+  isImage: isShownImage(metadata.mime),
   isVideo: metadata.mime?.startsWith("video/") ?? false,
   isAudio: metadata.mime?.startsWith("audio/") ?? false,
   isBundle: metadata.mime === BUNDLE_MIME,
@@ -94,8 +97,9 @@ export const audioPlayer = (src) => {
   void import("./cover.js")
     .then(({ coverOf }) => coverOf(src))
     .then(
-      (url) => {
-        if (!url) return;
+      (picture) => {
+        if (!picture) return;
+        const url = objectAddress(picture);
         cover.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
         cover.src = url;
         cover.hidden = false;
@@ -118,7 +122,7 @@ export const copyImage = async (blob) => {
 
 /** Saves contents already in the page under `filename`. */
 export const downloadBlob = (blob, filename) => {
-  const url = URL.createObjectURL(blob);
+  const url = objectAddress(blob);
   h("a", { href: url, download: filename || "file" }).click();
   // Long enough for the browser to have started saving it.
   setTimeout(() => URL.revokeObjectURL(url), 60_000);

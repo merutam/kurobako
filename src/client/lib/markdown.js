@@ -7,6 +7,7 @@
 //  from that bundle (resolve).
 
 import { h } from "../shared/dom.js";
+import { isShownImage } from "./addresses.js";
 import { highlightedCode } from "./items.js";
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([\w+#.-]*)/;
@@ -164,7 +165,7 @@ export const renderMarkdown = (source, { resolve = () => null } = {}) => {
           const path = decodedPath(link[0]);
           const file = path === null ? null : resolve(path);
           out.push(
-            file?.type.startsWith("image/")
+            file && isShownImage(file.type)
               ? h("img", { src: file.url, alt })
               : h(
                   "span",

@@ -7,6 +7,7 @@ import {
   suggestedTextFileBase,
   textFileBase,
 } from "../../../../public/k.mjs";
+import { imageAddress, objectAddress, SVG_TYPE } from "../../lib/addresses.js";
 import {
   copyText,
   element,
@@ -259,6 +260,18 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
 
   /** Markdown, shown as it will read, with the picked files' images in place. */
   let previewUrls = [];
+  /** SVGs' data: addresses (see addresses.js), read once each, then shown. */
+  const svgUrls = new WeakMap();
+  const svgUrlOf = (file) => {
+    if (!svgUrls.has(file)) {
+      svgUrls.set(file, null);
+      void imageAddress(file).then((url) => {
+        svgUrls.set(file, url);
+        if (previewing) showPreview();
+      });
+    }
+    return svgUrls.get(file);
+  };
   const showPreview = () => {
     for (const url of previewUrls) URL.revokeObjectURL(url);
     previewUrls = [];
@@ -269,7 +282,11 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
           // As the bundle will hold them, under assets/; a bare name finds them too.
           const file = files.get(path.startsWith(ASSETS) ? path.slice(ASSETS.length) : path);
           if (!file) return null;
-          const url = URL.createObjectURL(file);
+          if (file.type === SVG_TYPE) {
+            const url = svgUrlOf(file);
+            return url && { url, type: file.type, name: file.name };
+          }
+          const url = objectAddress(file);
           previewUrls.push(url);
           return { url, type: file.type, name: file.name };
         },

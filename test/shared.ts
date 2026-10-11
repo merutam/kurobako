@@ -825,6 +825,31 @@ export const sharedTests = (harness: Harness) => {
       expect(shown.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
     });
 
+    test("shows an SVG as an image, and never runs it", async () => {
+      const ns = fresh();
+      const drawing = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
+      const image = await json<FileItem>(`/${ns}/new`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/octet-stream",
+          "x-filename": encodeURIComponent("drawing.html"),
+        },
+        body: drawing,
+      });
+      expect(image).toMatchObject({
+        kind: "image",
+        mime: "image/svg+xml",
+        filename: "drawing.svg",
+      });
+      for (const path of [`/${ns}/${image.id}`, `/${ns}/${image.id}/d`]) {
+        const shown = await call(path);
+        expect(shown.headers.get("content-type")).toBe("image/svg+xml");
+        expect(shown.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+        expect(shown.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(await shown.text()).toBe(drawing);
+      }
+    });
+
     test("keeps file names safe on every system", async () => {
       const ns = fresh();
       const named = async (filename: string) =>
