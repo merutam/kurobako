@@ -9,12 +9,12 @@ import {
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, test } from "vitest";
-import { CLOUDFLARE_LIMITS } from "../src/cloudflare/limits";
-import { HUB_NAME } from "../src/cloudflare/objects";
-import worker from "../src/cloudflare/worker";
+import { ASSETS_PATH, FIXED_FILES, ICON_FILES, MANIFEST_FILE, type Manifest } from "../src/assets";
 import { loadConfig } from "../src/config";
-import { ASSETS_PATH, FIXED_FILES, ICON_FILES, MANIFEST_FILE, type Manifest } from "../src/pages";
-import type { AccessLogEntry } from "../src/request-info";
+import type { AccessLogEntry } from "../src/core/visits";
+import { CLOUDFLARE_LIMITS } from "../src/runtime/cloudflare/limits";
+import { HUB_NAME } from "../src/runtime/cloudflare/objects";
+import worker from "../src/runtime/cloudflare/worker";
 import { TEST_ADMIN_KEY } from "./admin-key";
 import { sharedTests } from "./shared";
 import { defined, type FileItem, type Item, type LiveMessage } from "./support";

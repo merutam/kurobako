@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { publicItem, SHARE_TOKEN_PATTERN, type StoredItem, sharedItem } from "../model";
-import type { ViewEntry } from "../namespace/views";
-import { renderSharedViewPage } from "../views/shared-view";
+import { publicItem, SHARE_TOKEN_PATTERN, type StoredItem, sharedItem } from "../core/model";
+import type { ViewEntry } from "../core/namespace/views";
+import { renderSharedViewPage } from "../pages/shared-view";
 import {
   type Api,
   type App,
@@ -26,7 +26,7 @@ export const mountViews = (app: App, api: Api) => {
       inNamespace(async (c, ref) => {
         const refused = await refuseWrite(c, ref);
         if (refused) return refused;
-        const status = await namespace(c, ref).viewsStatus(ref, await writeVerifier(c));
+        const status = await namespace(ref).viewsStatus(ref, await writeVerifier(c));
         return c.json({
           items: status.items.map(publicItem),
           views: status.views.map((view) => ({
@@ -69,7 +69,7 @@ export const mountViews = (app: App, api: Api) => {
         ) {
           return jsonError(c, 400, "Invalid view entries.");
         }
-        const view = await namespace(c, ref).createView(
+        const view = await namespace(ref).createView(
           ref,
           body.viewId,
           body.entries as ViewEntry[],
@@ -83,11 +83,11 @@ export const mountViews = (app: App, api: Api) => {
 
   const describeView = async (c: AppContext, token: string) => {
     if (!SHARE_TOKEN_PATTERN.test(token)) return null;
-    const ref = await hub(c).resolveView(token);
+    const ref = await hub().resolveView(token);
     if (!ref) return null;
-    const view = await namespace(c, ref).viewContents(token, visit(c));
+    const view = await namespace(ref).viewContents(token, visit(c));
     if (!view) return null;
-    const tokens = await hub(c).createShares(
+    const tokens = await hub().createShares(
       ref,
       view.entries.map(({ item }) => ({
         id: item.id,

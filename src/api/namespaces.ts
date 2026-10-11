@@ -14,10 +14,10 @@ import {
   type StoredItem,
   sealedName,
   summaryItem,
-} from "../model";
-import type { ListedItem } from "../views/items";
-import { renderLogPage } from "../views/log";
-import { renderNamespacePage } from "../views/namespace";
+} from "../core/model";
+import type { ListedItem } from "../pages/components/items";
+import { renderLogPage } from "../pages/log";
+import { renderNamespacePage } from "../pages/namespace";
 import { type Api, type App, type AppContext, jsonError } from "./context";
 import { type createUploads, decodeFilename } from "./uploads";
 
@@ -70,7 +70,7 @@ export const mountNamespaces = (
     visit,
     page,
     pageView,
-    platformOf,
+    platform,
     refuseSend,
     refuseWrite,
     storageFull,
@@ -88,15 +88,11 @@ export const mountNamespaces = (
       app.get(prefix, async (c) => {
         const ref = resolve(c);
         if (!ref) return jsonError(c, 404, "Invalid namespace.");
-        const { items } = await namespace(c, ref).listState(visit(c));
+        const { items, revision } = await namespace(ref).listState(visit(c));
+        const shown = items.map((item) => summaryItem(item) as ListedItem & { id: string });
         return pageView(
           c,
-          renderNamespacePage(
-            siteView,
-            ref.name,
-            items.map((item) => summaryItem(item) as ListedItem & { id: string }),
-            config.maxItems,
-          ),
+          renderNamespacePage(siteView, ref.name, { items: shown, revision }, config.maxItems),
         );
       });
     }
@@ -104,7 +100,7 @@ export const mountNamespaces = (
     app.get(
       `${prefix}/ls`,
       inNamespace(async (c, ref) => {
-        const { items, revision } = await namespace(c, ref).listState(visit(c));
+        const { items, revision } = await namespace(ref).listState(visit(c));
         c.header("X-Queue-Revision", String(revision));
         // Nothing here is what a name that does not exist answers too.
         if (!items.length) c.set("miss", true);
@@ -149,7 +145,7 @@ export const mountNamespaces = (
             // browser's history has it.
             space.kind === "sealed" ? null : namespacePath(config.basePath, ref),
             `${namespacePath(config.basePath, ref)}/log.json`,
-            await namespace(c, ref).accessLog(visit(c)),
+            await namespace(ref).accessLog(visit(c)),
           ),
         ),
       ),
@@ -157,7 +153,7 @@ export const mountNamespaces = (
 
     app.get(
       `${prefix}/log.json`,
-      inNamespace(async (c, ref) => c.json(await namespace(c, ref).accessLog(visit(c)))),
+      inNamespace(async (c, ref) => c.json(await namespace(ref).accessLog(visit(c)))),
     );
 
     // A WebSocket upgrade answer cannot carry headers, so this one starts by hand.
@@ -168,8 +164,8 @@ export const mountNamespaces = (
         return jsonError(c, 426, "Expected a WebSocket upgrade.");
       }
       // An empty namespace still counts as a miss; live itself has no snapshot.
-      if (!((await namespace(c, ref).list()) as StoredItem[]).length) c.set("miss", true);
-      return platformOf(c).live(c, ref, visit(c));
+      if (!((await namespace(ref).list()) as StoredItem[]).length) c.set("miss", true);
+      return platform.live(c, ref, visit(c));
     });
   }
 

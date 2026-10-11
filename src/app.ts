@@ -24,7 +24,7 @@ import { mountAccess } from "./api/access";
 import { mountAdmin } from "./api/admin";
 import { mountArchives } from "./api/archives";
 import { createContents } from "./api/contents";
-import { type AppContext, type AppEnv, createContext, jsonError } from "./api/context";
+import { type AppEnv, createContext, jsonError } from "./api/context";
 import { mountItems } from "./api/items";
 import { mountMissLimit } from "./api/misses";
 import { mountNamespaces } from "./api/namespaces";
@@ -32,11 +32,11 @@ import { mountShares } from "./api/shares";
 import { mountSite } from "./api/site";
 import { createUploads } from "./api/uploads";
 import { mountViews } from "./api/views";
+import type { WebAssets } from "./assets";
 import type { AppConfig } from "./config";
-import { logError } from "./log";
-import type { WebAssets } from "./pages";
-import type { Platform } from "./platform";
-import { sitePath } from "./routing";
+import { logError } from "./core/log";
+import { sitePath } from "./core/routing";
+import type { Platform } from "./runtime/platform";
 
 export type { AppEnv };
 
@@ -53,17 +53,13 @@ export const SECURITY_HEADERS: Record<string, string> = {
     "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 
-export const createApp = (
-  config: AppConfig,
-  assets: WebAssets,
-  platformOf: (c: AppContext) => Platform,
-) => {
+export const createApp = (config: AppConfig, assets: WebAssets, platform: Platform) => {
   // Routes are written from the site's root; under a base path (/k), /k/aa
   // is /aa. A trailing slash changes nothing: /aa/ is /aa, /aa/ls/ is /aa/ls.
   const app = new Hono<AppEnv>({
     getPath: (request) => sitePath(config.basePath, new URL(request.url).pathname) ?? OUTSIDE,
   });
-  const api = createContext(config, assets, platformOf);
+  const api = createContext(config, assets, platform);
   const contents = createContents(api);
 
   app.use("*", async (c, next) => {

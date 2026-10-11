@@ -14,9 +14,8 @@
 // the Worker, which may need it (with BASE_PATH=/k, it is the namespace
 // /protocol): then there are none, and the Worker renders them itself, as it
 // does wherever they are missing.
-import { cp, mkdir, rm } from "node:fs/promises";
+import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { bundle, PUBLIC_DIR } from "../src/bun/bundle";
 import {
   ASSETS_PATH,
   FIXED_FILES,
@@ -25,21 +24,28 @@ import {
   MANIFEST_FILE,
   STATIC_PAGES,
   siteViewOf,
-} from "../src/pages";
-import { renderLicensesPage, renderProtocolPage } from "../src/views/documents";
+} from "../src/assets";
+import { bundle } from "../src/client/build";
+import { renderLicensesPage, renderProtocolPage } from "../src/pages/documents";
 
 const root = join(import.meta.dir, "..");
+const publicDir = join(root, "public");
 const dist = join(root, "dist");
 const assetsDir = join(dist, ASSETS_PATH);
 
-await rm(dist, { recursive: true, force: true });
-await mkdir(assetsDir, { recursive: true });
+/** Every file written, so what is left from an earlier build can go. */
+const written = new Set<string>();
+const write = async (path: string, body: Uint8Array | string) => {
+  await Bun.write(path, body);
+  written.add(path);
+};
 
 const { manifest, files } = await bundle();
-for (const [name, file] of files) await Bun.write(join(assetsDir, name), file.body);
-await Bun.write(join(assetsDir, MANIFEST_FILE), JSON.stringify(manifest));
+for (const [name, file] of files) await write(join(assetsDir, name), file.body);
+// Last of the bundle: a server reading it finds every file it names.
+await write(join(assetsDir, MANIFEST_FILE), JSON.stringify(manifest));
 for (const name of [...FIXED_FILES, ...ICON_FILES, "_headers"]) {
-  await cp(join(PUBLIC_DIR, name), join(dist, name));
+  await write(join(dist, name), await Bun.file(join(publicDir, name)).bytes());
 }
 
 const wrangler = await Bun.file(join(root, "wrangler.jsonc")).text();
@@ -52,5 +58,12 @@ if (basePath) {
   // The protocol and the licenses read no config.
   const site = siteViewOf(assets, "", null);
   const render = { "k/protocol": renderProtocolPage, "k/licenses": renderLicensesPage };
-  for (const page of STATIC_PAGES) await Bun.write(join(dist, `${page}.html`), render[page](site));
+  for (const page of STATIC_PAGES) await write(join(dist, `${page}.html`), render[page](site));
+}
+
+// Written over, never emptied first: a `wrangler dev` serving dist/ meanwhile
+// never sees it half gone.
+for (const path of await readdir(dist, { recursive: true })) {
+  const full = join(dist, path);
+  if (!written.has(full) && (await stat(full)).isFile()) await rm(full);
 }

@@ -198,7 +198,7 @@ private R2 bucket. Set `account_id`, `routes` and `bucket_name` in
 `wrangler.jsonc`, optionally `bunx wrangler secret put ADMIN_KEY`, then
 `bun run deploy`.
 
-**Self-hosted.** `src/bun/server.ts` keeps one SQLite file per namespace and
+**Self-hosted.** `src/runtime/bun/server.ts` keeps one SQLite file per namespace and
 larger texts and files in any S3-compatible store. Namespace databases open
 lazily; the least recently used connections are closed after reaching
 `SQLITE_MAX_OPEN` (default `1000`), and idle connections close after
@@ -314,12 +314,12 @@ keep namespace backups (`/<ns>/tar`, `/k/a/tar`).
 with a storage node lost along the way.
 
 **Several servers.** Each server keeps its own data directory, and all share
-one S3 store. `src/bun/router.ts` sits in front, keeps no state and sends
+one S3 store. `src/runtime/bun/router.ts` sits in front, keeps no state and sends
 each namespace, with its share links and live connections, to the server
 that owns it:
 
 ```sh
-SERVERS=http://10.0.0.1:3000,http://10.0.0.2:3000 bun src/bun/router.ts
+SERVERS=http://10.0.0.1:3000,http://10.0.0.2:3000 bun src/runtime/bun/router.ts
 ```
 
 The servers run with `CLIENT_IP_HEADER=x-forwarded-for` and listen only
@@ -337,26 +337,57 @@ twice).
 
 ```sh
 bun install
-bun run dev          # wrangler dev
+bun run dev          # wrangler dev (it runs the build first)
+bun run start        # the Bun server
+bun run build        # dist/, what Cloudflare serves without the Worker
 bun run test         # Worker tests, then the Bun server's
 bun run typecheck
 bun run lint         # Biome; bun run format applies its fixes
 bun pm version minor # new version, in package.json and public/k.mjs
 ```
 
-- `src/app.ts` puts together the routes in `src/api/`.
-- `src/namespace/` and `src/hub.ts` hold the logic, on the interfaces in
-  `src/platform.ts`, which `src/cloudflare/` and `src/bun/` implement.
-- `src/views/*.tsx` renders every page on the server with Hono JSX, data
-  included: plain namespace, shared-item, view, log and admin pages arrive
-  with their initial data; encrypted pages wait for decryption in the browser.
-  `public/` has the browser's scripts and styles as source, and the icons.
-  They are bundled (`src/bun/bundle.ts`) into files named by their contents,
-  served at `/k/assets/` and cached for good; each page preloads every chunk
-  it needs. The Bun server bundles in memory when it starts; for Cloudflare,
-  `bun run build` (`ops/build.ts`, which Wrangler runs before `dev` and
-  `deploy`) writes `dist/`: the bundle, `sw.js`, `k.mjs`, the icons, and the
-  protocol and licenses pages, which never change and so need no Worker.
+### Layout
+
+```
+src/
+  app.ts, config.ts   the Hono app and its settings, the same on both runtimes
+  assets.ts           what is served besides pages: the bundle's manifest, public/'s files
+  core/               the logic, with no HTTP and no runtime in it
+    namespace/        one namespace: its queue, access log and shared views (SQLite)
+    hub.ts            site-wide state: stats, share links, logins
+    model.ts          items and names; archive.ts, media.ts, routing.ts, …
+    host.ts           what the cores need from where they run (SQL, a blob store)
+  api/                the HTTP routes, one file per kind of thing
+  pages/              the pages, rendered on the server with Hono JSX
+    components/       the layout and the pieces pages share
+    documents/        the protocol and the licenses
+  runtime/            platform.ts, the contract, and its two implementations:
+    cloudflare/       Durable Objects, R2 and rate limiters (worker.ts is the entry)
+    bun/              SQLite files, S3 and a router for several servers (server.ts)
+  client/             the browser's code, bundled by client/build.ts:
+    pages/<name>.js   a page's script (pages/<name>.tsx loads it); helpers in pages/<name>/
+    head/<name>.js    classic scripts, run before the first paint
+    lib/              what pages share; shared/ is what the server renders with too
+    styles/, vendor/
+public/               served as it is: k.mjs (the client and command line), sw.js, icons
+ops/                  build.ts (dist/ for Cloudflare), version.ts, icons.sh
+test/                 shared.ts runs against both runtimes
+```
+
+A request goes from `runtime/<platform>` to `app.ts`, then to a route in
+`api/`, which asks a core through the platform (a Durable Object on
+Cloudflare, an object in the same process on Bun) and answers with JSON or a
+page from `pages/`. Pages arrive with their data; their script takes over the
+HTML as it is. Only encrypted contents wait for the browser, which holds the
+key.
+
+The browser's code is bundled into files named by their contents, served at
+`/k/assets/` and cached for good; each page preloads the chunks it imports,
+and the large ones (highlight.js, the QR code) load after the page. The Bun
+server bundles in memory when it starts. For Cloudflare, `bun run build`
+(which Wrangler runs before `dev` and `deploy`) writes `dist/`: the bundle,
+`public/`, and the protocol and licenses pages, which need no Worker.
+
 - `test/shared.ts` runs on both platforms.
 - After changing `wrangler.jsonc`, run `bun run types`; after changing
   `assets/icon.png`, run `ops/icons.sh`.

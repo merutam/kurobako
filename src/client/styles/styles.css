@@ -1,0 +1,1577 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Kurobako contributors
+ */
+/* The site's styles, after tokens.css in the file the build makes of both. */
+
+/* --- Base ----------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+}
+
+/* A namespace page known, before its first paint, to be a reader's (see
+   access.js): no send forms to show and then hide. namespaces/access.js takes over. */
+:root[data-read-link] :is(#send-section, #restore-form) {
+  display: none;
+}
+
+/* Hidden means hidden, whatever display a component gives itself. */
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: the attribute must win over every component's display. */
+  display: none !important;
+}
+main[data-loading] > :not(.site-header, #page-loading) {
+  display: none;
+}
+/* Keep the footer below the viewport until the first complete render. */
+main[data-loading] {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+}
+.page-loading {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--text-subtle);
+}
+.loading-spinner {
+  width: 1.2em;
+  height: 1.2em;
+  border: 2px solid var(--border);
+  border-top-color: var(--progressive);
+  border-radius: 50%;
+  animation: loading-turn 0.8s linear infinite;
+}
+@keyframes loading-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner {
+    animation: none;
+  }
+}
+
+body {
+  margin: 0;
+  /* The page reaches the screen's edges (viewport-fit=cover): its content
+     keeps clear of a notch or rounded corner, in landscape too. */
+  padding-right: env(safe-area-inset-right);
+  padding-left: env(safe-area-inset-left);
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+main {
+  max-width: var(--page-width);
+  margin: 0 auto;
+  padding: 0 var(--page-gutter) var(--space-7);
+}
+
+a {
+  color: var(--link);
+}
+a:visited {
+  color: var(--link-visited);
+}
+a:hover {
+  color: var(--link-hover);
+}
+/* Navigation shortcuts (See JSON, Access log, Back, Download) are reopened
+   all the time; "already visited" tells nothing there. */
+.intro a:visited,
+.actions a:visited {
+  color: var(--link);
+}
+.intro a:hover,
+.actions a:hover {
+  color: var(--link-hover);
+}
+/* A page of prose keeps ordinary links, in its opening paragraph too. */
+.prose :where(.intro) a:visited {
+  color: var(--link-visited);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Hidden from sight, still there for keyboards and screen readers. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A link to another site, marked as such. */
+.external-link svg {
+  margin-left: 0.2em;
+  vertical-align: -0.1em;
+}
+
+/* --- Type ----------------------------------------------------------------- */
+
+h1,
+h2 {
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-serif);
+  font-weight: normal;
+  line-height: 1.3;
+}
+h1 {
+  font-size: var(--text-h1);
+  overflow-wrap: anywhere;
+}
+h2 {
+  font-size: var(--text-h2);
+}
+h2 small {
+  color: var(--text-subtle);
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
+}
+p {
+  margin: 0 0 var(--space-3);
+}
+.intro {
+  margin-bottom: var(--space-5);
+}
+/* Small print under a field or a heading. */
+.hint {
+  margin: var(--space-1) 0 var(--space-3);
+  color: var(--text-subtle);
+  font-size: var(--text-small);
+}
+/* The text's size, under it: red once past the limit. */
+.hint.over {
+  color: var(--error-text);
+}
+/* A name's strength: a colored dot and text, red to green. */
+.hint[data-level] {
+  font-weight: bold;
+}
+.hint[data-level]::before {
+  content: "● ";
+}
+.hint[data-level="weak"] {
+  color: var(--error-text);
+}
+.hint[data-level="fair"] {
+  color: var(--warning-text);
+}
+.hint[data-level="strong"] {
+  color: var(--success-text);
+}
+.empty {
+  color: var(--text-subtle);
+  font-style: italic;
+}
+
+/* --- Layout --------------------------------------------------------------- */
+
+/* General two-column layouts. */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+}
+@media (min-width: 800px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-7);
+  }
+  /* A column hidden (Send, on a read-only namespace): the other takes it all. */
+  .columns:has(> [hidden]),
+  :root[data-read-link] .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Sections after the main columns stand apart from them. */
+.page-section {
+  margin-top: var(--space-7);
+}
+
+/* A row of controls that wraps on narrow screens. */
+.actions,
+.toolbar,
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.actions {
+  margin: 0;
+}
+.actions > .primary {
+  margin-left: auto;
+}
+:where(#namespace-form) .actions {
+  justify-content: flex-end;
+}
+:where(#namespace-form) .actions > .primary {
+  margin-left: 0;
+}
+
+/* --- Forms ---------------------------------------------------------------- */
+
+fieldset {
+  /* A fieldset grows to its content's widest line by default: here it
+     narrows like any box, and its content does instead. */
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: 1px solid var(--border-subtle);
+}
+legend {
+  padding: 0 6px;
+  font-weight: bold;
+}
+label {
+  display: block;
+  margin-bottom: 6px;
+}
+form + form {
+  margin-top: var(--space-5);
+}
+
+label.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: var(--space-3) 0 0;
+  cursor: pointer;
+}
+.checkbox-label input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.setting-check span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Text fields: the same box wherever they are. */
+textarea,
+select,
+input[type="text"],
+input[type="password"],
+input[type="search"],
+.rename-input,
+.copy-link input {
+  width: 100%;
+  padding: 6px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+}
+textarea {
+  min-height: 10rem;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+}
+textarea:focus,
+select:focus,
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus {
+  border-color: var(--focus);
+  outline: 1px solid var(--focus);
+}
+
+.namespace-input {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  font-family: var(--font-mono);
+}
+.namespace-input:focus-within {
+  border-color: var(--focus);
+  outline: 1px solid var(--focus);
+}
+.namespace-input input[type="text"],
+.namespace-input input[type="text"]:focus {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+}
+.e2ee-control {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-1);
+  margin-left: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border-subtle);
+}
+.e2ee-control input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.namespace-input span {
+  flex: none;
+  white-space: nowrap;
+}
+.namespace-prefix {
+  color: var(--text-subtle);
+}
+.e2ee-dialog {
+  width: min(32rem, calc(100% - 2 * var(--page-gutter)));
+  max-height: calc(100dvh - 2 * var(--page-gutter));
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-large);
+  background: var(--surface);
+  color: var(--text);
+}
+.e2ee-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+.e2ee-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0;
+}
+#stats-section {
+  margin-top: var(--space-5);
+}
+
+/* The browser's own file input, shown as a drop zone (see file-field.tsx).
+   Required, so it is :valid once something is picked. */
+.file-drop {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: 20px var(--space-3);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-large);
+  color: var(--text-subtle);
+  font: inherit;
+  cursor: pointer;
+}
+.file-drop:hover {
+  border-color: var(--link);
+  color: var(--text);
+}
+.file-drop:valid {
+  border-style: solid;
+  color: var(--text);
+}
+.file-drop:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+.file-drop:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.file-drop::file-selector-button {
+  margin-right: var(--space-3);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
+button,
+a.button {
+  min-height: var(--control-height);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+}
+/* A label with its icon (see icons.js) in front. */
+button:has(> svg),
+a.button:has(> svg) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+button:hover,
+a.button:hover {
+  background: var(--background);
+}
+/* A real link (it still navigates and can be saved), drawn as a button. */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+a.button:visited,
+a.button:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+button:active {
+  background: var(--surface-strong);
+}
+button:disabled {
+  color: var(--text-subtle);
+  cursor: default;
+  opacity: 0.6;
+}
+button.primary {
+  border-color: var(--progressive);
+  background: var(--progressive);
+  color: var(--on-progressive);
+}
+button.primary:hover {
+  border-color: var(--progressive-hover);
+  background: var(--progressive-hover);
+}
+button.destructive {
+  color: var(--destructive);
+}
+.e2ee-control button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
+  text-decoration: underline dotted;
+}
+.e2ee-control button:hover {
+  background: none;
+  color: var(--link-hover);
+}
+
+.section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+.section-heading h2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.section-heading .actions {
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.media-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-height);
+}
+/* --- Header and footer ---------------------------------------------------- */
+
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  /* The title and the theme picker share a baseline: centering their boxes
+     leaves a serif title looking higher than the text beside it. */
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-3) 0;
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.site-name {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-h2);
+  font-weight: normal;
+  line-height: 1.3;
+}
+.site-name a,
+.site-name a:visited {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  color: var(--text);
+  text-decoration: none;
+}
+.site-name img {
+  /* Centered on the title, out of the baseline the header lines up with. */
+  align-self: center;
+  width: 1.3em;
+  height: 1.3em;
+  border-radius: 20%;
+}
+
+.theme-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--text-small);
+}
+.theme-picker-label {
+  font-weight: bold;
+}
+.theme-picker label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.site-footer {
+  width: calc(100% - 2 * var(--page-gutter));
+  max-width: calc(var(--page-width) - 2 * var(--page-gutter));
+  margin: 0 auto;
+  padding: var(--space-4) 0 var(--space-6);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-subtle);
+  font-size: var(--text-small);
+}
+#scroll-top {
+  position: fixed;
+  right: calc(var(--space-3) + env(safe-area-inset-right));
+  bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+  z-index: 2;
+  background: var(--surface-strong);
+}
+
+/* --- Status messages ------------------------------------------------------ */
+
+.status:empty {
+  display: none;
+}
+/* The page's status floats over it, at the top, out of the flow: showing
+   and leaving (see status.js) moves nothing on the page. */
+.status {
+  position: fixed;
+  top: var(--space-3);
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: min(40rem, calc(100% - 2 * var(--page-gutter)));
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 25%);
+  transform: translateX(-50%);
+  border: 1px solid var(--success-text);
+  background: var(--success-surface);
+  color: var(--text);
+}
+.status.error {
+  border-color: var(--error-text);
+  background: var(--error-surface);
+}
+.status > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.status-dismiss {
+  flex: none;
+  min-height: 0;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+.status-dismiss:hover {
+  background: none;
+  color: var(--text-subtle);
+}
+/* A form's own status stays by its fields, in the flow. */
+fieldset .status {
+  position: static;
+  width: auto;
+  margin: var(--space-3) 0 0;
+  box-shadow: none;
+  transform: none;
+}
+
+/* --- Contents: code and images --------------------------------------------- */
+
+/* A text shown whole, or a block of code. */
+.item pre,
+.shared-item pre,
+.prose pre {
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  font-size: var(--text-small);
+}
+.item pre,
+.shared-item pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Each number belongs to a logical line; long lines scroll instead of wrap. */
+.numbered-text {
+  display: flex;
+  max-height: 24rem;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+.numbered-text pre {
+  flex: none;
+  min-height: 100%;
+  max-height: none;
+  margin: 0;
+  overflow: visible;
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.numbered-text .line-numbers {
+  position: sticky;
+  left: 0;
+  min-width: calc(3ch + 2 * var(--space-2));
+  padding: var(--space-2);
+  background: var(--surface);
+  color: var(--text-subtle);
+  text-align: right;
+  user-select: none;
+}
+.numbered-text pre:last-child {
+  flex: 1 0 auto;
+  padding-left: var(--space-3);
+}
+.hljs {
+  color: var(--text);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--text-subtle);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link {
+  color: var(--progressive);
+}
+.hljs-string,
+.hljs-title,
+.hljs-name,
+.hljs-type,
+.hljs-attribute,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+  color: var(--success-text);
+}
+.hljs-number,
+.hljs-regexp,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-class,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--warning-text);
+}
+.hljs-built_in,
+.hljs-meta,
+.hljs-deletion {
+  color: var(--destructive);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: bold;
+}
+.item video,
+.shared-item video {
+  display: block;
+  max-width: 100%;
+  max-height: 30rem;
+  background: #000;
+}
+.item audio,
+.shared-item audio {
+  display: block;
+  width: min(100%, 36rem);
+}
+.item img,
+.shared-item img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border-subtle);
+}
+
+/* An image preview is a real button, while still looking only like its image. */
+button.media-preview,
+button.media-preview:hover,
+button.media-preview:active {
+  display: block;
+  max-width: 100%;
+  min-height: 0;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-weight: normal;
+  cursor: pointer;
+}
+button.media-preview:focus-visible {
+  outline-offset: 3px;
+}
+
+/* A scrollable page of native images and videos. */
+main.media-feed-open > :not(.site-header, #media-feed) {
+  display: none;
+}
+.media-feed {
+  margin: var(--space-5) 0 0;
+}
+.media-feed-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+.media-feed-heading h1 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.media-view-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.media-view-options button[aria-pressed="true"] {
+  border-color: var(--focus);
+  background: var(--surface-strong);
+}
+.media-feed-item {
+  margin: 0 0 var(--space-6);
+}
+.media-feed-slot {
+  display: flex;
+  min-height: 12rem;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  color: #fff;
+}
+.media-feed-slot :where(img, video) {
+  display: block;
+  max-width: 100%;
+  max-height: 95dvh;
+  height: auto;
+}
+.media-feed-slot audio {
+  display: block;
+  width: min(100%, 36rem);
+  margin: var(--space-4);
+}
+.media-feed-item figcaption {
+  padding: var(--space-2) 0;
+  overflow-wrap: anywhere;
+  color: var(--text-subtle);
+  font-size: var(--text-small);
+}
+.media-feed-meta {
+  display: none;
+}
+.media-feed-list[data-view="grid"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2) var(--space-3);
+}
+/* A flexible filler keeps the final row from stretching a few images wide. */
+.media-feed-list[data-view="grid"]::after {
+  content: "";
+  flex: 1000 1 0;
+}
+.media-feed-list[data-view="grid"] .media-feed-item {
+  flex: var(--media-ratio, 1) 1 var(--media-basis, 14rem);
+  min-width: 0;
+  margin: 0;
+}
+.media-feed-list[data-view="grid"] .media-feed-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-feed-list[data-view="grid"] .media-feed-slot {
+  aspect-ratio: var(--media-ratio, 1);
+  min-height: 0;
+  background: var(--surface);
+  color: var(--text-subtle);
+}
+.media-feed-list[data-view="grid"] .media-feed-slot :where(img, video),
+.media-feed-list[data-view="details"] .media-feed-slot :where(img, video) {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+.media-feed-list[data-view="details"] .media-feed-item {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.media-feed-list[data-view="details"] .media-feed-slot {
+  width: 6rem;
+  height: 6rem;
+  min-height: 0;
+}
+.media-feed-list[data-view="details"] .media-feed-slot video {
+  pointer-events: none;
+}
+.media-feed-list[data-view="details"] .media-feed-item:has(audio) {
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+}
+.media-feed-list[data-view="details"] .media-feed-item:has(audio) .media-feed-slot {
+  width: 100%;
+  height: auto;
+}
+.media-feed-list[data-view="details"] figcaption {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.media-feed-list[data-view="details"] .media-feed-title {
+  color: var(--text);
+  font-weight: bold;
+}
+.media-feed-list[data-view="details"] .media-feed-meta {
+  display: inline-flex;
+}
+/* --- Item list ------------------------------------------------------------ */
+
+/* One row per item: position, what it is, name, size and age, actions. Its
+   contents open under it. On phones the actions go to a second line. */
+.items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border-subtle);
+}
+.item {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.item-row {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--space-2);
+  min-height: 44px;
+}
+.item-row:hover,
+.item.open > .item-row {
+  background: var(--surface);
+}
+.item-position {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  text-align: right;
+}
+.item-toggle,
+.rename-input {
+  grid-column: 2;
+}
+.item-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-weight: normal;
+  text-align: left;
+}
+button.item-toggle:hover,
+button.item-toggle:active {
+  background: none;
+}
+.item-kind {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-subtle);
+}
+.item.burn .item-kind {
+  color: var(--destructive);
+}
+.item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item.burn .item-title {
+  color: var(--text-subtle);
+  font-style: italic;
+}
+.item-facts {
+  color: var(--text-subtle);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+.item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.item-actions > button:not(.icon-button) {
+  min-height: 30px;
+  padding: 2px var(--space-2);
+  font-size: var(--text-small);
+}
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  color: var(--text-subtle);
+}
+.icon-button:hover,
+a.icon-button:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-strong);
+  color: var(--text);
+}
+.icon-button.destructive:hover {
+  color: var(--destructive);
+}
+.item-body {
+  padding: 0 0 var(--space-3) calc(2ch + var(--space-2));
+}
+.item-meta {
+  margin: var(--space-1) 0 0;
+  color: var(--text-subtle);
+  font-size: var(--text-small);
+}
+.item .numbered-text {
+  margin: var(--space-1) 0 0;
+}
+.item-editor {
+  margin: var(--space-1) 0 0;
+}
+.editor-toolbar,
+.form-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.editor-toolbar select {
+  min-width: 0;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 16rem;
+}
+.text-name-row {
+  margin-top: var(--space-2);
+}
+.text-name-row label {
+  margin-bottom: 4px;
+}
+.text-name-control {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+}
+.text-name-control:focus-within {
+  border-color: var(--focus);
+  outline: 1px solid var(--focus);
+}
+.text-name-control input {
+  width: min(24rem, 70vw);
+  min-width: 0;
+  padding: 6px var(--space-2);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+}
+.text-name-control span {
+  flex: none;
+  padding-right: var(--space-2);
+  color: var(--text-subtle);
+}
+.editor-toolbar .hint,
+.form-footer .hint {
+  margin: 0;
+}
+.form-footer {
+  justify-content: flex-end;
+}
+.form-footer > :first-child:not(:last-child) {
+  margin-right: auto;
+}
+.form-footer .item-meta {
+  margin-top: 0;
+}
+.text-editor {
+  position: relative;
+  height: min(45dvh, 30rem);
+  min-height: 18rem;
+  overflow: hidden;
+  resize: vertical;
+  /* `--line-number-width` is set here in ch: measure it in the gutter's font. */
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  --gutter-size: calc(var(--line-number-width, 3ch) + 2 * var(--space-2) + 2px);
+}
+.text-editor > textarea,
+.text-editor > pre.text-editor-highlight {
+  position: absolute;
+  inset: 0 0 0 var(--gutter-size);
+  width: calc(100% - var(--gutter-size));
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  padding: 6px var(--space-2);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  overflow-wrap: normal;
+  tab-size: 2;
+  white-space: pre;
+}
+.text-editor > pre.text-editor-lines {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--gutter-size);
+  margin: 0;
+  padding: 6px var(--space-2);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: var(--background);
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+  text-align: right;
+  user-select: none;
+}
+.text-editor > pre.text-editor-highlight {
+  background: var(--background);
+  pointer-events: none;
+}
+.text-editor-highlight code {
+  font: inherit;
+  white-space: inherit;
+}
+.text-editor > textarea {
+  z-index: 1;
+  resize: none;
+  background: transparent;
+  caret-color: var(--text);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.text-editor > textarea::selection {
+  background: color-mix(in srgb, var(--focus) 40%, transparent);
+}
+.text-editor-selection {
+  position: absolute;
+  inset: 0 0 0 var(--gutter-size);
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+}
+.text-editor-selected-empty-line {
+  position: absolute;
+  width: 1ch;
+  background: color-mix(in srgb, var(--focus) 40%, transparent);
+}
+.text-editor > textarea,
+.text-editor > pre.text-editor-highlight {
+  border-left: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+/* The caret's line and column, below the text with the form's details. */
+.text-editor-position {
+  /* Short (see createTextEditor), so always whole: the picker gives way. */
+  flex: none;
+  margin-left: auto;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+/* While a phone's keyboard composes a word, the textarea shows its own
+   letters (see createTextEditor). */
+.text-editor.composing > textarea {
+  color: var(--text);
+  -webkit-text-fill-color: currentcolor;
+}
+.text-editor.composing > pre.text-editor-highlight {
+  visibility: hidden;
+}
+.text-resize-handle {
+  display: none;
+}
+@media (max-width: 799px) {
+  .text-editor {
+    height: 16rem;
+    min-height: 12rem;
+    resize: none;
+  }
+  .text-editor > :is(textarea, pre.text-editor-highlight, pre.text-editor-lines) {
+    padding-bottom: 44px;
+  }
+  .text-resize-handle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-subtle);
+    cursor: ns-resize;
+    touch-action: none;
+    user-select: none;
+  }
+  .text-resize-handle:hover,
+  .text-resize-handle:active {
+    background: transparent;
+    color: var(--text);
+  }
+}
+.error-text {
+  color: var(--error-text);
+}
+.item img {
+  max-height: 30rem;
+  margin: var(--space-1) 0 0;
+}
+button.media-preview img {
+  margin: 0;
+}
+@media (max-width: 480px) {
+  .item-row {
+    grid-template-columns: 2ch minmax(0, 1fr) auto;
+  }
+  .item-toggle,
+  .rename-input {
+    grid-column: 2 / -1;
+  }
+  .item-facts {
+    grid-column: 2;
+  }
+  .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* How items open, beside the list actions. */
+.section-heading select {
+  width: auto;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+}
+
+/* Renaming an item in place, where its name was. */
+.rename-input {
+  margin: 0 0 var(--space-1);
+  padding: 2px 6px;
+  border-color: var(--focus);
+}
+
+/* The text being copied without the Clipboard API (see copyText), out of sight. */
+.clipboard-fallback {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+}
+
+:where(#stats-section) a[data-icon] svg,
+.intro a[data-icon] svg,
+.links a[data-icon] svg {
+  margin-right: 0.25em;
+  vertical-align: -0.15em;
+}
+.live-status {
+  color: var(--success-text);
+}
+#viewers svg {
+  vertical-align: -0.15em;
+}
+.live-status.offline {
+  color: var(--error-text);
+}
+
+.burn-note {
+  color: var(--destructive);
+}
+
+/* --- Open on another device ----------------------------------------------- */
+
+.qr-code {
+  display: block;
+  width: 160px;
+  height: 160px;
+  /* QR codes must stay dark-on-light to scan, even in dark mode. */
+  background: #ffffff;
+  image-rendering: pixelated;
+}
+.copy-link {
+  display: flex;
+  gap: var(--space-2);
+  max-width: 40rem;
+}
+/* Looks like a field, not a link: clicking copies instead of navigating. */
+.copy-link input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface);
+  font: var(--text-small) var(--font-mono);
+  cursor: copy;
+}
+
+/* --- Long-form pages (the protocol): readable line length ------------------- */
+
+/* About 70 characters a line, with room between paragraphs: long lines
+   and solid blocks are what make a page of text hard to read. */
+.prose > p,
+.prose > ul,
+.prose > ol {
+  max-width: 42rem;
+  line-height: 1.7;
+}
+.prose > p {
+  margin-bottom: var(--space-4);
+}
+.prose li {
+  margin-bottom: var(--space-2);
+}
+/* Justified where lines are long enough for it, hyphenated so that words
+   do not drift apart; on a phone, a ragged edge reads better. */
+@media (min-width: 800px) {
+  .prose > p,
+  .prose li {
+    text-align: justify;
+    hyphens: auto;
+  }
+}
+/* Inline code on text pages reads like Markdown's: a small tinted box. */
+.prose code {
+  padding: 1px 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-large);
+  background: var(--surface-strong);
+  font-size: 0.875em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.prose pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+}
+
+/* Each third-party notice stays distinct, and its full legal text is there
+   without making the page long until someone asks to read it. */
+.license-notice {
+  max-width: var(--prose-width);
+  margin: var(--space-5) 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.license-notice h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+}
+.license-notice h3 small {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  font-weight: normal;
+}
+.license-notice summary {
+  color: var(--link);
+  cursor: pointer;
+}
+.license-notice details[open] summary {
+  margin-bottom: var(--space-2);
+}
+.license-notice pre {
+  max-height: 28rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Tables --------------------------------------------------------------- */
+
+.table-scroll {
+  overflow-x: auto;
+}
+.data-table {
+  margin: 0 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-collapse: collapse;
+  background: var(--surface);
+  font-size: var(--text-small);
+}
+.data-table th,
+.data-table td {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.data-table th {
+  background: var(--surface-strong);
+}
+.data-table td code {
+  overflow-wrap: anywhere;
+}
+.data-table td:nth-child(-n + 2) {
+  white-space: nowrap;
+}
+/* A table inside a step of a list, on text pages. */
+.prose li > .data-table {
+  margin-top: var(--space-2);
+}
+/* On text pages only the first column (a command or a route) stays on one line. */
+.prose .data-table td:nth-child(2) {
+  white-space: normal;
+}
+.data-table td small {
+  display: block;
+  color: var(--text-subtle);
+}
+/* Method above, path below on one line; long paths end in "…" (full path on hover). */
+.data-table td.route code {
+  display: block;
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.data-table td.agent {
+  min-width: 20rem;
+  color: var(--text-subtle);
+}
+.data-table td.agent span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* --- Admin dashboard and logins ------------------------------------------- */
+
+.login-form {
+  max-width: 28rem;
+}
+.login-form input {
+  font-family: var(--font-mono);
+}
+.login-form .actions {
+  margin-top: var(--space-3);
+}
+.toolbar {
+  margin: 0 0 var(--space-4);
+}
+.toolbar label {
+  margin: 0;
+}
+.toolbar select {
+  width: auto;
+}
+.toolbar input[type="search"] {
+  flex: 1;
+  min-width: 12rem;
+  width: auto;
+}
+#dashboard > :is(section, .columns) + :is(section, .columns) {
+  margin-top: var(--space-6);
+}
+.stats-table {
+  width: 100%;
+}
+.stats-table th {
+  width: 50%;
+}
+.pagination {
+  margin: var(--space-3) 0 0;
+  color: var(--text-subtle);
+  font-size: var(--text-small);
+}
+.pagination:empty {
+  display: none;
+}
+
+/* --- Shared item page ----------------------------------------------------- */
+
+.shared-item .numbered-text {
+  max-height: 32rem;
+}
+
+/* --- Stacks --------------------------------------------------------------- */
+
+/* A section's blocks, one under the other with the same rhythm everywhere:
+   a small gap between text and rows of buttons, a larger one before a form,
+   a table or a box. The heading keeps its own spacing. Last in this file, so
+   it wins over the blocks' own margins. */
+.stack > :not(h1, h2) {
+  margin-bottom: 0;
+}
+.stack > * + * {
+  margin-top: var(--space-3);
+}
+.stack > * + :is(form, fieldset, .table-scroll, .data-table, .copy-link, .items) {
+  margin-top: var(--space-5);
+}
+.stack > :is(h1, h2, .section-heading) + * {
+  margin-top: 0;
+}
+#items-section > .items {
+  margin-top: var(--space-5);
+}
+/* A QR code and the link it encodes belong together. */
+.stack > .qr-code + .copy-link {
+  margin-top: var(--space-2);
+}
+
+/* --- Settings ------------------------------------------------------------- */
+
+/* Settings belong only to the namespace page. */
+.namespace-settings {
+  margin-bottom: var(--space-6);
+}
+.settings-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+.expiry-setting {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.expiry-setting label {
+  margin: 0;
+  white-space: nowrap;
+}
+#expires-in {
+  width: fit-content;
+  max-width: 100%;
+}
+.setting-row label.setting-check {
+  min-height: var(--control-height);
+  margin: 0;
+}
+.setting-check:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+/* Markdown source wraps visually; the textarea still stores its original newlines. */
+.text-editor.markdown > :is(textarea, pre.text-editor-highlight),
+.text-editor.markdown .text-editor-highlight code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

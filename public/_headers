@@ -1,6 +1,6 @@
 # Copied into dist/ by ops/build.ts.
 
-# The bundle's files are named by their contents (see src/pages.ts).
+# The bundle's files are named by their contents (see src/assets.ts).
 /k/assets/*
   Cache-Control: public, max-age=31536000, immutable
 

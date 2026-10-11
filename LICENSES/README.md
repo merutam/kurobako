@@ -16,5 +16,5 @@ Kurobako itself is licensed separately under AGPL-3.0-or-later; its license is
 the repository's top-level [`LICENSE`](../LICENSE). Development-only tools are
 not part of this production notice.
 
-The same notices are published on every instance at `/k/licenses`. Copies for
-vendored browser files also stay beside those files in `public/vendor/`.
+The same notices are published on every instance at `/k/licenses`. The
+vendored browser files in `src/client/vendor/` keep their own license headers.

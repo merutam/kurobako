@@ -7,7 +7,7 @@ while older views retain frozen membership but live item content. The earlier
 ownership/lock proposal is superseded.
 
 Protocol v8 is built and described on the protocol page
-(`src/views/templates/protocol.html`): one derivation for every key, write capabilities
+(`src/pages/documents/protocol.html`): one derivation for every key, write capabilities
 and read-only links, contents sealed in segments with a revision, the routes
 (the first path segment is the protocol's, the server's own things live under
 `/k`) and `"protocol": 8` in `/.well-known/kurobako`. The v4 key derivation
@@ -48,7 +48,7 @@ Files and burn-after-reading items stay as sent. A backup restores a newer
 (`script.py`, `notes.md`), so it needs no field of its own and works the
 same encrypted, where the name is sealed. The editor's language picker only
 changes the extension. Highlighting uses highlight.js (BSD-3-Clause),
-served from `public/vendor/` like the QR code library, never from a CDN;
+served from `src/client/vendor/` like the QR code library, never from a CDN;
 without an extension, it guesses. Markdown shows as highlighted source, not
 rendered HTML.
 

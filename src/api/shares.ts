@@ -9,8 +9,8 @@ import {
   SHARE_TOKEN_PATTERN,
   type StoredItem,
   sharedItem,
-} from "../model";
-import { renderSharedItemPage } from "../views/shared-item";
+} from "../core/model";
+import { renderSharedItemPage } from "../pages/shared-item";
 import type { createContents } from "./contents";
 import { type Api, type App, type AppContext, jsonError } from "./context";
 
@@ -28,16 +28,16 @@ export const mountShares = (
   api: Api,
   { serveItem }: ReturnType<typeof createContents>,
 ) => {
-  const { hub, namespace, later, visit, countVisitor, platformOf, config, siteView } = api;
+  const { hub, namespace, later, visit, countVisitor, platform, config, siteView } = api;
   const shareCache = new Map<string, { expires: number; ref: NamespaceRef; itemId: string }>();
 
-  const resolveShare = async (c: AppContext, token: string) => {
+  const resolveShare = async (token: string) => {
     if (!SHARE_TOKEN_PATTERN.test(token)) return null;
     const cached = shareCache.get(token);
     if (cached && cached.expires > Date.now()) {
       return { token, ref: cached.ref, itemId: cached.itemId };
     }
-    const share = (await hub(c).resolveShare(token)) as {
+    const share = (await hub().resolveShare(token)) as {
       ref: NamespaceRef;
       itemId: string;
     } | null;
@@ -52,14 +52,14 @@ export const mountShares = (
   };
   const forgetShare = (c: AppContext, token: string) => {
     shareCache.delete(token);
-    later(c, hub(c).forgetShare(token));
+    later(c, hub().forgetShare(token));
   };
 
   /** The shared item, or null once it is gone. Reading it consumes nothing. */
   const peekShared = async (c: AppContext, token: string) => {
-    const share = await resolveShare(c, token);
+    const share = await resolveShare(token);
     if (!share) return null;
-    const item = (await namespace(c, share.ref).peek(share.itemId, visit(c))) as StoredItem | null;
+    const item = (await namespace(share.ref).peek(share.itemId, visit(c))) as StoredItem | null;
     if (!item) {
       forgetShare(c, token);
       return null;
@@ -82,7 +82,7 @@ export const mountShares = (
     if (stored?.kind === "text" && !readLimitedItem(stored)) {
       if ("text" in stored) content = stored.text;
       else {
-        const object = await platformOf(c).blobs.get(stored.object);
+        const object = await platform.blobs.get(stored.object);
         if (object) content = await new Response(object.body).text();
       }
     }
@@ -97,7 +97,7 @@ export const mountShares = (
     ["d", false],
   ] as const) {
     app.get(`/i/:token/${suffix}`, async (c) => {
-      const share = await resolveShare(c, c.req.param("token"));
+      const share = await resolveShare(c.req.param("token"));
       if (!share) return jsonError(c, 404, SHARE_GONE);
       // Named after the token, which the URL already shows, never the item's ID.
       const response = await serveItem(c, share.ref, share.itemId, inline, () => share.token);

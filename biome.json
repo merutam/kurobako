@@ -4,10 +4,11 @@
     "includes": [
       "**",
       "!clients",
+      "!apps",
       "!data",
       "!.wrangler",
       "!dist",
-      "!public/vendor",
+      "!src/client/vendor",
       "!src/worker-configuration.d.ts"
     ]
   },
