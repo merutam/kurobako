@@ -18,7 +18,6 @@ import {
   summaryItem,
 } from "../model";
 import {
-  MAX_PUSH_SUBSCRIPTIONS,
   PUSH_PREVIEW_CHARS,
   PUSH_SCHEMA,
   type PushMessage,
@@ -578,7 +577,7 @@ export class NamespaceCore {
     this.sql.exec(
       `DELETE FROM push_subscriptions WHERE endpoint NOT IN
         (SELECT endpoint FROM push_subscriptions ORDER BY created_at DESC LIMIT ?)`,
-      MAX_PUSH_SUBSCRIPTIONS,
+      this.config.maxPushSubscriptions,
     );
     return { ok: true };
   }

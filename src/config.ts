@@ -44,6 +44,11 @@ export type AppConfig = {
   publicShares: boolean;
   /** Push notifications (see core/push.ts); null when the VAPID keys are unset. */
   push: PushConfig | null;
+  /**
+   * Devices told of each namespace's sends; past it, the oldest goes. Each
+   * send is a message to each of them, all at once.
+   */
+  maxPushSubscriptions: number;
 };
 
 /** The largest sizes a platform can take; each platform sets its own. */
@@ -223,5 +228,6 @@ export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMIT
     accessSessionDays: integer(vars, "ACCESS_SESSION_DAYS", 30, 1, 365),
     publicShares: flag(vars, "PUBLIC_SHARES", true),
     push: push(vars),
+    maxPushSubscriptions: integer(vars, "MAX_PUSH_SUBSCRIPTIONS", 20, 1, 1_000),
   };
 };

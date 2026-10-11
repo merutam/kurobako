@@ -37,8 +37,6 @@ export const PUSH_SCHEMA = `CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at INTEGER NOT NULL
 )`;
 
-/** Devices told of each namespace's sends; past it, the oldest goes. */
-export const MAX_PUSH_SUBSCRIPTIONS = 20;
 /** A preview's length, well within a push message's 4 kB. */
 export const PUSH_PREVIEW_CHARS = 140;
 

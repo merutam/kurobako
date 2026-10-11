@@ -190,6 +190,7 @@ Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
 | `ACCESS_SESSION_DAYS` | `30` | how long a login to a private instance lasts |
 | `PUBLIC_SHARES` | `true` | in a private instance, whether share links open for anyone |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | unset | push notifications of new items, which each device turns on per namespace; `bun ops/vapid.ts` makes the pair (keep it: a new one makes every device subscribe again). On Cloudflare, put the private key in a secret |
+| `MAX_PUSH_SUBSCRIPTIONS` | `20` | devices notified per namespace; past it, the oldest is dropped. Each send is one message per device, sent together (on Cloudflare, mind the subrequests a request may make) |
 | `VAPID_SUBJECT` | the project's page | how push services reach whoever runs the instance: a `mailto:` or `https:` URL |
 | `BASE_PATH` | unset | e.g. `/k`, to share a domain with another site: `$BOX` is then `https://example.com/k` |
 

@@ -873,6 +873,8 @@ describe("bun server", () => {
       "d",
     );
     expect(loadConfig({}).push).toBeNull();
+    expect(loadConfig({}).maxPushSubscriptions).toBe(20);
+    expect(loadConfig({ MAX_PUSH_SUBSCRIPTIONS: "5" }).maxPushSubscriptions).toBe(5);
     expect(loadConfig({ VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY }).push).toMatchObject({
       publicKey: VAPID_PUBLIC_KEY,
       subject: "https://github.com/merutam/kurobako",
@@ -921,6 +923,8 @@ describe("bun server", () => {
       config: {
         ...config,
         sendsPerMinute: 1_000,
+        // Small, to see the oldest go.
+        maxPushSubscriptions: 2,
         push: {
           publicKey: toBase64Url(vapidPublic),
           privateKey: defined((await crypto.subtle.exportKey("jwk", vapid.privateKey)).d, "d"),
@@ -1106,6 +1110,23 @@ describe("bun server", () => {
       await send(ns, "nobody listens");
       await Bun.sleep(150);
       expect(pushed).toHaveLength(3);
+
+      // Past MAX_PUSH_SUBSCRIPTIONS (2 here), the oldest goes.
+      const first = await device("first");
+      const second = await device("second");
+      const third = await device("third");
+      for (const each of [first, second, third]) {
+        expect((await subscribe(ns, each.subscription)).status).toBe(201);
+        await Bun.sleep(5);
+      }
+      await send(ns, "to the newest two");
+      await settled(5);
+      expect(
+        pushed
+          .slice(3)
+          .map((each) => each.endpoint)
+          .sort(),
+      ).toEqual([second.endpoint, third.endpoint].sort());
     } finally {
       spy.mockRestore();
       await own.stop();
