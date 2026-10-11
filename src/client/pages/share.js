@@ -4,7 +4,7 @@
 import { normalizeSecretName, secretNameProblem } from "../../../public/k.mjs";
 // The share page (src/pages/share.tsx): shows what was shared, asks where it
 // goes, and opens that namespace with ?share=<id>, whose composer takes it.
-import { element, formatBytes, readConfig, SITE } from "../lib/common.js";
+import { element, formatBytes, readConfig, SITE, setupNamespaceField } from "../lib/common.js";
 import { forgetNamespace, recentNamespaces } from "../lib/recent.js";
 import { dropShare, readShare } from "../lib/shares.js";
 import { createStatus } from "../lib/status.js";
@@ -13,6 +13,7 @@ import { h } from "../shared/dom.js";
 const status = createStatus(element("#status"));
 const form = element("#share-form");
 const target = element("#share-target");
+const encrypted = element("#share-encrypted");
 const recentList = element("#recent");
 const params = new URLSearchParams(window.location.search);
 const id = params.get("id");
@@ -24,8 +25,8 @@ const open = (url) => {
 };
 
 /**
- * The namespace a typed answer names: "notes", "e#secret name", or a link
- * to either on this site. Throws why not, as the home page would say it.
+ * The namespace a typed answer names: a name in the selected mode, an
+ * explicit /name or e#name, or a link on this site.
  */
 const destination = (typed, config) => {
   const value = typed.trim();
@@ -37,8 +38,8 @@ const destination = (typed, config) => {
     return url;
   }
   const secret = /^\/?e#(.*)$/s.exec(value)?.[1];
-  if (secret !== undefined) {
-    const name = normalizeSecretName(secret);
+  if (secret !== undefined || (encrypted.checked && !value.startsWith("/"))) {
+    const name = normalizeSecretName(secret ?? value);
     const problem = secretNameProblem(name, config.sealed.maxNameLength);
     if (problem) throw new Error(problem);
     return new URL(`${SITE}/e#${encodeURIComponent(name)}`, window.location.origin);
@@ -96,6 +97,9 @@ const showShared = ({ title, text, url, files }) => {
 
 try {
   const config = readConfig();
+  setupNamespaceField(element("#share-field"), element("#share-hint"), config, () =>
+    status.clear(),
+  );
   const share = params.has("lost") ? null : await readShare(id);
   if (!share) {
     status.error(

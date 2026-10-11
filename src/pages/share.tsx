@@ -38,16 +38,43 @@ export const renderSharePage = (site: SiteView) =>
             <label id="share-target-label" for="share-target">
               Namespace
             </label>
-            <input
-              id="share-target"
-              type="text"
-              placeholder="notes, e#secret name, or a link"
-              autocomplete="off"
-              autocapitalize="none"
-              spellcheck={false}
-              aria-describedby="share-hint"
-            />
+            <div id="share-field" class="namespace-input">
+              <span id="share-prefix" class="namespace-prefix" aria-hidden="true">
+                /e#
+              </span>
+              <input
+                id="share-target"
+                type="text"
+                placeholder="a long secret name"
+                maxlength={256}
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck={false}
+                aria-describedby="share-hint status"
+                required
+              />
+              <div class="e2ee-control">
+                <input
+                  id="share-encrypted"
+                  type="checkbox"
+                  aria-label="Enable end-to-end encryption"
+                  aria-describedby="share-hint"
+                  checked
+                />
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-controls="share-e2ee-dialog"
+                  title="End-to-end encryption: items are encrypted before they reach the server."
+                >
+                  E2EE
+                </button>
+              </div>
+            </div>
             <p id="share-hint" class="hint">
+              E2EE. Max 256 characters.
+            </p>
+            <p class="hint">
               The namespaces you send to are remembered on this device; × forgets one.
             </p>
             <div class="form-footer">
@@ -60,6 +87,20 @@ export const renderSharePage = (site: SiteView) =>
             </div>
           </fieldset>
         </form>
+        <dialog id="share-e2ee-dialog" class="dialog" aria-labelledby="share-e2ee-title">
+          <h2 id="share-e2ee-title">End-to-end encryption</h2>
+          <p>
+            Your browser encrypts items before sending them. The server stores ciphertext and cannot
+            read their contents.
+          </p>
+          <p>
+            The secret name after <code>#</code> stays in the browser. Anyone with the full link can
+            read the items; without that name, they cannot be recovered.
+          </p>
+          <form method="dialog" class="dialog-actions">
+            <button type="submit">Close</button>
+          </form>
+        </dialog>
       </>
     ),
   });

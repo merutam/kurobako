@@ -1883,6 +1883,10 @@ export const sharedTests = (harness: Harness) => {
       expect(lost.headers.get("location")).toBe("/k/share?lost");
       const page = await (await call("/k/share")).text();
       expect(page).toContain('id="share-form"');
+      expect(page).toContain('id="share-field" class="namespace-input"');
+      expect(page).toContain('id="share-prefix" class="namespace-prefix"');
+      expect(page).toContain('id="share-encrypted"');
+      expect(page).toContain('id="share-e2ee-dialog"');
       expect(page).toContain('<meta name="robots" content="noindex"/>');
     });
 
