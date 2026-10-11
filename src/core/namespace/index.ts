@@ -17,6 +17,16 @@ import {
   type StoredItem,
   summaryItem,
 } from "../model";
+import {
+  MAX_PUSH_SUBSCRIPTIONS,
+  PUSH_PREVIEW_CHARS,
+  PUSH_SCHEMA,
+  type PushMessage,
+  type PushTarget,
+  parseTarget,
+  sendPush,
+  skipIdOf,
+} from "../push";
 import { slotOf, slotPrefix } from "../routing";
 import type { AccessEvent, AccessLogEntry } from "../visits";
 import { ACCESS_LOG_SCHEMA, AccessLog } from "./access-log";
@@ -99,6 +109,8 @@ export const NAMESPACE_METHODS = [
   "viewsStatus",
   "createView",
   "viewContents",
+  "subscribePush",
+  "unsubscribePush",
 ] as const satisfies readonly (keyof NamespaceCore)[];
 export type NamespaceApi = Remote<NamespaceCore, (typeof NAMESPACE_METHODS)[number]>;
 
@@ -114,6 +126,8 @@ export interface NamespaceHost {
   sockets(): LiveSocket[];
   blobs: BlobStore;
   hub(): HubApi;
+  /** Runs `work` after the answer, without holding it up (push messages). */
+  later(work: Promise<unknown>): void;
 }
 
 /**
@@ -146,6 +160,7 @@ export class NamespaceCore {
       sql.exec(QUEUE_SCHEMA);
       sql.exec(ACCESS_LOG_SCHEMA);
       for (const statement of VIEW_SCHEMA) sql.exec(statement);
+      sql.exec(PUSH_SCHEMA);
       this.schemaReady = true;
       if (!sql.exec("SELECT value FROM meta WHERE key = 'live_revision'").length) {
         const baseline = JSON.stringify(this.queue.all().map(summaryItem));
@@ -475,6 +490,7 @@ export class NamespaceCore {
     verifier: string | null = null,
     view?: { token: string; envelope?: string },
     deduplicate = true,
+    pushSkip: string | null = null,
   ): Promise<Saved> {
     await this.assertWrite(ref, verifier);
     this.remember(ref);
@@ -517,6 +533,7 @@ export class NamespaceCore {
       // Its share link lives as long as the item.
       await this.host.hub().extendShare(ref, moved.id, moved.expiresAt);
       await this.changed();
+      this.notify(ref, moved, pushSkip);
       return { item: moved, existing: true };
     }
 
@@ -532,7 +549,83 @@ export class NamespaceCore {
     if (active) this.views.append(active.token, item.id, view?.envelope);
     await this.deleteFiles(this.queue.trimTo(this.config.maxItems));
     await this.changed();
+    this.notify(ref, item, pushSkip);
     return { item, existing: false };
+  }
+
+  // --- Push notifications -----------------------------------------------
+
+  /**
+   * Tells a device of this namespace's sends, until it asks no more. Only
+   * a namespace that exists: subscribing never creates one (null).
+   */
+  async subscribePush(
+    subscription: unknown,
+    visit?: AccessEvent,
+  ): Promise<{ ok: true } | { error: string } | null> {
+    if (!this.exists()) return null;
+    this.recordVisit(visit);
+    const target = parseTarget(subscription);
+    if ("error" in target) return target;
+    this.sql.exec(
+      "INSERT OR REPLACE INTO push_subscriptions (endpoint, p256dh, auth, skip_id, created_at) VALUES (?, ?, ?, ?, ?)",
+      target.endpoint,
+      target.p256dh,
+      target.auth,
+      await skipIdOf(target.endpoint),
+      Date.now(),
+    );
+    this.sql.exec(
+      `DELETE FROM push_subscriptions WHERE endpoint NOT IN
+        (SELECT endpoint FROM push_subscriptions ORDER BY created_at DESC LIMIT ?)`,
+      MAX_PUSH_SUBSCRIPTIONS,
+    );
+    return { ok: true };
+  }
+
+  async unsubscribePush(endpoint: string): Promise<boolean> {
+    if (!this.exists()) return false;
+    this.sql.exec("DELETE FROM push_subscriptions WHERE endpoint = ?", endpoint);
+    return true;
+  }
+
+  /**
+   * Tells every subscribed device of a send but the one it came from
+   * (`skip`, see skipIdOf), after the answer. A plain text shows its start
+   * and a file its name; what is encrypted or read once shows nothing.
+   */
+  private notify(ref: NamespaceRef, item: StoredItem, skip: string | null): void {
+    const push = this.config.push;
+    if (!push) return;
+    const targets = this.sql.exec<PushTarget & { skip_id: string }>(
+      "SELECT endpoint, p256dh, auth, skip_id FROM push_subscriptions",
+    );
+    if (!targets.length) return;
+    const start = "text" in item ? item.text : "preview" in item ? item.preview : undefined;
+    const preview =
+      readLimitedItem(item) || item.kind === "sealed"
+        ? undefined
+        : item.kind === "text"
+          ? start?.replace(/\s+/g, " ").trim().slice(0, PUSH_PREVIEW_CHARS)
+          : item.filename;
+    const message: PushMessage = {
+      space: ref.space,
+      name: ref.name,
+      id: item.id,
+      kind: item.kind === "sealed" ? "item" : item.kind,
+      ...(preview ? { preview } : {}),
+    };
+    for (const { skip_id, ...target } of targets) {
+      if (skip_id === skip) continue;
+      this.host.later(
+        sendPush(target, message, push).then((result) => {
+          // The browser dropped it: nothing will ever arrive there again.
+          if (result === "gone") {
+            this.sql.exec("DELETE FROM push_subscriptions WHERE endpoint = ?", target.endpoint);
+          }
+        }),
+      );
+    }
   }
 
   /**

@@ -288,3 +288,64 @@ self.addEventListener("fetch", (event) => {
     ).catch((error) => new Response(String(error?.message ?? error), { status: 502 })),
   );
 });
+
+// --- Push notifications (src/core/push.ts) ---------------------------------
+//
+// A push names a namespace ({ space, name }), the item and, for plain texts
+// and files, a glimpse of it. The namespaces this device follows are in
+// PUSH_CACHE (src/client/lib/push.js writes them): their titles, and the
+// page a tap opens, which for an encrypted one holds its name after the #.
+
+const PUSH_CACHE = "kurobako-push";
+
+const notify = async (message) => {
+  const scope = self.registration.scope;
+  const key = message ? `${message.space}:${message.name}` : "";
+  const followed = key
+    ? await (await (await caches.open(PUSH_CACHE)).match(`${scope}k/push/${key}`))
+        ?.json()
+        .catch(() => null)
+    : null;
+  // A push must show something (browsers insist), even for a namespace
+  // this device stopped following meanwhile.
+  await self.registration.showNotification(followed?.title ?? "Kurobako", {
+    body: message?.preview ?? (message?.kind === "file" ? "New file" : "New item"),
+    // One notification per namespace: a newer send replaces it, and says so.
+    tag: key || "kurobako",
+    renotify: true,
+    icon: `${scope}icon-192.png`,
+    data: { url: followed?.url ?? scope, id: message?.id ?? null },
+  });
+};
+
+self.addEventListener("push", (event) => {
+  let message = null;
+  try {
+    message = event.data?.json() ?? null;
+  } catch {}
+  event.waitUntil(notify(message));
+});
+
+// A tap opens the namespace, asking it to copy the item (?copy=<id>).
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const { url, id } = event.notification.data ?? {};
+  const target = new URL(url ?? self.registration.scope);
+  if (id) target.searchParams.set("copy", id);
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      // The namespace already open: there, rather than another copy of it.
+      const open = windows.find((client) => {
+        const shown = new URL(client.url);
+        return shown.pathname === target.pathname && shown.hash === target.hash;
+      });
+      if (open) {
+        await open.focus();
+        await open.navigate(target.href).catch(() => {});
+        return;
+      }
+      await self.clients.openWindow(target.href);
+    })(),
+  );
+});

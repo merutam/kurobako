@@ -57,6 +57,7 @@ import type { BlobStore } from "../src/core/host";
 import { detectMedia, safeFileName, safeMediaName } from "../src/core/media";
 import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/core/model";
 import { isAutomatedNetwork, networkKey } from "../src/core/networks";
+import { fromBase64Url, skipIdOf, toBase64Url, vapidKeyProblem } from "../src/core/push";
 import {
   PROTOCOL_VERSION,
   routeOf,
@@ -857,6 +858,258 @@ describe("bun server", () => {
     expect(new TextDecoder().decode((await run(`${link}/1`)).out)).toBe("once");
     rmSync(workDir, { recursive: true, force: true });
     await own.stop();
+  });
+
+  test("push needs a whole VAPID key pair; a wrong one turns push off, not the site", async () => {
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const VAPID_PUBLIC_KEY = toBase64Url(
+      new Uint8Array((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer),
+    );
+    const VAPID_PRIVATE_KEY = defined(
+      (await crypto.subtle.exportKey("jwk", pair.privateKey)).d,
+      "d",
+    );
+    expect(loadConfig({}).push).toBeNull();
+    expect(loadConfig({ VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY }).push).toMatchObject({
+      publicKey: VAPID_PUBLIC_KEY,
+      subject: "https://github.com/merutam/kurobako",
+    });
+    // Pasted as ops/vapid.ts prints it, or quoted: taken all the same.
+    expect(
+      loadConfig({
+        VAPID_PUBLIC_KEY: `"${VAPID_PUBLIC_KEY}"`,
+        VAPID_PRIVATE_KEY: `VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}`,
+      }).push,
+    ).toMatchObject({ publicKey: VAPID_PUBLIC_KEY, privateKey: VAPID_PRIVATE_KEY });
+    // Set up wrong, notifications turn off alone, and the log says why: on
+    // Workers a thrown setting is every request failing.
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const vars of [
+        { VAPID_PUBLIC_KEY },
+        { VAPID_PUBLIC_KEY: "7b12790cfd738a627dbecd1ee42e7972", VAPID_PRIVATE_KEY },
+        { VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY: "short" },
+        { VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT: "ops@example.com" },
+      ]) {
+        expect(loadConfig(vars).push).toBeNull();
+      }
+    } finally {
+      logged.mockRestore();
+    }
+    // What the log says: which key, and what it should look like, never the key.
+    expect(vapidKeyProblem(VAPID_PUBLIC_KEY, "")).toContain("VAPID_PRIVATE_KEY is missing");
+    const hex = vapidKeyProblem("7b12790cfd738a627dbecd1ee42e7972", VAPID_PRIVATE_KEY);
+    expect(hex).toContain("VAPID_PUBLIC_KEY is not a VAPID public key (87");
+    expect(hex).not.toContain("7b12790c");
+    expect(vapidKeyProblem(VAPID_PUBLIC_KEY, "short")).toContain("VAPID_PRIVATE_KEY is not");
+    expect(vapidKeyProblem(VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)).toBeNull();
+  });
+
+  test("pushes each send to the devices that asked, but the one it came from", async () => {
+    // The server's VAPID keys, as ops/vapid.ts makes them.
+    const vapid = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const vapidPublic = new Uint8Array(
+      (await crypto.subtle.exportKey("raw", vapid.publicKey)) as ArrayBuffer,
+    );
+    const own = await startServer({
+      config: {
+        ...config,
+        sendsPerMinute: 1_000,
+        push: {
+          publicKey: toBase64Url(vapidPublic),
+          privateKey: defined((await crypto.subtle.exportKey("jwk", vapid.privateKey)).d, "d"),
+          subject: "mailto:ops@example.com",
+        },
+      },
+      dataDir: mkdtempSync(join(tmpdir(), "kurobako-push-")),
+      blobs: memoryStore().store,
+      port: 0,
+      hostname: "127.0.0.1",
+      logRequests: false,
+    });
+    const site = own.server.url.origin;
+
+    // The push service: what the server posts to it is kept, answered `answer`.
+    const realFetch = globalThis.fetch;
+    const pushed: { endpoint: string; headers: Headers; body: Uint8Array<ArrayBuffer> }[] = [];
+    let answer = 201;
+    const spy = spyOn(globalThis, "fetch").mockImplementation((async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.startsWith("https://fcm.googleapis.com/")) return realFetch(input, init);
+      pushed.push({
+        endpoint: url,
+        headers: new Headers(init?.headers),
+        body: new Uint8Array(await new Response(init?.body).arrayBuffer()),
+      });
+      return new Response(null, { status: answer });
+    }) as typeof fetch);
+
+    /** A browser: its key pair, auth secret and subscription. */
+    const device = async (id: string) => {
+      const keys = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, [
+        "deriveBits",
+      ])) as CryptoKeyPair;
+      const p256dh = new Uint8Array(
+        (await crypto.subtle.exportKey("raw", keys.publicKey)) as ArrayBuffer,
+      );
+      const auth = crypto.getRandomValues(new Uint8Array(16));
+      const endpoint = `https://fcm.googleapis.com/fcm/send/${id}`;
+      return {
+        keys,
+        p256dh,
+        auth,
+        endpoint,
+        skip: await skipIdOf(endpoint),
+        subscription: { endpoint, keys: { p256dh: toBase64Url(p256dh), auth: toBase64Url(auth) } },
+      };
+    };
+    type Device = Awaited<ReturnType<typeof device>>;
+    /** What the browser reads of a push (RFC 8291), opened with its own keys. */
+    const open = async (to: Device, body: Uint8Array<ArrayBuffer>) => {
+      type Bytes = Uint8Array<ArrayBuffer>;
+      const hkdf = async (salt: Bytes, ikm: Bytes, info: Bytes, length: number) =>
+        new Uint8Array(
+          await crypto.subtle.deriveBits(
+            { name: "HKDF", hash: "SHA-256", salt, info },
+            await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]),
+            length * 8,
+          ),
+        );
+      const text = (value: string) => new Uint8Array(new TextEncoder().encode(value));
+      const salt = body.slice(0, 16);
+      const keyLength = defined(body[20], "key length");
+      const serverKey = body.slice(21, 21 + keyLength);
+      const shared = new Uint8Array(
+        await crypto.subtle.deriveBits(
+          {
+            name: "ECDH",
+            public: await crypto.subtle.importKey(
+              "raw",
+              serverKey,
+              { name: "ECDH", namedCurve: "P-256" },
+              false,
+              [],
+            ),
+          },
+          to.keys.privateKey,
+          256,
+        ),
+      );
+      const info = new Uint8Array([...text("WebPush: info\0"), ...to.p256dh, ...serverKey]);
+      const ikm = await hkdf(to.auth, shared, info, 32);
+      const key = await hkdf(salt, ikm, text("Content-Encoding: aes128gcm\0"), 16);
+      const nonce = await hkdf(salt, ikm, text("Content-Encoding: nonce\0"), 12);
+      const plain = new Uint8Array(
+        await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: nonce },
+          await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["decrypt"]),
+          body.slice(21 + keyLength),
+        ),
+      );
+      expect(plain.at(-1)).toBe(2);
+      return JSON.parse(new TextDecoder().decode(plain.slice(0, -1)));
+    };
+    /** Sends arrive after the answer: waits for `count` of them. */
+    const settled = async (count: number) => {
+      for (let tries = 0; pushed.length < count && tries < 100; tries += 1) await Bun.sleep(20);
+      await Bun.sleep(50);
+      expect(pushed).toHaveLength(count);
+    };
+    const subscribe = (ns: string, body: unknown, query = "") =>
+      realFetch(`${site}/${ns}/push${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const send = (ns: string, text: string, headers: Record<string, string> = {}) =>
+      realFetch(`${site}/${ns}/new`, {
+        method: "POST",
+        body: text,
+        headers: { "content-type": "text/plain", ...headers },
+      });
+
+    try {
+      const ns = fresh();
+      const phone = await device("phone");
+      const laptop = await device("laptop");
+      // Nothing to follow yet: subscribing creates no namespace.
+      expect((await subscribe(ns, phone.subscription)).status).toBe(404);
+      await send(ns, "first");
+      expect((await subscribe(ns, phone.subscription)).status).toBe(201);
+      expect((await subscribe(ns, laptop.subscription)).status).toBe(201);
+      // Only push services: anything else would have the server post anywhere.
+      const elsewhere = { ...phone.subscription, endpoint: "https://example.com/hook" };
+      expect((await subscribe(ns, elsewhere)).status).toBe(400);
+      expect((await subscribe(ns, { endpoint: phone.endpoint })).status).toBe(400);
+
+      // Sent from the laptop: the phone is told, the laptop is not.
+      const sent = (await (
+        await send(ns, "  hello\n  phone ", { "push-skip": laptop.skip })
+      ).json()) as Item;
+      await settled(1);
+      const [push] = pushed;
+      expect(push?.endpoint).toBe(phone.endpoint);
+      expect(push?.headers.get("content-encoding")).toBe("aes128gcm");
+      expect(push?.headers.get("urgency")).toBe("high");
+      expect(await open(phone, defined(push?.body, "push body"))).toEqual({
+        space: "plain",
+        name: ns,
+        id: sent.id,
+        kind: "text",
+        preview: "hello phone",
+      });
+      // Signed with the server's key, for the push service's origin.
+      const [, jwt, k] = defined(
+        /^vapid t=([^,]+), k=(.+)$/.exec(push?.headers.get("authorization") ?? ""),
+        "VAPID header",
+      );
+      const [header, claims, signature] = defined(jwt, "jwt").split(".");
+      expect(k).toBe(toBase64Url(vapidPublic));
+      expect(
+        await crypto.subtle.verify(
+          { name: "ECDSA", hash: "SHA-256" },
+          vapid.publicKey,
+          fromBase64Url(defined(signature, "signature")),
+          new TextEncoder().encode(`${header}.${claims}`),
+        ),
+      ).toBe(true);
+      expect(
+        JSON.parse(new TextDecoder().decode(fromBase64Url(defined(claims, "claims")))),
+      ).toMatchObject({
+        aud: "https://fcm.googleapis.com",
+        sub: "mailto:ops@example.com",
+      });
+
+      // Read once: no preview. And a push service that forgot a device: it goes.
+      answer = 410;
+      await send(ns, "once", { burn: "1" });
+      await settled(3);
+      const burned = pushed.slice(1).find((each) => each.endpoint === phone.endpoint);
+      expect(await open(phone, defined(burned?.body, "burn push"))).not.toHaveProperty("preview");
+      answer = 201;
+      await send(ns, "after the browsers forgot");
+      await Bun.sleep(150);
+      expect(pushed).toHaveLength(3);
+
+      // Turned off: nothing more, and subscribing again works.
+      expect((await subscribe(ns, phone.subscription)).status).toBe(201);
+      expect((await subscribe(ns, { endpoint: phone.endpoint }, "?off")).status).toBe(200);
+      await send(ns, "nobody listens");
+      await Bun.sleep(150);
+      expect(pushed).toHaveLength(3);
+    } finally {
+      spy.mockRestore();
+      await own.stop();
+    }
   });
 
   test("k.mjs reports that namespace locks are retired", async () => {

@@ -151,6 +151,9 @@ export const createBunPlatform = (options: BunOptions) => {
       sockets: () => [...sockets],
       blobs,
       hub: () => hub as unknown as HubApi,
+      later: (work) => {
+        work.catch((error: unknown) => logError("Background work failed", error));
+      },
     });
     const entry = { core, sockets, alarm, hasStorage, closeDatabase };
     namespaces.set(key, entry);

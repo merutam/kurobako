@@ -263,6 +263,11 @@ export const createUploads = (api: Api) => {
     return token ? { token, ...(envelope ? { envelope } : {}) } : undefined;
   };
   const deduplicate = (c: AppContext) => c.req.header("no-dedup") !== "1";
+  /** The sending device's push subscription (see core/push.ts), not told of its own send. */
+  const pushSkip = (c: AppContext) => {
+    const skip = c.req.header("push-skip")?.trim() ?? "";
+    return /^[A-Za-z0-9_-]{22}$/.test(skip) ? skip : null;
+  };
 
   /** Streams contents into the blob store, then records their key in the namespace. */
   const saveObject = async (
@@ -299,6 +304,7 @@ export const createUploads = (api: Api) => {
         await writeVerifier(c),
         viewOf(c),
         deduplicate(c),
+        pushSkip(c),
       )) as Saved;
       // Already there: the file just uploaded is a copy nothing points at.
       if (saved.existing) later(c, blobs.delete([object]));
@@ -410,6 +416,7 @@ export const createUploads = (api: Api) => {
         await writeVerifier(c),
         viewOf(c),
         deduplicate(c),
+        pushSkip(c),
       )) as Saved;
     }
     record(c, "sentText");

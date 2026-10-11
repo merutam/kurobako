@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import { type PushConfig, vapidKeyProblem } from "./core/push";
+
 export type AppConfig = {
   /**
    * Where the site lives under its domain: "" for the root, or a path such
@@ -40,6 +42,8 @@ export type AppConfig = {
   accessSessionDays: number;
   /** In a private instance, whether share links still open for anyone. */
   publicShares: boolean;
+  /** Push notifications (see core/push.ts); null when the VAPID keys are unset. */
+  push: PushConfig | null;
 };
 
 /** The largest sizes a platform can take; each platform sets its own. */
@@ -105,6 +109,41 @@ const accessKey = (vars: Vars): string | null => {
     throw new Error(`ACCESS_KEY must have at least ${ACCESS_KEY_MIN_LENGTH} characters.`);
   }
   return key;
+};
+
+/**
+ * Push notifications need a VAPID key pair (`bun ops/vapid.ts` makes one);
+ * without both keys there are none, and pages offer none.
+ */
+let pushProblemLogged = false;
+const push = (vars: Vars): PushConfig | null => {
+  // A value pasted as ops/vapid.ts prints it (NAME=value), or quoted, is taken too.
+  const text = (name: string) =>
+    typeof vars[name] === "string"
+      ? (vars[name] as string)
+          .trim()
+          .replace(new RegExp(`^${name}=`), "")
+          .replace(/^(["'])(.*)\1$/, "$2")
+      : "";
+  const publicKey = text("VAPID_PUBLIC_KEY");
+  const privateKey = text("VAPID_PRIVATE_KEY");
+  const subject = text("VAPID_SUBJECT") || "https://github.com/merutam/kurobako";
+  if (!publicKey && !privateKey) return null;
+  const problem =
+    vapidKeyProblem(publicKey, privateKey) ??
+    (/^(?:mailto:|https:\/\/)\S+$/.test(subject)
+      ? null
+      : "VAPID_SUBJECT must be a mailto: or https: URL.");
+  // An optional feature set up wrong turns off alone: on Workers, where every
+  // request reads the settings, throwing here would take the whole site down.
+  if (problem) {
+    if (!pushProblemLogged) {
+      console.error(`Notifications are off: ${problem} \`bun ops/vapid.ts\` makes a key pair.`);
+      pushProblemLogged = true;
+    }
+    return null;
+  }
+  return { publicKey, privateKey, subject };
 };
 
 const flag = (vars: Vars, name: string, fallback: boolean): boolean => {
@@ -183,5 +222,6 @@ export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMIT
     accessKey: accessKey(vars),
     accessSessionDays: integer(vars, "ACCESS_SESSION_DAYS", 30, 1, 365),
     publicShares: flag(vars, "PUBLIC_SHARES", true),
+    push: push(vars),
   };
 };

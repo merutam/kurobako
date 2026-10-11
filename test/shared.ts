@@ -1832,6 +1832,14 @@ export const sharedTests = (harness: Harness) => {
       expect(page).toContain('<meta name="robots" content="noindex"/>');
     });
 
+    test("offers no notifications without VAPID keys", async () => {
+      const ns = fresh("nopush");
+      await sendText(ns, "here");
+      expect((await json<{ push: unknown }>("/.well-known/kurobako")).push).toBeNull();
+      const subscribe = await call(`/${ns}/push`, { method: "POST", body: "{}" });
+      expect(subscribe.status).toBe(404);
+    });
+
     test("publishes the project and production dependency licenses separately", async () => {
       const html = await (await call("/k/licenses")).text();
       expect(html).toContain("AGPL-3.0-or-later");

@@ -34,7 +34,9 @@
     // UPLOAD_LIMITER's below, which must say the same.
     "SENDS_PER_MINUTE": "300",
     // The same for MISSES_PER_MINUTE and MISS_LIMITER below.
-    "MISSES_PER_MINUTE": "300"
+    "MISSES_PER_MINUTE": "300",
+    //
+    "VAPID_PUBLIC_KEY": "BHq4MF6q1RiexagFLgQObCDdOBUeH49eVNybUitc0cG-bEVD1Q3wgQj5K4p4zBK8kQAX8xDJTuEiE_DVz6fWmho"
   },
 
   // Private: only this Worker reads and writes it, so burn-after-reading,

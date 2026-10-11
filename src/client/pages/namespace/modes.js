@@ -12,12 +12,15 @@ import {
 } from "../../../../public/k.mjs";
 import { request, SITE } from "../../lib/common.js";
 import { describeOpened, describePlain, limitedItem } from "../../lib/items.js";
+import { pushSkipHeaders } from "../../lib/push.js";
 import { BUNDLE_MIME } from "../../shared/bundle.js";
 
 const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
 const sendHeaders = ({ burn, expiresIn }) => ({
   ...burnHeaders(burn),
   ...(expiresIn ? { "Expires-In": expiresIn } : {}),
+  // This device is not told of its own sends.
+  ...pushSkipHeaders(),
 });
 const versionOf = (item) => item.updatedAt ?? item.createdAt;
 
@@ -37,6 +40,8 @@ export const plainMode = (namespace, writeHeaders) => {
     });
   return {
     basePath,
+    /** Which namespace a push message names (see lib/push.js). */
+    pushKey: `plain:${namespace}`,
     title: `/${namespace}`,
     label: "",
     /** The largest file a send takes, in bytes of its own contents. */
@@ -189,6 +194,7 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
 
   return {
     basePath,
+    pushKey: `sealed:${space.id}`,
     title: readToken ? "Encrypted namespace" : `/e#${secretName}`,
     label: "Encrypted",
     // The limit counts the sealed body: a tag for every 64 KiB.

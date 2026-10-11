@@ -1998,6 +1998,8 @@ fieldset.choices {
 /* A namespace's mode and links, " · " between the parts there are. */
 .namespace-intro #mode-label:not(:empty) + #page-links:not(:empty)::before {
   content: " · " / "";
+  /* Its spaces too: at the start of a flex item, they would collapse. */
+  white-space: pre;
 }
 
 /* The share page (src/pages/share.tsx): what was shared, and where it goes. */
@@ -2022,4 +2024,16 @@ fieldset.choices {
 }
 .recent-list button.recent-open:hover {
   color: var(--accent);
+}
+
+/* Beside the namespace's links: its notifications on this device (lib/push.js). */
+/* The whole width, so the toggle sits at the right, apart from the links. */
+.namespace-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  max-width: none;
+}
+.namespace-intro #notify-toggle {
+  margin-left: auto;
 }

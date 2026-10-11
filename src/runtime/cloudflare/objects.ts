@@ -7,6 +7,7 @@ import { DurableObject } from "cloudflare:workers";
 import { loadConfig } from "../../config";
 import type { Sql, SqlValue } from "../../core/host";
 import { HUB_METHODS, type HubApi, HubCore } from "../../core/hub";
+import { logError } from "../../core/log";
 import { objectName } from "../../core/model";
 import { LIVE, NAMESPACE_METHODS, NamespaceCore } from "../../core/namespace";
 import type { AccessEvent } from "../../core/visits";
@@ -43,6 +44,8 @@ export class NamespaceObject extends DurableObject<Env> {
       sockets: () => ctx.getWebSockets(),
       blobs: r2Store(env.BUCKET),
       hub: () => hubOf(env),
+      later: (work) =>
+        ctx.waitUntil(work.catch((error) => logError("Background work failed", error))),
     });
   }
 

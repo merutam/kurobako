@@ -61,6 +61,10 @@ export const renderNamespacePage = (
               </>
             ) : null}
           </span>
+          {/* Off until asked, per device (lib/push.js); shown when the server sends any. */}
+          <button id="notify-toggle" type="button" class="row-action" aria-pressed="false" hidden>
+            notify: off
+          </button>
         </p>
         <p id="status" class="status" role="status" aria-live="polite" />
         <MediaFeed />

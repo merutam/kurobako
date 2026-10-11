@@ -138,6 +138,8 @@ export const createContext = (config: AppConfig, assets: WebAssets, platform: Pl
       reserved: [...RESERVED_NAMESPACES],
     },
     sealed: { maxNameLength: SEALED_NAME_MAX_LENGTH },
+    /** Push notifications: the key a browser subscribes with, or null when there are none. */
+    push: config.push ? { publicKey: config.push.publicKey } : null,
     live: LIVE,
   };
 

@@ -556,9 +556,50 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     if (nodes.length !== current.length || nodes.some((node, index) => node !== current[index])) {
       itemsList.replaceChildren(...nodes);
     }
+    queueShown();
+  };
+
+  /**
+   * Opened from a notification (see sw.js): its item, opened, and a text put
+   * on the clipboard when the browser lets the page write it without a tap.
+   */
+  let queueShown;
+  /**
+   * The queue's first showing, rows and all: a plain namespace's comes with
+   * its page; an encrypted one's arrives by the connection, decrypted.
+   */
+  const firstShown = new Promise((resolve) => {
+    queueShown = resolve;
+  });
+
+  const copyById = async (id) => {
+    const item = serverItems.find((listed) => listed.id === id);
+    if (!item) {
+      status.error("That item is gone.");
+      return;
+    }
+    if (expandMode === "one") {
+      for (const open of expandedItems) itemOpeners.get(open)?.(false);
+      expandedItems.clear();
+    }
+    expandedItems.add(id);
+    closedItems.delete(id);
+    itemOpeners.get(id)?.(true);
+    // Reading it would use it up: only its own button does that.
+    if (limitedItem(item)) return;
+    const info = await mode.describe(item);
+    if (info.kind !== "text") return;
+    try {
+      await copyText(await mode.loadText(item));
+      status.success("Copied.");
+    } catch {
+      status.error("Not copied: this browser wants a tap first. Use copy on the item.");
+    }
   };
 
   return {
+    copyById,
+    firstShown,
     setMode(value) {
       mode = value;
     },

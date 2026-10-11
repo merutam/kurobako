@@ -18,7 +18,11 @@ import {
 import type { ListedItem } from "../pages/components/items";
 import { renderLogPage } from "../pages/log";
 import { renderNamespacePage } from "../pages/namespace";
-import { type Api, type App, type AppContext, jsonError } from "./context";
+import { type Api, type App, type AppContext, jsonError, readLimited } from "./context";
+
+/** A browser's push subscription is a few hundred bytes. */
+const MAX_PUSH_BODY_BYTES = 4_000;
+
 import { type createUploads, decodeFilename } from "./uploads";
 
 export type Space = {
@@ -124,6 +128,48 @@ export const mountNamespaces = (
         const full = await storageFull(c, declaredSize(c));
         if (full) return full;
         return space.kind === "sealed" ? uploadSealed(c, ref) : uploadPlain(c, ref);
+      }),
+    );
+
+    /**
+     * Push notifications of this namespace's sends, for one device: the body
+     * is its browser's PushSubscription (as JSON); with ?off, { endpoint }
+     * stops them. Only POST: GET and DELETE on /push are an item named so.
+     */
+    app.post(
+      `${prefix}/push`,
+      inNamespace(async (c, ref) => {
+        if (!config.push) return jsonError(c, 404, "This server sends no notifications.");
+        const bytes = await readLimited(c, MAX_PUSH_BODY_BYTES);
+        if (!bytes) return jsonError(c, 413, `The limit is ${MAX_PUSH_BODY_BYTES} bytes.`);
+        let body: unknown;
+        try {
+          body = JSON.parse(new TextDecoder().decode(bytes));
+        } catch {
+          return jsonError(c, 400, "Send the subscription as JSON.");
+        }
+        if (c.req.query("off") !== undefined) {
+          const endpoint = (body as { endpoint?: unknown })?.endpoint;
+          if (typeof endpoint !== "string") return jsonError(c, 400, "Send its endpoint.");
+          await namespace(ref).unsubscribePush(endpoint);
+          return c.json({ ok: true });
+        }
+        // Subscribing costs the server a message per send: it counts as one.
+        const refused = await refuseSend(c);
+        if (refused) return refused;
+        const result = (await namespace(ref).subscribePush(body, visit(c))) as
+          | { ok: true }
+          | { error: string }
+          | null;
+        if (!result) {
+          return jsonError(
+            c,
+            404,
+            "Nothing is here yet: send something, then turn notifications on.",
+          );
+        }
+        if ("error" in result) return jsonError(c, 400, result.error);
+        return c.json(result, 201);
       }),
     );
 

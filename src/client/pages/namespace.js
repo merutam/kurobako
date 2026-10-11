@@ -6,6 +6,7 @@ import { secretNameProblem, splitFragment } from "../../../public/k.mjs";
 // only wires them together and starts the selected plain or encrypted mode.
 import { copyText, element, ignoreStrayDrops, readConfig, SITE, setBusy } from "../lib/common.js";
 import { loadHighlighter } from "../lib/highlight.js";
+import { follow, following, pushAvailable, unfollow } from "../lib/push.js";
 import { rememberNamespace } from "../lib/recent.js";
 import { dropShare, readShare } from "../lib/shares.js";
 import { createStatus } from "../lib/status.js";
@@ -116,6 +117,38 @@ try {
   live.setMode(mode);
   forms.setMode(mode);
   showPage(mode);
+  // Notifications of this namespace's sends, on this device: off until asked.
+  if (pushAvailable(config)) {
+    const toggle = element("#notify-toggle");
+    const show = (on) => {
+      toggle.textContent = on ? "notify: on" : "notify: off";
+      toggle.setAttribute("aria-pressed", String(on));
+      toggle.title = on ? "Stop notifications on this device" : "Notify this device of new items";
+    };
+    const target = {
+      key: mode.pushKey,
+      basePath: mode.basePath,
+      url: mode.shareUrl,
+      title: mode.title,
+      publicKey: config.push.publicKey,
+    };
+    show(await following(mode.pushKey).catch(() => false));
+    toggle.hidden = false;
+    toggle.addEventListener("click", async () => {
+      const on = toggle.getAttribute("aria-pressed") !== "true";
+      toggle.disabled = true;
+      try {
+        if (on) await follow(target);
+        else await unfollow(target);
+        show(on);
+        status.success(on ? "This device is notified of new items here." : "Notifications off.");
+      } catch (error) {
+        status.error(error.message);
+      } finally {
+        toggle.disabled = false;
+      }
+    });
+  }
   // Where this device can send: offered on the share page (see lib/recent.js).
   if (access.canWrite()) rememberNamespace({ url: mode.shareUrl, title: mode.title });
   // Opened from the share page: what was shared goes into the composer.
@@ -162,6 +195,16 @@ try {
   (window.requestIdleCallback ?? setTimeout)(() => void loadHighlighter().catch(() => {}));
   // Connect before any /ls, so changes during that fetch are buffered.
   live.connectLive();
+  // Opened from a notification: its item, copied (see items.copyById) once
+  // the queue is shown, which for an encrypted one comes after connecting.
+  const copyId = new URLSearchParams(window.location.search).get("copy");
+  if (copyId) {
+    const address = new URL(window.location.href);
+    address.searchParams.delete("copy");
+    window.history.replaceState(null, "", address.href);
+    // Without holding up what follows: a queue that never loads copies nothing.
+    void items.firstShown.then(() => items.copyById(copyId));
+  }
   setInterval(items.updateExpiries, 30_000);
 } catch (error) {
   disableAll(error.message);
