@@ -21,7 +21,7 @@ export const createAccess = () => {
     restore.hidden = readOnly;
     burnInput.disabled = readOnly;
     expiresInput.disabled = readOnly;
-    modeLabel.textContent = `${mode.label}${readOnly ? " · Read-only" : ""}${mode.label || readOnly ? " · " : ""}`;
+    modeLabel.textContent = [mode.label, readOnly && "Read-only"].filter(Boolean).join(" · ");
   };
 
   return {

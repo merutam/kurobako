@@ -76,7 +76,7 @@ Every component follows the same recipe: inherited font, 1 px border, square cor
 | Bracketed action | `accent` text between `muted` `[` `]`, no border: `[copy]`, `[settings]` | Hover lightens the accent; an action that deletes turns `err` |
 | Choice | A `muted` label, then the options: `open: one [several] [all]` | The chosen one as plain `fg` text, without brackets; the others are bracketed actions |
 | Filter / clickable tag | Text in brackets: `[ note ]`, `border` border | `accent` background, `on-accent` text, `aria-pressed="true"` |
-| Text field | `panel` background, `border` border, a prompt-style label above (`> name`) | Focus outlined in `accent` |
+| Text field | `panel` background, `border` border, a label above, marked like a list item (`* name`): a `>` would read as something that opens | Focus outlined in `accent` |
 | Search | A `$ grep` label in a `chip` box against the field's left | Filters while typing; empty shows `grep: no results` |
 | Checkbox | Native, with `accent-color` | — |
 | Tabs | `muted` text, no border, a 2 px line below | `fg` text and an `accent` line |
@@ -85,7 +85,7 @@ Every component follows the same recipe: inherited font, 1 px border, square cor
 | Progress | ASCII: `[############--------] 60%` | Filled part in `accent`, the rest in `muted` |
 | Pagination | `«` `1` `2` `3` `»` in 44 × 44 px boxes | Current page on an `accent` background |
 | Collapsible | Native `<details>` and `<summary>`, no JavaScript | Open shows its content in `dim` |
-| Status message | An output-style line: `> ok: message sent` | Uses `role="status"` |
+| Status message | An output-style line: `* ok: message sent` | Uses `role="status"` |
 | Footer | A dashed line, then the version and links in `muted` | — |
 
 **Which button.** Visual weight follows the action's importance:

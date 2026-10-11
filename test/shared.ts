@@ -1652,7 +1652,8 @@ export const sharedTests = (harness: Harness) => {
       expect(html.match(/<input id="[a-z-]+" class="file-drop"/g)).toHaveLength(2);
       // The limits come written: the page's script does not fill them in.
       expect(html).toContain('<option value="">Instance default (1 day)</option>');
-      expect(html).toContain('<span id="expiry-label">Expires after 1 day</span>');
+      // Expiry is each item's: the namespace does not claim one.
+      expect(html).not.toContain("expiry-label");
       expect(html).toMatch(/id="file-limit" class="hint">Any files, up to \d+ at once/);
       expect(html).toContain('<input id="burn" type="checkbox"/>');
       expect(html).toContain('id="media-feed-list"');

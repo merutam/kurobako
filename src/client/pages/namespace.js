@@ -52,7 +52,6 @@ const showPage = (mode) => {
   if (mode.label) {
     pageTitle.textContent = mode.title;
     pageLinks.replaceChildren(
-      " · ",
       // The name or read token stays in the fragment, including when the
       // log's Back link returns to this page.
       h("a", { href: `${mode.basePath}/log${window.location.hash}` }, "Access log"),

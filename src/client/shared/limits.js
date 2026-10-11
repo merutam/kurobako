@@ -12,10 +12,6 @@ const EXPIRY_PRESETS = [
 ];
 const LONGEST_EXPIRY = 30 * 24 * 60 * 60;
 
-/** "Expires after 1 day", from itemTtlSeconds. */
-export const expiryLabel = (ttlSeconds) =>
-  ttlSeconds ? `Expires after ${formatDuration(ttlSeconds)}` : "No expiration";
-
 /** The expiry picker's options, as [label, value]; "" is the instance default. */
 export const expiryOptions = (ttlSeconds) => [
   [

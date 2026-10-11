@@ -3,7 +3,6 @@
 
 import {
   backupHint,
-  expiryLabel,
   expiryOptions,
   fileLimitText,
   maxFilesAtOnce,
@@ -48,13 +47,14 @@ export const renderNamespacePage = (
     children: (
       <>
         <h1 id="page-title">{plain ? `/${name}` : "Namespace"}</h1>
-        <p class="intro">
+        {/* What the namespace is (an encrypted one says so) and its links; the
+            styles put the " · " between the parts there are. Expiry is each
+            item's, so it shows on the items, not here. */}
+        <p class="intro namespace-intro">
           <span id="mode-label" />
-          <span id="expiry-label">{expiryLabel(ttlSeconds)}</span>
           <span id="page-links">
             {plain ? (
               <>
-                {" · "}
                 <a href={`${path}/log`}>Access log</a>
                 {" · "}
                 <a href={`${path}/ls`}>As JSON</a>

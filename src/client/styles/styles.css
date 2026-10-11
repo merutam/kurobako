@@ -35,7 +35,7 @@ main[data-loading] {
   flex-direction: column;
 }
 /* No spinner: lines of output, one under the other, in the middle:
-   "> Decrypting…", or an error with what to do next (see unlocking.js). */
+   "* Decrypting…", or an error with what to do next (see unlocking.js). */
 .page-loading {
   display: flex;
   min-height: 0;
@@ -53,7 +53,7 @@ main[data-loading] {
   margin: 0;
 }
 .page-loading > :first-child::before {
-  content: "> " / "";
+  content: "* " / "";
 }
 
 body {
@@ -200,7 +200,7 @@ p {
 }
 /* A name's strength, as a state: weak, fair or strong. */
 .hint[data-level]::before {
-  content: "> strength: " / "";
+  content: "* strength: " / "";
   color: var(--muted);
 }
 .hint[data-level="weak"] {
@@ -216,7 +216,7 @@ p {
   color: var(--muted);
 }
 .empty::before {
-  content: "> " / "";
+  content: "* " / "";
 }
 .error-text {
   color: var(--err);
@@ -430,7 +430,7 @@ fieldset {
   padding: 0;
   border: 0;
 }
-/* Labels read like prompts: "> name". */
+/* Labels read like a list's marks, "* name": a ">" would look like it opens. */
 legend,
 label {
   display: block;
@@ -441,7 +441,7 @@ label {
 }
 legend::before,
 label:not(.checkbox-label)::before {
-  content: "> " / "";
+  content: "* " / "";
 }
 form + form {
   margin-top: var(--space-6);
@@ -645,7 +645,7 @@ select {
 }
 /* The page's status floats over it, at the top, out of the flow: showing
    and leaving (see status.js) moves nothing on the page. It reads like a
-   line of output: "> ok: copied". */
+   line of output: "* ok: copied". */
 .status {
   position: fixed;
   top: var(--space-3);
@@ -665,7 +665,7 @@ select {
   font-size: var(--text-list);
 }
 .status::before {
-  content: "> " / "";
+  content: "* " / "";
   flex: none;
   color: var(--muted);
 }
@@ -1985,4 +1985,9 @@ fieldset.choices {
 }
 .file-list button.file-name:hover {
   color: var(--accent);
+}
+
+/* A namespace's mode and links, " · " between the parts there are. */
+.namespace-intro #mode-label:not(:empty) + #page-links:not(:empty)::before {
+  content: " · " / "";
 }
