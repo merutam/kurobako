@@ -1548,8 +1548,13 @@ summary::before {
   margin: var(--space-3);
   color: var(--dim);
 }
+.license-notice details {
+  overflow: hidden;
+}
 .license-notice pre {
+  margin: 0;
   max-height: 28rem;
+  border: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   overflow-x: hidden;
@@ -1665,7 +1670,7 @@ summary::before {
 .toolbar.namespace-input input[type="search"] {
   min-width: 0;
 }
-#dashboard > :is(section, .columns) + :is(section, .columns) {
+#dashboard > section + section {
   margin-top: var(--gap-section);
 }
 .stats-table {
