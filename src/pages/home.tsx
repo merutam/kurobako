@@ -103,16 +103,18 @@ export const renderHomePage = (site: SiteView, config: AppConfig) => {
 
         <section id="stats-section" class="stack page-section" aria-labelledby="about-title">
           <h2 id="about-title">Stats</h2>
-          <table class="data-table">
-            <tbody>
-              {limits.map(([id, label, value]) => (
-                <tr>
-                  <th scope="row">{label}</th>
-                  <td id={id}>{value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div class="table-scroll">
+            <table class="data-table">
+              <tbody>
+                {limits.map(([id, label, value]) => (
+                  <tr>
+                    <th scope="row">{label}</th>
+                    <td id={id}>{value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p>
             <a href={`${site.basePath}/stats.json`}>Full statistics</a>
           </p>

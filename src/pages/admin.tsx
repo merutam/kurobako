@@ -78,9 +78,11 @@ export const renderAdminPage = (
           <div class="columns">
             <section class="stack" aria-labelledby="system-title">
               <h2 id="system-title">System</h2>
-              <table class="data-table stats-table">
-                <tbody id="system-stats" />
-              </table>
+              <div class="table-scroll">
+                <table class="data-table stats-table">
+                  <tbody id="system-stats" />
+                </table>
+              </div>
             </section>
 
             <section id="logs" class="stack" aria-labelledby="logs-title" hidden>
@@ -126,7 +128,10 @@ export const renderAdminPage = (
 
           <section class="stack" aria-labelledby="namespaces-title">
             <h2 id="namespaces-title">Namespaces</h2>
-            <p class="toolbar">
+            <p class="toolbar namespace-input">
+              <span class="namespace-prefix" aria-hidden="true">
+                $ grep
+              </span>
               <input id="namespace-search" type="search" aria-label="Filter namespaces" />
             </p>
             <div class="table-scroll">

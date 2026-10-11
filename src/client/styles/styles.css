@@ -529,7 +529,9 @@ select {
   outline-offset: -1px;
 }
 .namespace-input input[type="text"],
-.namespace-input input[type="text"]:focus {
+.namespace-input input[type="text"]:focus,
+.namespace-input input[type="search"],
+.namespace-input input[type="search"]:focus {
   flex: 1;
   width: 100%;
   min-width: 0;
@@ -1549,6 +1551,7 @@ summary::before {
   max-height: 28rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  overflow-x: hidden;
 }
 
 /* --- Tables --------------------------------------------------------------- */
@@ -1657,6 +1660,9 @@ summary::before {
   flex: 1;
   min-width: 12rem;
   width: auto;
+}
+.toolbar.namespace-input input[type="search"] {
+  min-width: 0;
 }
 #dashboard > :is(section, .columns) + :is(section, .columns) {
   margin-top: var(--gap-section);
