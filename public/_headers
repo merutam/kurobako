@@ -1,15 +1,10 @@
-# These render-blocking files are referenced with ?v=<build hash> by src/views/layout.tsx.
-# Keep other JavaScript revalidating: module imports use unversioned URLs.
-/tokens.css
+# Copied into dist/ by ops/build.ts.
+
+# The bundle's files are named by their contents (see src/pages.ts).
+/k/assets/*
   Cache-Control: public, max-age=31536000, immutable
 
-/styles.css
-  Cache-Control: public, max-age=31536000, immutable
-
-/theme.js
-  Cache-Control: public, max-age=31536000, immutable
-
-# The pages rendered ahead by ops/pages.ts: the SECURITY_HEADERS of src/app.ts,
+# The pages rendered ahead by ops/build.ts: the SECURITY_HEADERS of src/app.ts,
 # which the Worker adds to everything else.
 /k/*
   X-Content-Type-Options: nosniff

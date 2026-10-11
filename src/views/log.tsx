@@ -19,7 +19,7 @@ const LogContent = ({
   <>
     <p id={backHref ? undefined : "log-back-row"} hidden={backHref ? undefined : true}>
       <a id={backHref ? undefined : "log-back"} href={backHref ?? "#"}>
-        ← Back to namespace
+        Back to namespace
       </a>
     </p>
     <h1>Access log · {title}</h1>
@@ -81,7 +81,7 @@ export const renderLogPage = (
   Page({
     site,
     title: `${title} access log · Kurobako`,
-    scripts: [{ path: "/log.js", module: true }],
+    scripts: ["log.js"],
     children: (
       <LogContent title={title} backHref={backHref} jsonHref={jsonHref} entries={entries} />
     ),

@@ -40,13 +40,14 @@ import {
 import type { Manifest } from "../src/api/archives";
 import { SECURITY_HEADERS } from "../src/app";
 import { readArchive, writeArchive } from "../src/archive";
+import { bundle } from "../src/bun/bundle";
 import { startRouter } from "../src/bun/router";
 import { startServer } from "../src/bun/server";
 import { type AppConfig, loadConfig } from "../src/config";
 import { detectMedia, safeFileName, safeMediaName } from "../src/image";
 import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/model";
 import { isAutomatedNetwork, networkKey } from "../src/networks";
-import { ICON_FILES, STATIC_FILES, STATIC_PAGES } from "../src/pages";
+import { ENTRIES, FIXED_FILES, ICON_FILES, STYLES } from "../src/pages";
 import type { BlobStore } from "../src/platform";
 import { clientKey } from "../src/request-info";
 import {
@@ -236,10 +237,11 @@ describe("bun server", () => {
     try {
       const ns = fresh();
       await call(`/${ns}/ls`);
-      await call("/styles.css");
+      const styles = `/k/assets/${defined((await bundle()).manifest.files[STYLES], "styles").file}`;
+      expect((await call(styles)).status).toBe(200);
       expect(lines.some((line) => line.includes(`GET /${ns}/ls 200 `))).toBe(true);
       // Static files are left out, as on Cloudflare.
-      expect(lines.some((line) => line.includes("/styles.css"))).toBe(false);
+      expect(lines.some((line) => line.includes(styles))).toBe(false);
     } finally {
       info.mockRestore();
       await running.stop();
@@ -861,11 +863,22 @@ describe("rules kept in two places", () => {
     expect(textDownloadName("", "abc")).toBe("text-abc.txt");
   });
 
-  test("files Cloudflare serves without the Worker: those the pages load, and fixed pages", async () => {
-    const wrangler = await Bun.file(join(import.meta.dir, "..", "wrangler.jsonc")).text();
-    const list = /"run_worker_first":\s*\[([^\]]*)\]/.exec(wrangler)?.[1] ?? "";
-    const skipped = [...list.matchAll(/"!\/([^"]+)"/g)].map((match) => match[1]);
-    expect([...skipped].sort()).toEqual([...STATIC_FILES, ...ICON_FILES, ...STATIC_PAGES].sort());
+  test("bundles each page's code with every chunk it imports", async () => {
+    const { manifest, files } = await bundle();
+    for (const entry of [...ENTRIES.module, ...ENTRIES.classic, STYLES]) {
+      const built = defined(manifest.files[entry], `public/${entry} in the manifest`);
+      expect(files.has(built.file)).toBe(true);
+      for (const chunk of built.preload) expect(files.has(chunk), chunk).toBe(true);
+    }
+    // A classic script runs as it is: no import or export left in it.
+    for (const entry of ENTRIES.classic) {
+      const { file } = defined(manifest.files[entry], entry);
+      const code = new TextDecoder().decode(defined(files.get(file), file).body);
+      expect(code).not.toMatch(/^import|\bexport\s*[{*]/m);
+    }
+    for (const name of [...FIXED_FILES, ...ICON_FILES]) {
+      expect(await Bun.file(join(import.meta.dir, "..", "public", name)).exists()).toBe(true);
+    }
   });
 
   test("pages Cloudflare serves without the Worker get the Worker's security headers", async () => {
@@ -1464,13 +1477,21 @@ describe("under a base path", () => {
       expect(links.length).toBeGreaterThan(3);
       for (const link of links) expect(link).toStartWith("/k/");
     }
-    const script = await at("/k/namespaces/index.js?v=1");
+    const html = await (await at("/k/notes")).text();
+    const src = html.match(
+      /<script type="module" src="(\/k\/k\/assets\/index-[0-9a-z]+\.js)"/,
+    )?.[1];
+    const script = await at(defined(src, "the namespace page's script"));
     expect(script.headers.get("content-type")).toContain("javascript");
-    // Scripts import each other by relative paths, which stay under the path.
-    expect(await script.text()).toContain('from "../common.js"');
-    expect(await (await at("/k/components.js")).text()).toContain(
-      'customElements.define("k-file-field", KFileField)',
-    );
+    expect(script.headers.get("cache-control")).toContain("immutable");
+    // Chunks are imported by relative paths, which stay under the path.
+    expect(await script.text()).toMatch(/from"\.\/chunk-[0-9a-z]+\.js"/);
+    const chunks = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)];
+    for (const [, chunk] of chunks) {
+      expect(chunk).toStartWith("/k/k/assets/chunk-");
+      expect((await at(defined(chunk, "a chunk"))).status).toBe(200);
+    }
+    expect((await at("/k/common.js")).status).toBe(404);
   });
 
   test("items and share links are under the path", async () => {
@@ -1622,7 +1643,7 @@ describe("a private instance", () => {
       "/k/licenses",
       "/k/healthz",
       "/k.mjs",
-      "/common.js",
+      `/k/assets/${defined((await bundle()).manifest.files[STYLES], "styles").file}`,
     ]) {
       expect((await at(path)).status).toBe(200);
     }

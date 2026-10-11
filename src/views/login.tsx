@@ -9,7 +9,7 @@ export const renderLoginPage = (site: SiteView) =>
   Page({
     site,
     title: "Log in · Kurobako",
-    scripts: [{ path: "/login.js", module: true }],
+    scripts: ["login.js"],
     noIndex: true,
     children: (
       <>

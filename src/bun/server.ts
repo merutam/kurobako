@@ -9,24 +9,26 @@ import { join } from "node:path";
 import { S3Client, type Server } from "bun";
 import { createApp } from "../app";
 import { type AppConfig, loadConfig } from "../config";
-import { ICON_FILES, isPublicFile, loadAssets } from "../pages";
+import { ASSETS_PATH, ICON_FILES, isAssetPath, isFixedFile, loadAssets } from "../pages";
 import type { BlobStore } from "../platform";
 import { firstValue } from "../request-info";
 import { sitePath } from "../routing";
+import { type Bundle, bundle, PUBLIC_DIR } from "./bundle";
 import { logRequestLine, printJsonLines } from "./log";
 import { type BunEnv, createBunPlatform } from "./platform";
 import { s3Store } from "./s3";
 
-const PUBLIC_DIR = join(import.meta.dir, "../../public");
 const MAINTENANCE_MS = 30_000;
 const CONTENT_TYPES: Record<string, string> = {
   js: "text/javascript; charset=utf-8",
   mjs: "text/javascript; charset=utf-8",
-  css: "text/css; charset=utf-8",
   ico: "image/x-icon",
   png: "image/png",
 };
 const ONE_DAY_SECONDS = 86_400;
+
+/** The browser's code, bundled once per process (every server in it shares it). */
+let bundled: Promise<Bundle> | null = null;
 
 export type ServerOptions = {
   config: AppConfig;
@@ -54,7 +56,9 @@ export const startServer = async (options: ServerOptions) => {
     maxOpenDatabases: options.maxOpenDatabases,
     databaseIdleMs: options.databaseIdleMs,
   });
-  const assets = await loadAssets((path) => Bun.file(join(PUBLIC_DIR, path)).text());
+  bundled ??= bundle();
+  const { manifest, files } = await bundled;
+  const assets = await loadAssets(async () => JSON.stringify(manifest));
   const app = createApp(options.config, assets, () => platform);
 
   /**
@@ -83,19 +87,29 @@ export const startServer = async (options: ServerOptions) => {
   };
 
   /**
-   * Pages load scripts and styles with ?v=<hash>.
-   * Icons are requested at fixed URLs, so they are cached for a day.
+   * The bundle's files are named by their contents, so they are cached for
+   * good. Icons are requested at fixed URLs, so they are cached for a day;
+   * sw.js and k.mjs, also at fixed URLs, are checked each time.
    */
   const staticFile = (url: URL) => {
     const inside = sitePath(options.config.basePath, url.pathname);
-    if (!inside || !isPublicFile(inside)) return null;
+    if (!inside) return null;
+    if (isAssetPath(inside)) {
+      const file = files.get(inside.slice(ASSETS_PATH.length + 1));
+      if (!file) return null;
+      return new Response(file.body, {
+        headers: {
+          "Content-Type": file.type,
+          "Cache-Control": "public, max-age=31536000, immutable",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
+    if (!isFixedFile(inside)) return null;
     const path = inside.slice(1);
-    const isIcon = ICON_FILES.includes(path);
-    const cacheControl = isIcon
+    const cacheControl = ICON_FILES.includes(path)
       ? `public, max-age=${ONE_DAY_SECONDS}`
-      : url.searchParams.has("v")
-        ? "public, max-age=31536000, immutable"
-        : "no-cache";
+      : "no-cache";
     return new Response(Bun.file(join(PUBLIC_DIR, path)), {
       headers: {
         "Content-Type": CONTENT_TYPES[path.split(".").pop() ?? ""] ?? "application/octet-stream",

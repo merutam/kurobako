@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 // The protocol and the licenses: the same for every request and every
-// instance, so on Cloudflare they are built ahead into public/ (ops/pages.ts)
+// instance, so on Cloudflare they are built ahead into dist/ (ops/build.ts)
 // and served as static assets, without the Worker.
 import { raw } from "hono/html";
 import { iconTree } from "../../public/icons.js";

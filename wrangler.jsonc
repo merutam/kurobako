@@ -64,60 +64,22 @@
     { "name": "MISS_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }
   ],
 
-  // Renders the protocol and the licenses into public/k/ (see STATIC_PAGES).
-  // --no-env-file: .env configures the Bun server, not this deployment.
-  "build": { "command": "bun --no-env-file ops/pages.ts" },
+  // Builds dist/ (ops/build.ts): the browser's code bundled, the fixed files
+  // and the pages that never change. --no-env-file: .env configures the Bun
+  // server, not this deployment.
+  "build": {
+    "command": "bun --no-env-file ops/build.ts",
+    "watch_dir": ["src", "public"]
+  },
 
-  // Scripts, styles, icons and the pages that never change are served straight
-  // from Workers Static Assets, which costs no Worker request or CPU. Pages
-  // with data go to the Worker, which renders them with it (src/views/).
-  // The files are named one by one (the STATIC_FILES, ICON_FILES and
-  // STATIC_PAGES of src/pages.ts): a pattern such as "!/*.js" would also catch
-  // /k/common.js, which under BASE_PATH=/k only the Worker can serve.
+  // What is in dist/ is served straight from Workers Static Assets, which costs
+  // no Worker request or CPU: the bundled scripts and styles (/k/assets/, named
+  // by their contents), sw.js, k.mjs, the icons and the protocol and licenses.
+  // Everything else, pages with data included, goes to the Worker.
   "assets": {
-    "directory": "./public",
+    "directory": "./dist",
     "binding": "ASSETS",
-    "run_worker_first": [
-      "/*",
-      "!/namespaces/index.js",
-      "!/namespaces/modes.js",
-      "!/namespaces/item-list.js",
-      "!/namespaces/live.js",
-      "!/namespaces/forms.js",
-      "!/namespaces/access.js",
-      "!/home.js",
-      "!/item.js",
-      "!/view.js",
-      "!/common.js",
-      "!/components.js",
-      "!/items.js",
-      "!/item-row.js",
-      "!/format.js",
-      "!/dom.js",
-      "!/icons.js",
-      "!/access.js",
-      "!/media-feed.js",
-      "!/text-editor.js",
-      "!/sw.js",
-      "!/admin.js",
-      "!/login.js",
-      "!/log.js",
-      "!/unlocking.js",
-      "!/k.mjs",
-      "!/status.js",
-      "!/theme.js",
-      "!/scroll-top.js",
-      "!/styles.css",
-      "!/tokens.css",
-      "!/vendor/highlight.js",
-      "!/vendor/uqr.js",
-      "!/favicon.ico",
-      "!/apple-touch-icon.png",
-      "!/logo.png",
-      "!/k/protocol",
-      "!/k/licenses"
-    ],
-    // /k/protocol is public/k/protocol.html.
+    // /k/protocol is dist/k/protocol.html.
     "html_handling": "drop-trailing-slash"
   }
 }

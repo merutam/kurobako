@@ -17,7 +17,7 @@ export const renderAdminPage = (
   Page({
     site,
     title: "Admin · Kurobako",
-    scripts: [{ path: "/admin.js", module: true }],
+    scripts: ["admin.js"],
     data: data ? { id: "admin-data", value: data } : undefined,
     noIndex: true,
     children: (
