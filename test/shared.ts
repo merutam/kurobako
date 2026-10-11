@@ -1844,6 +1844,22 @@ export const sharedTests = (harness: Harness) => {
       expect(page).toContain('<meta name="robots" content="noindex"/>');
     });
 
+    test("offers one's own theme, from the tokens as written", async () => {
+      const page = await (await call("/k/theme")).text();
+      expect(page).toContain('id="theme-css"');
+      expect(page).toContain('<meta name="robots" content="noindex"/>');
+      // Every page links it.
+      expect(await (await call("/")).text()).toContain('href="/k/theme">Theme</a>');
+      // The tokens it starts from: as written, comments and indentation kept,
+      // unlike the minified styles.
+      const tokens = defined(/data-tokens="([^"]+)"/.exec(page)?.[1], "the tokens' address");
+      const response = await call(tokens);
+      expect(response.headers.get("content-type")).toContain("text/css");
+      const css = await response.text();
+      expect(css).toContain("SPDX-License-Identifier");
+      expect(css).toMatch(/\n {2}--accent: #[0-9a-f]{6};\n/);
+    });
+
     test("offers no notifications without VAPID keys", async () => {
       const ns = fresh("nopush");
       await sendText(ns, "here");

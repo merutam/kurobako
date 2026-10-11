@@ -39,7 +39,7 @@ import {
 } from "../public/k.mjs";
 import type { Manifest } from "../src/api/archives";
 import { SECURITY_HEADERS } from "../src/app";
-import { FIXED_FILES, ICON_FILES, STYLES } from "../src/assets";
+import { FIXED_FILES, ICON_FILES, STYLES, TOKENS } from "../src/assets";
 import { bundle } from "../src/client/build";
 import { formatBytes as pageFormatBytes } from "../src/client/lib/common.js";
 import { coverFromTag } from "../src/client/lib/cover.js";
@@ -1310,9 +1310,10 @@ describe("rules kept in two places", () => {
       readdirSync(join(client, folder))
         .filter((name) => name.endsWith(".js"))
         .map((name) => name.slice(0, -3));
-    // By convention: every script in pages/ and head/, and the styles.
+    // By convention: every script in pages/ and head/, the styles, and the
+    // tokens as written (for /k/theme).
     expect(Object.keys(manifest.files).sort()).toEqual(
-      [...scripts("pages"), ...scripts("head"), STYLES].sort(),
+      [...scripts("pages"), ...scripts("head"), STYLES, TOKENS].sort(),
     );
     for (const [name, built] of Object.entries(manifest.files)) {
       expect(files.has(built.file), name).toBe(true);

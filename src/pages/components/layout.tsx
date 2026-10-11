@@ -142,6 +142,7 @@ export const Page = ({
           <p>
             Kurobako {site.appVersion} · <a href={`${basePath}/k/protocol`}>Protocol</a> ·{" "}
             <a href={`${basePath}/k/licenses`}>Licenses</a> ·{" "}
+            <a href={`${basePath}/k/theme`}>Theme</a> ·{" "}
             <a
               class="external-link"
               href="https://github.com/merutam/kurobako"

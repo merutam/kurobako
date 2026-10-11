@@ -15,6 +15,8 @@ export const MANIFEST_FILE = "manifest.json";
 
 /** The styles' name in the manifest (see src/client/build.ts). */
 export const STYLES = "styles";
+/** tokens.css as written, comments and all: what /k/theme starts a theme from. */
+export const TOKENS = "tokens";
 
 export type Manifest = {
   /** A hash of every file built, shown in the footer. */

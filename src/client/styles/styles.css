@@ -469,6 +469,10 @@ input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--accent);
 }
+/* In a toolbar, the toolbar sets its place: centered with what is beside it. */
+.editor-toolbar label.checkbox-label {
+  margin: 0;
+}
 .checkbox-label input {
   flex: none;
   width: 18px;

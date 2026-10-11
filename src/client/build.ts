@@ -19,7 +19,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
-import { type Manifest, STYLES } from "../assets";
+import { type Manifest, STYLES, TOKENS } from "../assets";
 
 const CLIENT_DIR = import.meta.dir;
 
@@ -116,6 +116,12 @@ export const bundle = async (): Promise<Bundle> => {
   const cssFile = `styles-${contentHash(css)}.css`;
   files.set(cssFile, { body: new TextEncoder().encode(css), type: "text/css;charset=utf-8" });
   manifest.files[STYLES] = { file: cssFile, kind: "style", preload: [] };
+
+  // The tokens as written, to read and to start a theme from (/k/theme).
+  const tokens = await Bun.file(join(CLIENT_DIR, "styles", "tokens.css")).text();
+  const tokensFile = `tokens-${contentHash(tokens)}.css`;
+  files.set(tokensFile, { body: new TextEncoder().encode(tokens), type: "text/css;charset=utf-8" });
+  manifest.files[TOKENS] = { file: tokensFile, kind: "style", preload: [] };
 
   manifest.build = contentHash([...files.keys()].sort().join("\n"));
   return { manifest, files };

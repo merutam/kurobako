@@ -3,11 +3,6 @@
  * Copyright (C) 2026 Kurobako contributors
  */
 
-/* Design tokens: every color, space, type size and shape the styles use
-   (docs/design.md). The build puts it before styles.css, in one file
-   (site.css);
-   restyling the site starts here. Dark is the default; light follows the
-   browser, or the theme button (head/parts/theme.js), with the same names. */
 :root {
   color-scheme: dark;
   --bg: #121211;

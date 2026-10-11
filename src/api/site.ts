@@ -8,6 +8,7 @@ import { renderLicensesPage, renderProtocolPage } from "../pages/documents";
 import { renderHomePage } from "../pages/home";
 import { renderNamespacePage } from "../pages/namespace";
 import { renderSharePage } from "../pages/share";
+import { renderThemePage } from "../pages/theme";
 import type { Api, App } from "./context";
 
 /** The home page's stats, shared by every request to this instance for a little while. */
@@ -23,6 +24,7 @@ export const mountSite = (app: App, api: Api) => {
     licenses: renderLicensesPage(siteView),
     encrypted: renderNamespacePage(siteView, null, { items: [], revision: 0 }, config),
     share: renderSharePage(siteView),
+    theme: renderThemePage(siteView),
   };
   let statsCache: { expires: number; body: Promise<Record<string, unknown>> } | null = null;
 
@@ -37,6 +39,8 @@ export const mountSite = (app: App, api: Api) => {
   // gets here; without it (not set up yet), the body is never read.
   app.post("/k/share", (c) => c.redirect(`${config.basePath}/k/share?lost`, 303));
   app.get("/k/share", (c) => page(c, pages.share));
+  // One's own theme, kept on the device (pages/theme.tsx).
+  app.get("/k/theme", (c) => page(c, pages.theme));
   // What makes the site an installable app; its addresses follow the base path.
   app.get("/manifest.webmanifest", (c) => {
     const base = config.basePath;
