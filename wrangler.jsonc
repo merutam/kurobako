@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "kurobako",
-  "main": "src/cloudflare/worker.ts",
+  "main": "src/runtime/cloudflare/worker.ts",
   // The account that owns the R2 bucket below.
   "account_id": "e78e21c9934eecfbbd91fced877e9153",
   "compatibility_date": "2026-10-03",

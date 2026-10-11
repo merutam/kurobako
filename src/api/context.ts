@@ -4,21 +4,21 @@
 // What every route shares: settings, the platform, the assembled pages and a
 // few helpers. Built once by createApp and handed to each group of routes.
 import type { Context, Hono } from "hono";
+import { siteViewOf, type WebAssets } from "../assets";
 import type { AppConfig } from "../config";
-import type { ActivityEvent } from "../hub";
+import type { ActivityEvent } from "../core/hub";
 import {
   NAMESPACE_MAX_LENGTH,
   NAMESPACE_PATTERN,
   type NamespaceRef,
   RESERVED_NAMESPACES,
   SEALED_NAME_MAX_LENGTH,
-} from "../model";
-import { LIVE, type WriteCheck } from "../namespace";
-import { isAutomatedNetwork, networkKey } from "../networks";
-import { siteViewOf, type WebAssets } from "../pages";
-import type { Platform } from "../platform";
-import { accessEvent, clientKey } from "../request-info";
-import { CLIENT_PATH, PROTOCOL_PATH, PROTOCOL_VERSION } from "../routing";
+} from "../core/model";
+import { LIVE, type WriteCheck } from "../core/namespace";
+import { isAutomatedNetwork, networkKey } from "../core/networks";
+import { CLIENT_PATH, PROTOCOL_PATH, PROTOCOL_VERSION } from "../core/routing";
+import { type AccessEvent, clientKey } from "../core/visits";
+import type { Platform } from "../runtime/platform";
 
 export type AppEnv = {
   Bindings: object;
@@ -82,23 +82,31 @@ export const writeVerifier = async (c: AppContext) => {
   return key ? sha256Hex(key) : null;
 };
 
-export const createContext = (
-  config: AppConfig,
-  assets: WebAssets,
-  platformOf: (c: AppContext) => Platform,
-) => {
-  const hub = (c: AppContext) => platformOf(c).hub();
-  const namespace = (c: AppContext, ref: NamespaceRef) => platformOf(c).namespace(ref);
-  const later = (c: AppContext, work: Promise<unknown>) => platformOf(c).later(c, work);
-  const record = (c: AppContext, event: ActivityEvent) => later(c, hub(c).recordActivity(event));
-  const clientIp = (c: AppContext) => platformOf(c).client(c).ip;
+/** One request's visit, as a namespace's access log records it. */
+const accessEvent = (
+  c: AppContext,
+  client: Pick<AccessEvent, "ip" | "country" | "region" | "city">,
+): AccessEvent => ({
+  ...client,
+  lastMethod: c.req.method,
+  lastPath: c.req.path,
+  userAgent: c.req.header("user-agent") || "",
+});
+
+export const createContext = (config: AppConfig, assets: WebAssets, platform: Platform) => {
+  const hub = () => platform.hub();
+  const namespace = (ref: NamespaceRef) => platform.namespace(ref);
+  const later = (c: AppContext, work: Promise<unknown>) => platform.later(c, work);
+  const record = (c: AppContext, event: ActivityEvent) => later(c, hub().recordActivity(event));
+  const clientIp = (c: AppContext) => platform.client(c).ip;
   /** Structured, so log viewers can filter on the fields. */
   const log = (c: AppContext, level: "info" | "warn", message: string) =>
     console[level]({ message, path: c.req.path, ip: clientIp(c) });
   /** Who is asking, for the namespace's access log; sent along with each operation. */
-  const visit = (c: AppContext) => accessEvent(c, platformOf(c).client(c));
+  const visit = (c: AppContext) => accessEvent(c, platform.client(c));
 
-  const publicConfig = () => ({
+  /** What any client needs to know of this server: /.well-known/kurobako, and every page. */
+  const publicConfig = {
     /** Where the site lives under its domain: "" for the root, or e.g. "/k". */
     base: config.basePath,
     /** Only those with the key may use it (see ACCESS_KEY). */
@@ -131,9 +139,9 @@ export const createContext = (
     },
     sealed: { maxNameLength: SEALED_NAME_MAX_LENGTH },
     live: LIVE,
-  });
+  };
 
-  const siteView = siteViewOf(assets, config.basePath, publicConfig());
+  const siteView = siteViewOf(assets, config.basePath, publicConfig);
   const { appVersion } = siteView;
   const page = (c: AppContext, html: string) => {
     c.header("Cache-Control", "no-cache");
@@ -141,8 +149,8 @@ export const createContext = (
   };
   /** A page view counts the visitor for the 24-hour stats (JSON and files do not). */
   const countVisitor = (c: AppContext) => {
-    const { ip, country } = platformOf(c).client(c);
-    later(c, hub(c).recordVisitor(ip, country));
+    const { ip, country } = platform.client(c);
+    later(c, hub().recordVisitor(ip, country));
   };
   const pageView = (c: AppContext, html: string) => {
     countVisitor(c);
@@ -151,7 +159,7 @@ export const createContext = (
 
   /** Sends are the costly part to abuse, so they are rate limited per address. */
   /** Whether the client comes from where automation lives (see networks.ts). */
-  const automated = (c: AppContext) => isAutomatedNetwork(platformOf(c).client(c));
+  const automated = (c: AppContext) => isAutomatedNetwork(platform.client(c));
 
   /**
    * Who the send and miss limits count: the client (an IPv4 address or an
@@ -168,7 +176,7 @@ export const createContext = (
     if (config.automatedNetworks === "block" && automated(c)) {
       return jsonError(c, 403, "Sending from hosting networks, VPNs and Tor is turned off here.");
     }
-    if (await platformOf(c).allowSend(c, limitKey(c))) return null;
+    if (await platform.allowSend(c, limitKey(c))) return null;
     c.header("Retry-After", "60");
     return jsonError(c, 429, TOO_MANY_SENDS);
   };
@@ -180,7 +188,7 @@ export const createContext = (
    * key counts as a miss, so keys cannot be guessed at speed.
    */
   const refuseWrite = async (c: AppContext, ref: NamespaceRef) => {
-    const check = (await namespace(c, ref).checkWrite(ref, await writeVerifier(c))) as WriteCheck;
+    const check = (await namespace(ref).checkWrite(ref, await writeVerifier(c))) as WriteCheck;
     if (check === "open") return null;
     if (check === "missing") {
       return jsonError(c, 401, "Writing to an encrypted namespace needs its Write-Key.");
@@ -199,7 +207,7 @@ export const createContext = (
   const storageFull = async (c: AppContext, bytes: number) => {
     const limit = config.maxStorageBytes;
     if (limit === null) return null;
-    if ((await hub(c).storedBytes()) + bytes <= limit) return null;
+    if ((await hub().storedBytes()) + bytes <= limit) return null;
     return jsonError(
       c,
       507,
@@ -210,7 +218,7 @@ export const createContext = (
   return {
     config,
     assets,
-    platformOf,
+    platform,
     appVersion,
     siteView,
     hub,

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import type { ByteRange } from "../core/host";
 // Serving an item's contents, for namespace routes and share links alike.
-import { safeTextFileName } from "../image";
+import { safeTextFileName } from "../core/media";
 import {
   lastRead,
   type NamespaceRef,
   type ObjectItem,
   readLimitedItem,
   type StoredItem,
-} from "../model";
-import type { ItemRef } from "../namespace";
-import type { ByteRange } from "../platform";
+} from "../core/model";
+import type { ItemRef } from "../core/namespace";
 import type { Api, AppContext } from "./context";
 
 /**
@@ -96,7 +96,7 @@ const objectResponse = (
 };
 
 export const createContents = (api: Api) => {
-  const { namespace, platformOf, later, record, visit } = api;
+  const { namespace, platform, later, record, visit } = api;
 
   const noteRead = (c: AppContext, item: StoredItem) => {
     if (lastRead(item)) record(c, "openedOnce");
@@ -113,10 +113,10 @@ export const createContents = (api: Api) => {
     inline: boolean,
     unnamed: (id: string) => string,
   ): Promise<Response | null> => {
-    const ns = namespace(c, ref);
+    const ns = namespace(ref);
     const item = (await ns.claimObject(selector, visit(c))) as ObjectItem | null;
     if (!item) return null;
-    const { blobs } = platformOf(c);
+    const { blobs } = platform;
     // Players ask for parts of a video (to start and to seek): any item but
     // a burn-after-reading one may be read in parts.
     const range = readLimitedItem(item) ? null : requestedRange(c.req.header("range"), item.size);
@@ -163,7 +163,7 @@ export const createContents = (api: Api) => {
     inline: boolean,
     unnamed: (id: string) => string = (id) => id,
   ): Promise<Response | null> => {
-    const text = await namespace(c, ref).readText(selector, visit(c));
+    const text = await namespace(ref).readText(selector, visit(c));
     if (text) {
       noteRead(c, text);
       return c.body(text.text, 200, {

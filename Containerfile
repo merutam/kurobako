@@ -11,4 +11,4 @@ USER bun
 ENV DATA_DIR=/data PORT=3000
 VOLUME /data
 EXPOSE 3000
-CMD ["bun", "src/bun/server.ts"]
+CMD ["bun", "src/runtime/bun/server.ts"]

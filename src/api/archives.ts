@@ -15,8 +15,8 @@
 // were sent; encrypted items stay encrypted (<id>.sealed, with their header
 // in the manifest), so a backup needs no secret and reveals none. Items that
 // burn after reading are left out: reading them would consume them.
-import { type ArchiveEntry, type ArchiveFormat, readArchive, writeArchive } from "../archive";
-import { SIGNATURE_BYTES, safeTextFileName } from "../image";
+import { type ArchiveEntry, type ArchiveFormat, readArchive, writeArchive } from "../core/archive";
+import { SIGNATURE_BYTES, safeTextFileName } from "../core/media";
 import {
   ITEM_ID_LENGTH,
   type NamespaceRef,
@@ -26,9 +26,9 @@ import {
   SEALED_METADATA_PATTERN,
   type StoredItem,
   sealedName,
-} from "../model";
-import type { Restored, SaveInput } from "../namespace";
-import { ADMIN_PATH } from "../routing";
+} from "../core/model";
+import type { Restored, SaveInput } from "../core/namespace";
+import { ADMIN_PATH } from "../core/routing";
 import { type Api, type App, type AppContext, jsonError, writeVerifier } from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
 import {
@@ -135,7 +135,7 @@ const changedAt = (item: Pick<StoredItem, "createdAt" | "updatedAt">) =>
   Math.max(Date.parse(item.createdAt), Date.parse(item.updatedAt ?? item.createdAt));
 
 export const mountArchives = (app: App, api: Api) => {
-  const { namespace, hub, platformOf, config, refuseSend, refuseWrite, storageFull } = api;
+  const { namespace, hub, platform, config, refuseSend, refuseWrite, storageFull } = api;
 
   // --- Export -------------------------------------------------------------
 
@@ -153,7 +153,7 @@ export const mountArchives = (app: App, api: Api) => {
     { since, max, after }: { since: number | null; max: number | null; after: Cursor | null },
     filename: string,
   ) => {
-    const { blobs } = platformOf(c);
+    const { blobs } = platform;
     const manifest: Manifest = {
       kurobako: "backup",
       version: 1,
@@ -168,7 +168,7 @@ export const mountArchives = (app: App, api: Api) => {
     for (const ref of ordered) {
       if (more) break;
       if (after && compare([ref.space, ref.name], [after.space, after.name]) < 0) continue;
-      const stored = (await namespace(c, ref).list()) as StoredItem[];
+      const stored = (await namespace(ref).list()) as StoredItem[];
       // Oldest first by when they were sent; items sent in the same
       // millisecond keep their order in the queue (the sort is stable).
       const eligible = [...stored]
@@ -299,14 +299,13 @@ export const mountArchives = (app: App, api: Api) => {
    * UTF-8, a file's type comes from its bytes. Null when it cannot be kept.
    */
   const restoredInput = async (
-    c: AppContext,
     ref: NamespaceRef,
     item: ManifestItem,
     body: ReadableStream<Uint8Array>,
     size: number,
     uploaded: string[],
   ): Promise<SaveInput | null> => {
-    const { blobs } = platformOf(c);
+    const { blobs } = platform;
     const store = async (
       stream: ReadableStream<Uint8Array>,
       contentType: string,
@@ -384,7 +383,7 @@ export const mountArchives = (app: App, api: Api) => {
   ) => {
     const body = c.req.raw.body;
     if (!body) return jsonError(c, 400, "Send a zip or tar made by a Kurobako backup.");
-    const { blobs } = platformOf(c);
+    const { blobs } = platform;
     const sizes = new Map<string, number>();
     const owners = new Map<string, { ref: NamespaceRef; item: ManifestItem }>();
     const batches = new Map<string, { ref: NamespaceRef; items: Restored[] }>();
@@ -436,7 +435,7 @@ export const mountArchives = (app: App, api: Api) => {
         if (!owner) continue;
         const { ref, item } = owner;
         const input = ITEM_ID.test(item.id)
-          ? await restoredInput(c, ref, item, entry.body, entry.size, uploaded)
+          ? await restoredInput(ref, item, entry.body, entry.size, uploaded)
           : null;
         if (!input) {
           rejected += 1;
@@ -474,7 +473,7 @@ export const mountArchives = (app: App, api: Api) => {
     let restored = 0;
     let skipped = 0;
     for (const { ref, items } of batches.values()) {
-      const result = await namespace(c, ref).restore(
+      const result = await namespace(ref).restore(
         ref,
         items,
         into ? await writeVerifier(c) : undefined,
@@ -497,7 +496,7 @@ export const mountArchives = (app: App, api: Api) => {
         if (since instanceof Response) return since;
         const part = partOf(c);
         if (part instanceof Response) return part;
-        const refs = await hub(c).allNamespaces();
+        const refs = await hub().allNamespaces();
         return archiveOf(c, refs, format, { since, ...part }, `kurobako-${day(new Date())}`);
       });
     }

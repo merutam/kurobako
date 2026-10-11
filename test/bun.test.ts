@@ -16,7 +16,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { formatBytes as pageFormatBytes } from "../public/common.js";
 import {
   bodyKey,
   TEXT_PREVIEW_CHARS as CLI_TEXT_PREVIEW_CHARS,
@@ -39,17 +38,15 @@ import {
 } from "../public/k.mjs";
 import type { Manifest } from "../src/api/archives";
 import { SECURITY_HEADERS } from "../src/app";
-import { readArchive, writeArchive } from "../src/archive";
-import { bundle } from "../src/bun/bundle";
-import { startRouter } from "../src/bun/router";
-import { startServer } from "../src/bun/server";
+import { FIXED_FILES, ICON_FILES, STYLES } from "../src/assets";
+import { bundle } from "../src/client/build";
+import { formatBytes as pageFormatBytes } from "../src/client/lib/common.js";
 import { type AppConfig, loadConfig } from "../src/config";
-import { detectMedia, safeFileName, safeMediaName } from "../src/image";
-import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/model";
-import { isAutomatedNetwork, networkKey } from "../src/networks";
-import { ENTRIES, FIXED_FILES, ICON_FILES, STYLES } from "../src/pages";
-import type { BlobStore } from "../src/platform";
-import { clientKey } from "../src/request-info";
+import { readArchive, writeArchive } from "../src/core/archive";
+import type { BlobStore } from "../src/core/host";
+import { detectMedia, safeFileName, safeMediaName } from "../src/core/media";
+import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/core/model";
+import { isAutomatedNetwork, networkKey } from "../src/core/networks";
 import {
   PROTOCOL_VERSION,
   routeOf,
@@ -58,7 +55,10 @@ import {
   slotOwners,
   slotPrefix,
   tokenSlot,
-} from "../src/routing";
+} from "../src/core/routing";
+import { clientKey } from "../src/core/visits";
+import { startRouter } from "../src/runtime/bun/router";
+import { startServer } from "../src/runtime/bun/server";
 import { TEST_ADMIN_KEY } from "./admin-key";
 import { type Harness, sharedTests } from "./shared";
 import { defined, type FileItem, type Item, type LiveMessage, type SharedItem } from "./support";
@@ -865,20 +865,28 @@ describe("rules kept in two places", () => {
 
   test("bundles each page's code with every chunk it imports", async () => {
     const { manifest, files } = await bundle();
-    for (const entry of [...ENTRIES.module, ...ENTRIES.classic, STYLES]) {
-      const built = defined(manifest.files[entry], `public/${entry} in the manifest`);
-      expect(files.has(built.file)).toBe(true);
+    const client = join(import.meta.dir, "..", "src", "client");
+    const scripts = (folder: string) =>
+      readdirSync(join(client, folder))
+        .filter((name) => name.endsWith(".js"))
+        .map((name) => name.slice(0, -3));
+    // By convention: every script in pages/ and head/, and the styles.
+    expect(Object.keys(manifest.files).sort()).toEqual(
+      [...scripts("pages"), ...scripts("head"), STYLES].sort(),
+    );
+    for (const [name, built] of Object.entries(manifest.files)) {
+      expect(files.has(built.file), name).toBe(true);
       for (const chunk of built.preload) expect(files.has(chunk), chunk).toBe(true);
+      // A classic script runs as it is: no import or export left in it.
+      if (built.kind === "classic") {
+        const code = new TextDecoder().decode(defined(files.get(built.file), name).body);
+        expect(code).not.toMatch(/^import|\bexport\s*[{*]/m);
+      }
     }
-    // A classic script runs as it is: no import or export left in it.
-    for (const entry of ENTRIES.classic) {
-      const { file } = defined(manifest.files[entry], entry);
-      const code = new TextDecoder().decode(defined(files.get(file), file).body);
-      expect(code).not.toMatch(/^import|\bexport\s*[{*]/m);
-    }
-    for (const name of [...FIXED_FILES, ...ICON_FILES]) {
-      expect(await Bun.file(join(import.meta.dir, "..", "public", name)).exists()).toBe(true);
-    }
+    // public/ holds only what is served as it is.
+    expect(readdirSync(join(import.meta.dir, "..", "public")).sort()).toEqual(
+      [...FIXED_FILES, ...ICON_FILES, "_headers"].sort(),
+    );
   });
 
   test("pages Cloudflare serves without the Worker get the Worker's security headers", async () => {
@@ -916,7 +924,7 @@ describe("rules kept in two places", () => {
       ...names(await read("src/config.ts"), /(?:integer|flag)\(\s*vars,\s*"([A-Z0-9_]+)"/g),
       ...names(await read("src/config.ts"), /vars\.([A-Z0-9_]+)/g),
       ...names(
-        await read("src/bun/server.ts"),
+        await read("src/runtime/bun/server.ts"),
         /(?:env\.|positiveInteger\(|required\()"?([A-Z0-9_]+)/g,
       ),
     ];
@@ -939,7 +947,7 @@ describe("rules kept in two places", () => {
 
   test("the protocol page's test vectors: computed here, and opened by k.mjs", async () => {
     const page = await Bun.file(
-      join(import.meta.dir, "..", "src", "views", "templates", "protocol.html"),
+      join(import.meta.dir, "..", "src", "pages", "documents", "protocol.html"),
     ).text();
     const vector = (name: string) => {
       const value = new RegExp(`data-vector="${name}">([^<]*)<`).exec(page)?.[1];
@@ -1479,7 +1487,7 @@ describe("under a base path", () => {
     }
     const html = await (await at("/k/notes")).text();
     const src = html.match(
-      /<script type="module" src="(\/k\/k\/assets\/index-[0-9a-z]+\.js)"/,
+      /<script type="module" src="(\/k\/k\/assets\/namespace-[0-9a-z]+\.js)"/,
     )?.[1];
     const script = await at(defined(src, "the namespace page's script"));
     expect(script.headers.get("content-type")).toContain("javascript");
@@ -1666,6 +1674,26 @@ describe("a private instance", () => {
     expect(cookie).toStartWith("kurobako_access=");
     const listed = (await (await at("/notes/ls", { headers: { cookie } })).json()) as Item[];
     expect(listed.map((item) => item.text)).toEqual(["mine"]);
+
+    // The login page is a plain form: it goes on to where the visitor was
+    // going, never to another site.
+    const page = await (await at("/k/login?next=%2Fnotes%3Fx%3D1")).text();
+    expect(page).toContain('name="next" value="/notes?x=1"');
+    expect(page).not.toContain('type="module"');
+    const posted = (key: string, next: string) =>
+      at("/k/login", {
+        method: "POST",
+        redirect: "manual",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ key, next }).toString(),
+      });
+    const wrong = await posted("nope", "/notes");
+    expect(wrong.status).toBe(401);
+    expect(await wrong.text()).toContain('name="next" value="/notes"');
+    const right = await posted(KEY, "/notes?x=1");
+    expect(right.status).toBe(303);
+    expect(right.headers.get("location")).toBe("/notes?x=1");
+    expect((await posted(KEY, "//elsewhere.example")).headers.get("location")).toBe("/");
 
     // Live updates too: the browser sends the session with the WebSocket.
     const origin = open.server.url.origin.replace("http", "ws");

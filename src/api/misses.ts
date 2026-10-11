@@ -10,15 +10,14 @@
 // A miss is a 404 on a namespace or share path, or an empty queue where a
 // route says so (c.set("miss", true)): /ls, the live queue and backups,
 // which answer an empty list for a namespace that does not exist.
-import { routeOf } from "../routing";
+import { routeOf } from "../core/routing";
 import { type Api, type App, jsonError } from "./context";
 
 export const mountMissLimit = (app: App, api: Api) => {
-  const { platformOf, limitKey } = api;
+  const { platform, limitKey } = api;
   app.use("*", async (c, next) => {
     // Only paths that lead to a namespace or a share link.
     if (routeOf(c.req.path) === null) return next();
-    const platform = platformOf(c);
     const key = limitKey(c);
     if (platform.missesExceeded(c, key)) {
       c.header("Retry-After", "60");

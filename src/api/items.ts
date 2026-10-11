@@ -4,8 +4,8 @@
 // One item of a namespace: <ns>/<item>, where <item> is its position (digits,
 // 1 being the newest), its ID or its name, resolved in that order. Mounted
 // after the namespace's fixed paths (ls, new, log, live), which always win.
-import { nameOf, publicItem, type StoredItem } from "../model";
-import type { ItemRef } from "../namespace";
+import { nameOf, publicItem, type StoredItem } from "../core/model";
+import type { ItemRef } from "../core/namespace";
 import type { createContents } from "./contents";
 import {
   type Api,
@@ -31,7 +31,7 @@ export const mountItems = (
   { serveItem }: ReturnType<typeof createContents>,
   { editText }: ReturnType<typeof createUploads>,
 ) => {
-  const { namespace, hub, visit, platformOf, refuseSend, refuseWrite, storageFull, config } = api;
+  const { namespace, hub, visit, platform, refuseSend, refuseWrite, storageFull, config } = api;
   const site = config.basePath;
 
   for (const space of SPACES) {
@@ -49,27 +49,27 @@ export const mountItems = (
       inNamespace(async (c, ref, next) => {
         // An item named exactly so (data.json) is read as itself.
         const raw = c.req.param("item") ?? "";
-        const same = (await namespace(c, ref).peek(raw, visit(c))) as StoredItem | null;
+        const same = (await namespace(ref).peek(raw, visit(c))) as StoredItem | null;
         if (same && (same.id === raw || nameOf(same) === raw)) {
           await next();
           return;
         }
         const selector = toItemRef(raw.slice(0, -".json".length));
-        const found = (await namespace(c, ref).locate(selector, visit(c))) as {
+        const found = (await namespace(ref).locate(selector, visit(c))) as {
           item: StoredItem;
           position: number;
         } | null;
         if (!found) return jsonError(c, 404, "Item not found.");
         // Making a share link is writing: the namespace's writer can do it.
-        const check = await namespace(c, ref).checkWrite(ref, await writeVerifier(c));
+        const check = await namespace(ref).checkWrite(ref, await writeVerifier(c));
         if (check === "missing" || check === "wrong") {
           return c.json({ ...publicItem(found.item), position: found.position });
         }
-        const token = await hub(c).createShare(ref, found.item.id, found.item.expiresAt);
+        const token = await hub().createShare(ref, found.item.id, found.item.expiresAt);
         return c.json({
           ...publicItem(found.item),
           position: found.position,
-          shareUrl: `${platformOf(c).origin(c)}${site}/i/${token}`,
+          shareUrl: `${platform.origin(c)}${site}/i/${token}`,
         });
       }, "Item not found."),
     );
@@ -102,10 +102,10 @@ export const mountItems = (
         // A share link is made once and kept by the namespace's writer.
         const refused = await refuseWrite(c, ref);
         if (refused) return refused;
-        const item = (await namespace(c, ref).peek(itemRef(c), visit(c))) as StoredItem | null;
+        const item = (await namespace(ref).peek(itemRef(c), visit(c))) as StoredItem | null;
         if (!item) return jsonError(c, 404, "Item not found.");
-        const token = await hub(c).createShare(ref, item.id, item.expiresAt);
-        return c.text(`${platformOf(c).origin(c)}${site}/i/${token}\n`);
+        const token = await hub().createShare(ref, item.id, item.expiresAt);
+        return c.text(`${platform.origin(c)}${site}/i/${token}\n`);
       }, "Item not found."),
     );
 
@@ -156,7 +156,7 @@ export const mountItems = (
           if (!bytes) return jsonError(c, 413, `The limit is ${MAX_NAME_BYTES} bytes.`);
           change = { name: new TextDecoder().decode(bytes) };
         }
-        const result = (await namespace(c, ref).rename(
+        const result = (await namespace(ref).rename(
           itemRef(c),
           change,
           expected,
@@ -174,7 +174,7 @@ export const mountItems = (
       inNamespace(async (c, ref) => {
         const refused = await refuseWrite(c, ref);
         if (refused) return refused;
-        const removed = await namespace(c, ref).remove(itemRef(c), visit(c), {
+        const removed = await namespace(ref).remove(itemRef(c), visit(c), {
           ref,
           verifier: await writeVerifier(c),
         });

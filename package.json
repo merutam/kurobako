@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "start": "bun src/bun/server.ts",
+    "start": "bun src/runtime/bun/server.ts",
     "build": "bun --no-env-file ops/build.ts",
     "test": "bun run build && vitest run && bun test test/bun.test.ts",
     "types": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-configuration.d.ts",

@@ -4,15 +4,15 @@
 // Receiving items: small texts stay in SQLite; files and larger texts stream
 // to the blob store.
 import { createHash } from "node:crypto";
-import { detectMedia, SIGNATURE_BYTES, safeFileName, safeMediaName } from "../image";
+import { detectMedia, SIGNATURE_BYTES, safeFileName, safeMediaName } from "../core/media";
 import {
   type NamespaceRef,
   publicItem,
   SEALED_METADATA_PATTERN,
   type StoredItem,
   TEXT_PREVIEW_CHARS,
-} from "../model";
-import type { ItemRef, Saved, SaveInput } from "../namespace";
+} from "../core/model";
+import type { ItemRef, Saved, SaveInput } from "../core/namespace";
 import { type Api, type AppContext, jsonError, readLimited, writeVerifier } from "./context";
 
 /** A file-backed item before its bytes are in the blob store. */
@@ -244,7 +244,7 @@ const sentResponse = (c: AppContext, saved: Saved) =>
     : c.json(publicItem(saved.item), 201);
 
 export const createUploads = (api: Api) => {
-  const { config, namespace, platformOf, later, record, visit } = api;
+  const { config, namespace, platform, later, record, visit } = api;
   const viewOf = (c: AppContext) => {
     const token = c.req.header("view-token");
     const envelope = c.req.header("view-envelope");
@@ -270,14 +270,14 @@ export const createUploads = (api: Api) => {
         : input.kind === "text"
           ? TEXT_MIME
           : input.mime;
-    const { blobs } = platformOf(c);
+    const { blobs } = platform;
     // Plain files are hashed on the way to storage, so the same contents sent
     // again can be spotted; encrypted ones never match, so they are not.
     const hashed = input.kind === "sealed" ? null : hashing(upload.body);
     await blobs.put(object, hashed?.stream ?? upload.body, upload.size, contentType);
     try {
       validate?.();
-      const saved = (await namespace(c, ref).save(
+      const saved = (await namespace(ref).save(
         ref,
         { ...input, object, size: upload.size, ...(hashed ? { sha256: hashed.digest() } : {}) },
         burnRequested(c),
@@ -382,7 +382,7 @@ export const createUploads = (api: Api) => {
         reads,
       );
     } else {
-      saved = (await namespace(c, ref).save(
+      saved = (await namespace(ref).save(
         ref,
         {
           kind: "text",
@@ -442,7 +442,7 @@ export const createUploads = (api: Api) => {
     validate?: () => void,
   ): Promise<ReplaceResult> => {
     const object = objectKey(ref);
-    const { blobs } = platformOf(c);
+    const { blobs } = platform;
     const hashed = input.kind === "sealed" ? null : hashing(upload.body);
     const contentType = input.kind === "sealed" ? "application/octet-stream" : TEXT_MIME;
     await blobs.put(object, hashed?.stream ?? upload.body, upload.size, contentType);
@@ -452,7 +452,7 @@ export const createUploads = (api: Api) => {
       later(c, blobs.delete([object]));
       throw error;
     }
-    const result = (await namespace(c, ref).replace(
+    const result = (await namespace(ref).replace(
       item,
       { ...input, object, size: upload.size, ...(hashed ? { sha256: hashed.digest() } : {}) },
       expected,
@@ -538,7 +538,7 @@ export const createUploads = (api: Api) => {
             { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
             { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS) },
           )
-        : ((await namespace(c, ref).replace(
+        : ((await namespace(ref).replace(
             item,
             { kind: "text", text, size: bytes.byteLength, sha256: sha256Of(bytes) },
             expected,

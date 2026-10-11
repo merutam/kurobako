@@ -7,10 +7,17 @@
 // the protocol, the health check, the admin dashboard (it has its own key)
 // and, unless PUBLIC_SHARES is false, share links, which open one item each.
 import { getCookie } from "hono/cookie";
-import { ADMIN_PATH, LICENSES_PATH, PROTOCOL_PATH, WELL_KNOWN_PATH } from "../routing";
-import { renderLoginPage } from "../views/login";
+import { ADMIN_PATH, LICENSES_PATH, PROTOCOL_PATH, WELL_KNOWN_PATH } from "../core/routing";
+import { renderLoginPage } from "../pages/login";
 import { type Api, type App, type AppContext, jsonError } from "./context";
-import { hasBearer, loginWith, logoutOf, type SessionCookie, signedSessions } from "./session";
+import {
+  hasBearer,
+  insidePath,
+  loginWith,
+  logoutOf,
+  type SessionCookie,
+  signedSessions,
+} from "./session";
 
 const SESSION_COOKIE = "kurobako_access";
 export const LOGIN_PATH = "/k/login";
@@ -18,7 +25,6 @@ const DAY_MS = 86_400_000;
 
 export const mountAccess = (app: App, api: Api, key: string) => {
   const { page, config, siteView } = api;
-  const loginPage = renderLoginPage(siteView);
   const sessions = signedSessions(key, "access-session");
   // The whole site, and only it under a base path; Lax, so a link from
   // elsewhere into the site still finds the session.
@@ -58,8 +64,16 @@ export const mountAccess = (app: App, api: Api, key: string) => {
     );
   });
 
-  app.get(LOGIN_PATH, (c) => page(c, loginPage));
-
-  app.post(LOGIN_PATH, loginWith(api, key, sessions, cookie, "Login"));
-  app.post("/k/logout", logoutOf(cookie));
+  // Where to go after logging in comes in ?next=, put there by the redirect above.
+  app.get(LOGIN_PATH, (c) =>
+    page(c, renderLoginPage(siteView, { next: insidePath(c.req.query("next")) })),
+  );
+  app.post(
+    LOGIN_PATH,
+    loginWith(api, key, sessions, cookie, "Login", {
+      page: (error, next) => renderLoginPage(siteView, { error, next }),
+      next: (next) => `${config.basePath}${next}`,
+    }),
+  );
+  app.post("/k/logout", logoutOf(cookie, `${config.basePath}${LOGIN_PATH}`));
 };

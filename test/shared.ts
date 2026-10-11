@@ -6,10 +6,10 @@
 // run them with their own harness, next to their platform-specific tests.
 
 import type { expect as vitestExpect } from "vitest";
-import { describePlain, rowHash, rowState } from "../public/item-row.js";
 import { newViewId, openSealedSpace, openSharedItem, openViewEntry } from "../public/k.mjs";
+import { describePlain, rowHash, rowState } from "../src/client/shared/item-row.js";
 import type { AppConfig } from "../src/config";
-import type { AccessLogEntry } from "../src/request-info";
+import type { AccessLogEntry } from "../src/core/visits";
 import { defined, type FileItem, type Item, type SharedItem } from "./support";
 
 export type Harness = {
@@ -278,6 +278,16 @@ export const sharedTests = (harness: Harness) => {
       const [item] = await json<Item[]>(`/${ns}/ls?summary`);
       const made = rowHash(rowState(item, describePlain(item), false, true));
       expect(page).toContain(`data-id="${defined(item, "the item").id}" data-made="${made}"`);
+      // And the queue itself, as /ls?summary gives it, with the revision live
+      // updates continue from, so the page fetches nothing to start.
+      const listed = await call(`/${ns}/ls?summary`);
+      const embedded = /<script type="application\/json" id="queue-data">(.*?)<\/script>/s.exec(
+        page,
+      )?.[1];
+      expect(JSON.parse(defined(embedded, "the embedded queue"))).toEqual({
+        items: await listed.json(),
+        revision: Number(listed.headers.get("x-queue-revision")),
+      });
       // Ready to use as it is: actions and icons included.
       expect(page).toContain('data-action="delete"');
       expect(page).toMatch(/class="item-kind"><svg /);
@@ -1594,7 +1604,7 @@ export const sharedTests = (harness: Harness) => {
       // The page's script, named by its contents, and every chunk it imports
       // preloaded at once.
       const script = html.match(
-        /<script type="module" src="(\/k\/assets\/index-[0-9a-z]+\.js)"/,
+        /<script type="module" src="(\/k\/assets\/namespace-[0-9a-z]+\.js)"/,
       )?.[1];
       const response = await call(defined(script, "the namespace page's script"));
       expect(response.status).toBe(200);
@@ -1604,7 +1614,7 @@ export const sharedTests = (harness: Harness) => {
       for (const [, chunk] of chunks)
         expect((await call(defined(chunk, "a chunk"))).status).toBe(200);
       expect(html).toMatch(/\(build [0-9a-f]{12}\)/);
-      expect(html.match(/<k-file-field>/g)).toHaveLength(2);
+      expect(html.match(/<input id="[a-z-]+" class="file-drop"/g)).toHaveLength(2);
       expect(html).toContain('<select id="expires-in"></select>');
       expect(html).toContain('id="media-feed-list"');
       expect(html).not.toContain("%MEDIA_FEED%");
@@ -1720,7 +1730,7 @@ export const sharedTests = (harness: Harness) => {
       const page = await call("/k/a", { headers: { cookie: session } });
       expect(page.headers.get("cache-control")).toBe("no-store");
       const html = await page.text();
-      expect(html).toContain('<form id="login-form" class="login-form" hidden="">');
+      expect(html).toMatch(/<form id="login-form"[^>]* hidden="">/);
       const embedded = /<script type="application\/json" id="admin-data">(.*?)<\/script>/s.exec(
         html,
       )?.[1];
@@ -1730,6 +1740,46 @@ export const sharedTests = (harness: Harness) => {
       });
       const forged = session.replace(/\.[^.]+$/, ".forged-signature");
       expect((await call("/k/a/overview", { headers: { cookie: forged } })).status).toBe(401);
+    });
+
+    test("logs in and out from the page's own forms, with no script", async () => {
+      const form = (path: string, body: Record<string, string>, ip: string) =>
+        call(path, {
+          method: "POST",
+          redirect: "manual",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            "cf-connecting-ip": ip,
+          },
+          body: new URLSearchParams(body).toString(),
+        });
+      // Logged out, the page is its form and loads no script.
+      const page = await (await call("/k/a")).text();
+      expect(page).toMatch(/<form id="login-form"[^>]*method="post" action="\/k\/a\/login"/);
+      expect(page).not.toContain('type="module"');
+
+      const wrong = await form("/k/a/login", { key: "wrong-key" }, "203.0.113.160");
+      expect(wrong.status).toBe(401);
+      expect(await wrong.text()).toContain(
+        'class="status error" role="status" aria-live="polite">Wrong key.',
+      );
+
+      const right = await form("/k/a/login", { key: adminKey }, "203.0.113.161");
+      expect(right.status).toBe(303);
+      expect(right.headers.get("location")).toBe("/k/a");
+      const session = defined(right.headers.get("set-cookie"), "a session").split(";", 1)[0] ?? "";
+      expect(await (await call("/k/a", { headers: { cookie: session } })).text()).toContain(
+        'id="admin-data"',
+      );
+
+      const out = await call("/k/a/logout", {
+        method: "POST",
+        redirect: "manual",
+        headers: { "content-type": "application/x-www-form-urlencoded", cookie: session },
+      });
+      expect(out.status).toBe(303);
+      expect(out.headers.get("location")).toBe("/k/a");
+      expect(out.headers.get("set-cookie")).toContain("kurobako_admin=;");
     });
   });
 };

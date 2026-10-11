@@ -8,14 +8,15 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
-    // The markup shared with the browser, in public/ (see src/views/html.ts).
+    // The browser code the server renders with too (src/client/shared/).
     "allowJs": true,
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
     "noEmit": true,
     "skipLibCheck": true
   },
-  // The shared code and the Cloudflare entry; src/bun has tsconfig.bun.json.
+  // Everything but Bun's own code (src/runtime/bun, the client's build), which
+  // tsconfig.bun.json checks.
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["src/bun"]
+  "exclude": ["src/runtime/bun", "src/client/build.ts"]
 }

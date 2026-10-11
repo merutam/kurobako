@@ -3,10 +3,10 @@
 
 // The site's own pages and documents: home, encryption spec, health, the
 // well-known description, stats.
-import { LICENSES_PATH, PROTOCOL_PATH, WELL_KNOWN_PATH } from "../routing";
-import { renderLicensesPage, renderProtocolPage } from "../views/documents";
-import { renderHomePage } from "../views/home";
-import { renderNamespacePage } from "../views/namespace";
+import { LICENSES_PATH, PROTOCOL_PATH, WELL_KNOWN_PATH } from "../core/routing";
+import { renderLicensesPage, renderProtocolPage } from "../pages/documents";
+import { renderHomePage } from "../pages/home";
+import { renderNamespacePage } from "../pages/namespace";
 import type { Api, App } from "./context";
 
 /** The home page's stats, shared by every request to this instance for a little while. */
@@ -20,7 +20,7 @@ export const mountSite = (app: App, api: Api) => {
     home: renderHomePage(siteView, config),
     protocol: renderProtocolPage(siteView),
     licenses: renderLicensesPage(siteView),
-    encrypted: renderNamespacePage(siteView, null, [], config.maxItems),
+    encrypted: renderNamespacePage(siteView, null, { items: [], revision: 0 }, config.maxItems),
   };
   let statsCache: { expires: number; body: Promise<Record<string, unknown>> } | null = null;
 
@@ -36,14 +36,14 @@ export const mountSite = (app: App, api: Api) => {
   app.get(WELL_KNOWN_PATH, (c) => {
     c.header("Cache-Control", "no-store");
     c.header("Access-Control-Allow-Origin", "*");
-    return c.json(publicConfig());
+    return c.json(publicConfig);
   });
   app.get("/stats.json", async (c) => {
     if (!statsCache || statsCache.expires < Date.now()) {
       statsCache = {
         expires: Date.now() + STATS_TTL_MS,
         // A plain copy: an RPC result must not outlive its request.
-        body: hub(c)
+        body: hub()
           .stats()
           .then((stats) => ({ ...stats })),
       };

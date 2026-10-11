@@ -7,5 +7,5 @@
   },
   // The Worker tests; bun.test.ts is checked with tsconfig.bun.json.
   "include": ["./**/*.ts", "../src/**/*.ts", "../src/**/*.tsx", "../vitest.config.ts"],
-  "exclude": ["../src/bun", "./bun.test.ts"]
+  "exclude": ["../src/runtime/bun", "../src/client/build.ts", "./bun.test.ts"]
 }
