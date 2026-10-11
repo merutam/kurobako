@@ -598,8 +598,7 @@
         <th scope="row">Name as typed</th>
         <td>
           <code>"\u3000\uFEFF Koma never leaves くろは\u3099こ 🐈\u200D⬛📦 ﾑｹﾞﾝ♾\uFE0F\u0085 \t"</code>
-          (a JavaScript string). Koma, the cat on the logo, never leaves the
-          box. Each part is a trap: ideographic space and U+FEFF to trim,
+          (a JavaScript string). Each part is a trap: ideographic space and U+FEFF to trim,
           U+0085 to keep, a decomposed ば to compose, half-width ﾑｹﾞﾝ that
           NFKC (not NFC) would change, and emoji outside the BMP, joined by
           ZWJ and with a variation selector
