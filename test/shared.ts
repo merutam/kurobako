@@ -231,6 +231,69 @@ export const sharedTests = (harness: Harness) => {
       expect(other.mime).toBe("application/octet-stream");
     });
 
+    test("edits a bundle into another bundle, and nothing else into one", async () => {
+      const ns = fresh("bundle-edit");
+      const encoder = new TextEncoder();
+      const bundle = (text: string) =>
+        writeBundle({
+          main: "notes.md",
+          entries: [
+            { path: "notes.md", type: "text/markdown", text: true, bytes: encoder.encode(text) },
+            { path: "assets/photo.png", type: "image/png", bytes: png },
+          ],
+        });
+      const edit = (item: Item, body: Uint8Array | string, headers: Record<string, string> = {}) =>
+        call(`/${ns}/${item.id}/e`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/octet-stream",
+            "if-match": JSON.stringify(item.updatedAt ?? item.createdAt),
+            ...headers,
+          },
+          body,
+        });
+
+      const sent = await json<FileItem>(`/${ns}/notes`, { method: "PUT", body: bundle("# one") });
+      const edited = await parse<FileItem>(
+        edit(sent, bundle("# two"), { "x-filename": "renamed" }),
+      );
+      expect(edited).toMatchObject({
+        id: sent.id,
+        createdAt: sent.createdAt,
+        mime: BUNDLE_MIME,
+        filename: "renamed.tar",
+      });
+      const back = readBundle(
+        new Uint8Array(await (await call(`/${ns}/${sent.id}`)).arrayBuffer()),
+      );
+      expect(new TextDecoder().decode(back.entries[0].bytes)).toBe("# two");
+      // Without a name, it keeps its own.
+      const again = await parse<FileItem>(edit(edited, bundle("# three")));
+      expect(again.filename).toBe("renamed.tar");
+      expect(await storedFiles(`plain/${ns}/`)).toHaveLength(1);
+
+      // A stale version, a bundle into anything else, or a file into a bundle: refused.
+      expect((await edit(sent, bundle("# lost"))).status).toBe(412);
+      expect((await edit(again, png)).status).toBe(400);
+      const text = await parse<Item>(sendText(ns, "a text"));
+      expect((await edit(text, bundle("# no"))).status).toBe(400);
+      const image = await parse<Item>(call(`/${ns}/new`, { method: "POST", body: png }));
+      expect((await edit(image, bundle("# no"))).status).toBe(400);
+    });
+
+    test("lists only the newest items with ?limit", async () => {
+      const ns = fresh("limit");
+      for (const text of ["one", "two", "three"]) await sendText(ns, text);
+      const top = await call(`/${ns}/ls?summary&limit=1`);
+      expect(top.headers.get("x-queue-revision")).toBeTruthy();
+      expect((await parse<Item[]>(top)).map((item) => item.text)).toEqual(["three"]);
+      expect(await json<Item[]>(`/${ns}/ls?limit=2`)).toHaveLength(2);
+      expect(await json<Item[]>(`/${ns}/ls?limit=50`)).toHaveLength(3);
+      for (const bad of ["0", "-1", "two", "1.5"]) {
+        expect((await call(`/${ns}/ls?limit=${bad}`)).status).toBe(400);
+      }
+    });
+
     test("takes what curl sends by hand", async () => {
       const ns = fresh();
       // curl -d "typed text" <site>/<ns>/new

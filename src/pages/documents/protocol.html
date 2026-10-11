@@ -116,6 +116,10 @@
         <td>the same, long texts cut to a <code>preview</code></td>
       </tr>
       <tr>
+        <td><code>curl "$BOX/ns/ls?limit=1"</code></td>
+        <td>only the <code>n</code> newest (with <code>summary</code> too); the revision is still the whole queue's</td>
+      </tr>
+      <tr>
         <td><code>curl $BOX/ns/1</code></td>
         <td>its contents (<code>/c</code> is the same)</td>
       </tr>
@@ -183,6 +187,10 @@
       <tr>
         <td><code>curl -H 'If-Match: "&lt;updatedAt&gt;"' -d 'changed' $BOX/ns/1/e</code></td>
         <td>replaces a text's contents if unchanged since that version (else <code>412</code>); before any change, use <code>createdAt</code></td>
+      </tr>
+      <tr>
+        <td><code>curl -H 'If-Match: "&lt;updatedAt&gt;"' -H 'Content-Type: application/octet-stream' --data-binary @notes.tar $BOX/ns/1/e</code></td>
+        <td>replaces a bundle with another; <code>X-Filename</code> renames it</td>
       </tr>
       <tr>
         <td><code>curl -d 'new name' $BOX/ns/1/n</code></td>
@@ -276,7 +284,8 @@
   <li>
     Edits and encrypted renames send
     <code>If-Match: "&lt;updatedAt or createdAt&gt;"</code>; if the item
-    changed since, <code>412</code>. Files and read-limited items cannot be
+    changed since, <code>412</code>. A text becomes another text and a
+    bundle another bundle; other files and read-limited items cannot be
     edited.
   </li>
 </ul>

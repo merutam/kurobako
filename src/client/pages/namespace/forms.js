@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { safeName, suggestedTextFileBase, textFileBase } from "../../../../public/k.mjs";
+import {
+  defaultTextName,
+  safeName,
+  suggestedTextFileBase,
+  textFileBase,
+} from "../../../../public/k.mjs";
 import {
   copyText,
   element,
@@ -11,13 +16,14 @@ import {
   setBusy,
   storage,
 } from "../../lib/common.js";
+import { extensionOf } from "../../lib/items.js";
 import { isMarkdown, renderMarkdown } from "../../lib/markdown.js";
 import {
   createTextEditor,
   fillLanguages,
   MAX_HIGHLIGHT_CHARACTERS,
 } from "../../lib/text-editor.js";
-import { ASSETS, BUNDLE_MIME, uniqueNames, writeBundle } from "../../shared/bundle.js";
+import { ASSETS, BUNDLE_MIME, readBundle, uniqueNames, writeBundle } from "../../shared/bundle.js";
 import { h } from "../../shared/dom.js";
 import { maxFilesAtOnce, textSizeText } from "../../shared/limits.js";
 
@@ -25,10 +31,15 @@ import { maxFilesAtOnce, textSizeText } from "../../shared/limits.js";
  * The composer: text tabs and files, one Send. What it holds decides what a
  * send is: one text alone is a text item, files alone are an item each, and
  * anything else (texts with files, or several texts) one bundle, a tar the
- * pages show as its texts and files (see shared/bundle.js).
+ * pages show as its texts and files (see shared/bundle.js). An item's "edit"
+ * opens it here: Send becomes Save changes, and saves it in place.
  */
 export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const sendForm = element("#send-form");
+  const sendTitle = element("#send-title");
+  const sendButton = element("#send-button");
+  const cancelEdit = element("#cancel-edit");
+  const addTab = element("#add-tab");
   const textInput = element("#text");
   const textLanguage = element("#text-language");
   const textPanel = element("#text-panel");
@@ -79,6 +90,12 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   let mode = null;
   let config = null;
   const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  /**
+   * The item open here, or null: { entry, kind: "text" | "bundle" }, and for
+   * a text what it held and was called, to save only what changed.
+   */
+  let editing = null;
 
   const languageKey = "kurobako-text-language";
   // Markdown until someone picks another language (Plain text is "").
@@ -280,6 +297,10 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     textPanel.hidden = !tab;
     filesPanel.hidden = Boolean(tab);
     if (tab) {
+      // An item's own extension, which the picker may not list yet.
+      if (![...textLanguage.options].some((option) => option.value === tab.language)) {
+        textLanguage.append(h("option", { value: tab.language }, `.${tab.language}`));
+      }
       textLanguage.value = tab.language;
       textInput.value = tab.text;
       showLanguage();
@@ -290,7 +311,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     showTabs();
     showSummary();
   };
-  element("#add-tab").addEventListener("click", () => {
+  addTab.addEventListener("click", () => {
     saveTab();
     const taken = new Set(tabs.map((tab) => tab.base));
     let count = tabs.length + 1;
@@ -543,8 +564,9 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     const texts = filledTabs();
     const files = fileInput.files.length;
     const kind = sendKind();
-    summary.textContent =
-      kind === "bundle"
+    summary.textContent = editing
+      ? `Editing ${editing.entry.info.title}.`
+      : kind === "bundle"
         ? `Bundle: ${[texts.length && plural(texts.length, "text"), files && plural(files, "file")].filter(Boolean).join(", ")}.`
         : kind === "files" && files > 1
           ? `${plural(files, "file")}, one item each.`
@@ -572,8 +594,10 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     }
   };
 
-  /** Back to one empty text tab and no files, after a send. */
+  /** Back to one empty text tab and no files, after a send or an edit. */
   const clearComposer = () => {
+    editing = null;
+    showEditing();
     tabs = [newTab("text", textLanguage.value)];
     active = null;
     clearFiles();
@@ -667,7 +691,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
    * texts at its root, the files under assets/ (their names are already
    * unique, see normalizeFiles).
    */
-  const sendBundle = async (texts, files) => {
+  const bundleFile = async (texts, files) => {
     const names = uniqueNames(texts.map(fileNameOf));
     const entries = [
       ...texts.map((tab, index) => ({
@@ -692,13 +716,124 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
         `The bundle is too large: ${formatBytes(bytes.length)}, max ${formatBytes(fileLimit())}.`,
       );
     }
-    status.progress("Sending…");
     const name = `${names[0].replace(/\.[^.]+$/, "")}.tar`;
-    const response = await mode.sendFile(
-      new File([bytes], name, { type: BUNDLE_MIME }),
-      sendSettings(),
-    );
-    return sentMessage(response);
+    return new File([bytes], name, { type: BUNDLE_MIME });
+  };
+  const sendBundle = async (texts, files) => {
+    const file = await bundleFile(texts, files);
+    status.progress("Sending…");
+    return sentMessage(await mode.sendFile(file, sendSettings()));
+  };
+
+  // --- Editing an item ---------------------------------------------------------
+
+  /** Send, or Save changes: what the form says it does. */
+  const showEditing = () => {
+    sendTitle.textContent = editing ? "Edit" : "Send";
+    sendButton.textContent = editing ? "Save changes" : "Send";
+    cancelEdit.hidden = !editing;
+    // Burn and expiry are a send's; an edit keeps the item's.
+    settingsBox.hidden = Boolean(editing);
+    // A text stays one text: no tabs or files to add.
+    const single = editing?.kind === "text";
+    addTab.hidden = single;
+    filesTab.hidden = single;
+  };
+
+  /** A tab for a text called `title` (notes.md: Markdown). */
+  const tabOf = (title, text) => {
+    const extension = extensionOf(title);
+    return {
+      base: textFileBase(extension ? title.slice(0, -extension.length - 1) : title),
+      language: extension === "txt" ? "" : extension,
+      text,
+      automatic: false,
+    };
+  };
+
+  /** Opens an item's text, or a bundle's texts and files, here to be edited. */
+  const edit = async (entry) => {
+    saveTab();
+    const holding = filledTabs().length > 0 || fileInput.files.length > 0;
+    if (
+      (editing || holding) &&
+      !window.confirm("Open this item in the composer? What it holds now is dropped.")
+    ) {
+      return;
+    }
+    const { item, info } = entry;
+    status.progress("Opening…");
+    let opened;
+    try {
+      if (info.isBundle) {
+        const bundle = readBundle(new Uint8Array(await (await mode.loadBlob(item)).arrayBuffer()));
+        const texts = bundle.entries.filter((part) => part.text);
+        // The main text is the first tab, as it was sent.
+        texts.sort((a, b) => Number(b.path === bundle.main) - Number(a.path === bundle.main));
+        const files = new DataTransfer();
+        for (const part of bundle.entries.filter((part) => !part.text)) {
+          const name = part.path.startsWith(ASSETS) ? part.path.slice(ASSETS.length) : part.path;
+          files.items.add(new File([part.bytes], name, { type: part.type }));
+        }
+        opened = {
+          editing: { entry, kind: "bundle" },
+          tabs: texts.map((part) => tabOf(part.path, decoder.decode(part.bytes))),
+          files: files.files,
+        };
+      } else {
+        const text = await mode.loadText(item);
+        const tab = tabOf(info.title, text);
+        // A text named by its start keeps following it, as the server does.
+        tab.automatic = info.title === defaultTextName(text);
+        opened = {
+          editing: { entry, kind: "text", original: text, name: fileNameOf(tab) },
+          tabs: [tab],
+          files: new DataTransfer().files,
+        };
+      }
+    } catch (error) {
+      status.error(error.message);
+      return;
+    }
+    editing = opened.editing;
+    tabs = opened.tabs.length ? opened.tabs : [newTab()];
+    fileInput.files = opened.files;
+    active = null;
+    showEditing();
+    showFiles();
+    select(0);
+    status.success(`Editing ${info.title}: Save changes when done.`);
+    sendForm.scrollIntoView({ block: "start" });
+    textInput.focus({ preventScroll: true });
+  };
+  cancelEdit.addEventListener("click", () => {
+    clearComposer();
+    status.success("Edit cancelled.");
+  });
+
+  /** Saves the item open here, at the version it was opened at. */
+  const saveEdit = async (kind) => {
+    const { item } = editing.entry;
+    if (editing.kind === "text") {
+      if (kind !== "text") throw new Error("Nothing to save: write a text.");
+      const tab = filledTabs()[0];
+      if (encoder.encode(tab.text).byteLength > config.maxTextBytes) {
+        throw new Error(`Text too large. Max ${formatBytes(config.maxTextBytes)}.`);
+      }
+      const name = fileNameOf(tab);
+      status.progress("Saving…");
+      await mode.editText(item, tab.text, {
+        original: editing.original,
+        title: tab.automatic || name === editing.name ? null : name,
+      });
+      return "Saved.";
+    }
+    const texts = filledTabs();
+    if (!texts.length) throw new Error("A bundle keeps at least one text.");
+    const file = await bundleFile(texts, [...fileInput.files]);
+    status.progress("Saving…");
+    await mode.editFile(item, file);
+    return "Saved.";
   };
 
   sendForm.addEventListener("submit", async (event) => {
@@ -709,14 +844,17 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     suggestName();
     const kind = sendKind();
     if (!kind) {
-      status.error("Nothing to send: write a text or add files.");
+      status.error(
+        editing ? "Nothing to save: write a text." : "Nothing to send: write a text or add files.",
+      );
       return;
     }
     setBusy(sendForm, true);
     try {
       const files = [...fileInput.files];
-      const message =
-        kind === "text"
+      const message = editing
+        ? await saveEdit(kind)
+        : kind === "text"
           ? await sendText(filledTabs()[0])
           : kind === "files"
             ? await sendFiles(files)
@@ -808,5 +946,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
       config = value;
     },
     showPage,
+    edit,
   };
 };

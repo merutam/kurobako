@@ -12,6 +12,7 @@ import {
 } from "../../../../public/k.mjs";
 import { request, SITE } from "../../lib/common.js";
 import { describeOpened, describePlain, limitedItem } from "../../lib/items.js";
+import { BUNDLE_MIME } from "../../shared/bundle.js";
 
 const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
 const sendHeaders = ({ burn, expiresIn }) => ({
@@ -103,6 +104,20 @@ export const plainMode = (namespace, writeHeaders) => {
       const edited = await response.json();
       return title === null ? edited : (await rename(edited, title)).json();
     },
+    /** A bundle's contents replaced by another bundle, named as `file` is. */
+    editFile: async (item, file) =>
+      (
+        await request(`${basePath}/${encodeURIComponent(item.id)}/e`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "X-Filename": encodeURIComponent(file.name),
+            "If-Match": JSON.stringify(versionOf(item)),
+            ...writeHeaders(),
+          },
+          body: file,
+        })
+      ).json(),
     /** An empty name gives a text back its default, the start of its text. */
     rename,
   };
@@ -156,6 +171,21 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
       body,
     });
   };
+
+  /** New contents under the item's own key, at the version shown. */
+  const replace = async (item, replacement) =>
+    (
+      await request(`${basePath}/${encodeURIComponent(item.id)}/e`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "If-Match": JSON.stringify(versionOf(item)),
+          "X-Sealed-Metadata": replacement.header,
+          ...writeHeaders(),
+        },
+        body: replacement.body,
+      })
+    ).json();
 
   return {
     basePath,
@@ -246,19 +276,15 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
         (opened.metadata.title === defaultTextName(original)
           ? defaultTextName(text)
           : opened.metadata.title);
-      const replacement = await opened.withContents(bytes, { title: changedTitle });
-      return (
-        await request(`${basePath}/${encodeURIComponent(item.id)}/e`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "If-Match": JSON.stringify(versionOf(item)),
-            "X-Sealed-Metadata": replacement.header,
-            ...writeHeaders(),
-          },
-          body: replacement.body,
-        })
-      ).json();
+      return replace(item, await opened.withContents(bytes, { title: changedTitle }));
+    },
+    editFile: async (item, file) => {
+      const opened = await openItem(item);
+      if (!opened) throw new Error("This item could not be decrypted.");
+      if (opened.metadata.mime !== BUNDLE_MIME) throw new Error("Only bundles take new files.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const { filename } = fileMetadata(bytes, file.name);
+      return replace(item, await opened.withContents(bytes, { title: filename, filename }));
     },
     /**
      * The new name goes into the item's metadata, sealed again with its own

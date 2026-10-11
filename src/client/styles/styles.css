@@ -1212,9 +1212,6 @@ button.media-preview:hover img {
 
 /* --- Editors -------------------------------------------------------------- */
 
-.item-editor {
-  margin: var(--space-1) 0 0;
-}
 .editor-toolbar,
 .form-footer {
   display: flex;
@@ -1237,9 +1234,6 @@ button.media-preview:hover img {
 }
 .form-footer > :first-child:not(:last-child) {
   margin-right: auto;
-}
-.form-footer .item-meta {
-  margin-top: 0;
 }
 .text-editor {
   position: relative;

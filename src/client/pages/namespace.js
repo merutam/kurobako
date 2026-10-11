@@ -27,7 +27,7 @@ items = createItemList({
   status,
   access,
   refreshUnlessLive: () => live.refreshUnlessLive(),
-  loadItems: () => live.loadItems(),
+  onEdit: (entry) => forms.edit(entry),
 });
 // A plain namespace's page comes with its queue (see createLive).
 const initial = document.getElementById("queue-data");

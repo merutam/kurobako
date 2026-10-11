@@ -106,7 +106,13 @@ export const mountNamespaces = (
         if (!items.length) c.set("miss", true);
         // ?summary is what the page uses: long texts as previews.
         const shape = c.req.query("summary") === undefined ? publicItem : summaryItem;
-        return c.json(items.map((item) => shape(item)));
+        // ?limit=n: only the n newest, for a client that wants just the top.
+        const limit = c.req.query("limit");
+        if (limit !== undefined && !/^[1-9]\d{0,5}$/.test(limit)) {
+          return jsonError(c, 400, "limit must be a positive whole number.");
+        }
+        const shown = limit === undefined ? items : items.slice(0, Number(limit));
+        return c.json(shown.map((item) => shape(item)));
       }),
     );
 

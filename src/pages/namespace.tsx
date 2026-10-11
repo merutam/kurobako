@@ -167,7 +167,11 @@ export const renderNamespacePage = (
               </div>
               <div class="form-footer">
                 <p id="send-summary" class="hint" aria-live="polite" />
-                <button type="submit" class="primary">
+                {/* Editing an item, Send saves it instead (forms.js). */}
+                <button id="cancel-edit" type="button" hidden>
+                  Cancel
+                </button>
+                <button id="send-button" type="submit" class="primary">
                   Send
                 </button>
               </div>

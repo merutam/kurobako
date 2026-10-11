@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import { BUNDLE_MIME } from "../../client/shared/bundle.js";
 import type { Sql } from "../host";
 // A namespace's items: the table that holds them, newest first, and the rules
 // for making and renaming one.
@@ -250,9 +251,12 @@ export const newItem = (
  * dates, expiry and share link. A plain text named by its start is named by
  * the new start; one named by hand keeps its name. An encrypted item takes
  * a new body and metadata under the same wrapped key (its client sealed the
- * contents under a new revision). Files and burn-after-reading items stay as
- * sent.
+ * contents under a new revision). A plain bundle takes another bundle, under
+ * the name it brings. Other files and burn-after-reading items stay as sent.
  */
+const isBundleItem = (item: StoredItem | SaveInput) =>
+  item.kind === "file" && "mime" in item && item.mime === BUNDLE_MIME;
+
 export const replacedItem = (
   item: StoredItem,
   input: SaveInput,
@@ -266,14 +270,22 @@ export const replacedItem = (
     if (input.metadata.split(".")[0] !== item.metadata.split(".")[0]) {
       return { error: "The item's key cannot change." };
     }
-  } else if (item.kind !== "text" || input.kind !== "text") {
-    return { error: "Only texts can be edited." };
+  } else {
+    const text = item.kind === "text" && input.kind === "text";
+    const bundle = isBundleItem(item) && isBundleItem(input);
+    if (!text && !bundle) {
+      return { error: "Only texts and bundles can be edited, each into its own kind." };
+    }
   }
   const replaced = newItem(item.id, input, false, item.createdAt, item.expiresAt);
   if (item.kind === "text" && replaced.kind === "text") {
     const start = "text" in item ? item.text : (item.preview ?? "");
     const byHand = item.name !== undefined && item.name !== defaultTextName(start);
     if (byHand) replaced.name = item.name;
+  }
+  // A bundle sent again without a name keeps its own.
+  if (replaced.kind === "file" && item.kind === "file" && input.kind === "file" && !input.named) {
+    replaced.filename = item.filename;
   }
   return { ...replaced, updatedAt };
 };

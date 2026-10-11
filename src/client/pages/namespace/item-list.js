@@ -4,17 +4,14 @@
 import { defaultTextName, textDownloadName } from "../../../../public/k.mjs";
 import { bundleView } from "../../lib/bundle-view.js";
 import {
-  button,
   choiceGroup,
   compactText,
   copyText,
   element,
   formatAge,
-  formatBytes,
   formatExpiry,
   HIDDEN_TITLE,
   request,
-  setBusy,
   storage,
 } from "../../lib/common.js";
 import {
@@ -22,23 +19,16 @@ import {
   canCopyImages,
   copyImage,
   downloadBlob,
-  extensionOf,
   highlightedText,
   limitedItem,
   streamAddress,
   videoPlayer,
 } from "../../lib/items.js";
 import { createMediaFeed } from "../../lib/media-feed.js";
-import {
-  createTextEditor,
-  fillLanguages,
-  MAX_HIGHLIGHT_CHARACTERS,
-  withExtension,
-} from "../../lib/text-editor.js";
 import { h } from "../../shared/dom.js";
 import { itemRow, localizeDates, rowHash, rowState } from "../../shared/item-row.js";
 
-export const createItemList = ({ status, access, refreshUnlessLive, loadItems }) => {
+export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) => {
   const itemsList = element("#items");
   const emptyMessage = element("#empty");
   const itemCount = element("#item-count");
@@ -255,8 +245,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
 
   /** Whether a name is being edited; live updates wait until it is done. */
   let renaming = false;
-  /** Whether text contents are being edited; live updates wait until it is done. */
-  let editing = false;
 
   /** Renames in place: Enter or leaving the field saves, Escape cancels. */
   const renameItem = (entry, title) => {
@@ -305,92 +293,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     input.addEventListener("blur", () => void finish(true));
   };
 
-  /** Opens a text editor in its preview. Save is conditional on the version shown. */
-  const editItem = async (entry, preview) => {
-    if (editing) return;
-    editing = true;
-    let original;
-    try {
-      original = await textOf(entry);
-    } catch (error) {
-      editing = false;
-      status.error(error.message);
-      return;
-    }
-
-    const form = h("form", { class: "item-editor" });
-    const textarea = h("textarea", { required: true, "aria-label": "Text contents" }, original);
-    const initialExtension = extensionOf(entry.info.title);
-    const initialLanguage = initialExtension === "txt" ? "" : initialExtension;
-    const language = h("select", { "aria-label": "Syntax language" });
-    fillLanguages(language, initialLanguage);
-    const editor = createTextEditor(textarea, {
-      title: () => `source.${language.value || "txt"}`,
-    });
-    language.addEventListener("change", () => editor.refresh({ immediate: true }));
-    const size = h("span", { class: "hint" });
-    let sizeTimer = null;
-    const showSize = () => {
-      sizeTimer = null;
-      const bytes = new Blob([textarea.value]).size;
-      const paused = textarea.value.length > MAX_HIGHLIGHT_CHARACTERS;
-      size.textContent = `${formatBytes(bytes)} / ${formatBytes(config.maxTextBytes)}${paused ? " · highlighting paused" : ""}`;
-      size.classList.toggle("error-text", bytes > config.maxTextBytes);
-    };
-    textarea.addEventListener("input", () => {
-      clearTimeout(sizeTimer);
-      sizeTimer = setTimeout(showSize, 300);
-    });
-    showSize();
-
-    const cancel = button("Cancel", () => {
-      editing = false;
-      rows.delete(entry.item.id);
-      itemOpeners.delete(entry.item.id);
-      renderedSignature = "";
-      void renderItems(serverItems, { force: true });
-    });
-    const save = h("button", { type: "submit", class: "primary" }, "Save changes");
-    const toolbar = h("div", { class: "editor-toolbar" }, language, size, editor.position);
-    const details = preview.nextElementSibling;
-    // Only the date (and the expiry) stays: "Text · 23 B · " goes.
-    details.firstChild.remove();
-    const footer = h(
-      "div",
-      { class: "form-footer" },
-      details,
-      h("span", { class: "actions" }, cancel, save),
-    );
-    form.append(editor.editor, toolbar, footer);
-    preview.replaceChildren(form);
-    textarea.focus();
-
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const text = textarea.value;
-      if (new Blob([text]).size > config.maxTextBytes) {
-        status.error(`Text too large. Max ${formatBytes(config.maxTextBytes)}.`);
-        return;
-      }
-      const title =
-        language.value === initialLanguage
-          ? null
-          : withExtension(entry.info.title, language.value || "txt");
-      setBusy(form, true);
-      status.progress("Saving…");
-      try {
-        await mode.editText(entry.item, text, { original, title });
-        editing = false;
-        status.success("Saved.");
-        renderedSignature = "";
-        await loadItems();
-      } catch (error) {
-        status.error(error.message);
-        setBusy(form, false);
-      }
-    });
-  };
-
   /** What itemRow needs to make an entry's row. */
   const rowOf = (entry, position) => ({
     item: entry.item,
@@ -413,7 +315,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
       listItem.querySelector(`[data-action="${action}"]`)?.addEventListener("click", handler);
     const toggle = listItem.querySelector("button.item-toggle");
     const preview = listItem.querySelector(".item-preview");
-    let loadPreview = async () => {};
 
     // Opening a burn-after-reading item reads it: only its own button does that.
     if (toggle) {
@@ -466,7 +367,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
           status.error(error.message);
         }
       };
-      loadPreview = load;
 
       const setOpen = (open) => {
         body.hidden = !open;
@@ -509,18 +409,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
 
     on("open-once", () => openOnce(entry));
     on("media", () => mediaFeed.open(entry));
-    on("edit", async () => {
-      if (editing) return;
-      await loadPreview();
-      if (expandMode === "one") {
-        for (const id of expandedItems) itemOpeners.get(id)?.(false);
-        expandedItems.clear();
-      }
-      expandedItems.add(item.id);
-      closedItems.delete(item.id);
-      itemOpeners.get(item.id)?.(true);
-      await editItem(entry, preview);
-    });
+    // Texts and bundles are edited in the composer, above the list.
+    on("edit", () => onEdit(entry));
     on("copy", () => copyItem(entry));
     on("download", () => downloadItem(entry));
     on("share", () => shareItem(item));
@@ -571,7 +461,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, loadItems })
     serverItems = items;
     itemsShown = true;
     // Rebuilding the list would drop the name being edited; it catches up after.
-    if (renaming || editing) return;
+    if (renaming) return;
     const serverIds = new Set(items.map((item) => item.id));
     const openedOnly = [...opened.values()].filter((entry) => !serverIds.has(entry.item.id));
     // Written only when it differs from what the server (or the last render) wrote.

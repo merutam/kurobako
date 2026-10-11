@@ -456,7 +456,12 @@ export const createUploads = (api: Api) => {
     const object = objectKey(ref);
     const { blobs } = platform;
     const hashed = input.kind === "sealed" ? null : hashing(upload.body);
-    const contentType = input.kind === "sealed" ? "application/octet-stream" : TEXT_MIME;
+    const contentType =
+      input.kind === "sealed"
+        ? "application/octet-stream"
+        : input.kind === "text"
+          ? TEXT_MIME
+          : input.mime;
     await blobs.put(object, hashed?.stream ?? upload.body, upload.size, contentType);
     try {
       validate?.();
@@ -480,11 +485,15 @@ export const createUploads = (api: Api) => {
   const editResponse = (c: AppContext, result: ReplaceResult) => {
     if (!result) return jsonError(c, 404, "Item not found.");
     if ("error" in result) return jsonError(c, result.conflict ? 412 : 400, result.error);
-    record(c, result.item.kind === "sealed" ? "sentEncrypted" : "sentText");
+    const kind = result.item.kind;
+    record(c, kind === "sealed" ? "sentEncrypted" : kind === "text" ? "sentText" : "sentFile");
     return c.json(publicItem(result.item));
   };
 
-  /** Replaces one text, using the same inline/blob and UTF-8 rules as a send. */
+  /**
+   * Replaces one text, using the same inline/blob and UTF-8 rules as a send,
+   * or one bundle, sent as a file is (Content-Type: application/octet-stream).
+   */
   const editText = async (c: AppContext, ref: NamespaceRef, item: ItemRef, expected: string) => {
     if (ref.space === "sealed") {
       const metadata = c.req.header("x-sealed-metadata") ?? "";
@@ -501,7 +510,11 @@ export const createUploads = (api: Api) => {
 
     const contentType = (c.req.header("content-type") || "").split(";", 1)[0]?.trim().toLowerCase();
     if (!TEXT_TYPES.has(contentType ?? "")) {
-      return jsonError(c, 415, "A text edit needs Content-Type: text/plain.");
+      // Only a bundle becomes another bundle (see replacedItem).
+      const upload = await streamedBody(c, config.maxFileBytes);
+      if (upload instanceof Response) return upload;
+      const input = describePlainFile(upload, decodeFilename(c.req.header("x-filename")));
+      return editResponse(c, await replaceObject(c, ref, item, expected, upload, input));
     }
     const declared = Number(c.req.header("content-length") ?? Number.NaN);
     if (Number.isSafeInteger(declared) && declared > config.maxTextBytes) {

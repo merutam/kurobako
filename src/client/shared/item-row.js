@@ -197,8 +197,8 @@ export const itemRow = (
     if (info.isImage || info.isVideo || info.isAudio) {
       actions.push(actionButton("view", "media", "Open in the media feed"));
     }
-    if (!opened && info.kind === "text" && canWrite) {
-      actions.push(actionButton("edit", "edit", "Edit the text"));
+    if (!opened && (info.kind === "text" || info.isBundle) && canWrite) {
+      actions.push(actionButton("edit", "edit", "Edit in the composer"));
     }
     if (info.kind === "text" || (info.isImage && canCopyImages)) {
       actions.push(actionButton("copy", "copy", "Copy to the clipboard"));
