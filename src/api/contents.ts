@@ -169,6 +169,8 @@ export const createContents = (api: Api) => {
       return c.body(text.text, 200, {
         "Content-Type": text.mime,
         "Cache-Control": "no-store",
+        // As for files (objectResponse): nothing sent runs here.
+        "Content-Security-Policy": "default-src 'none'; sandbox",
         ...(inline
           ? {}
           : {

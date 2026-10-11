@@ -49,12 +49,22 @@ const cells = (line) => {
  * Renders `source` into a <div class="markdown-body">. `resolve(path)` gives a
  * file of the bundle as { url, type, name }, or null.
  */
+/** A link's path as a bundle names its files; a malformed % escape names none. */
+const decodedPath = (href) => {
+  try {
+    return decodeURIComponent(href.replace(/^\.\//, ""));
+  } catch {
+    return null;
+  }
+};
+
 export const renderMarkdown = (source, { resolve = () => null } = {}) => {
   /** A link's target, or null when it may not be one. */
   const target = (href) => {
     const trimmed = href.trim();
     if (/^(https?:|mailto:)/i.test(trimmed)) return { href: trimmed, external: true };
-    const file = resolve(decodeURIComponent(trimmed.replace(/^\.\//, "")));
+    const path = decodedPath(trimmed);
+    const file = path === null ? null : resolve(path);
     if (file) return { href: file.url, download: file.name };
     if (trimmed.startsWith("#")) return { href: trimmed };
     return null;
@@ -153,7 +163,8 @@ export const renderMarkdown = (source, { resolve = () => null } = {}) => {
         if (link) {
           flush();
           const alt = text.slice(index + 2, close);
-          const file = resolve(decodeURIComponent(link[0].replace(/^\.\//, "")));
+          const path = decodedPath(link[0]);
+          const file = path === null ? null : resolve(path);
           out.push(
             file?.type.startsWith("image/")
               ? h("img", { src: file.url, alt })

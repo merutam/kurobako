@@ -196,7 +196,11 @@ const answer = async (request, clientId, token, download) => {
     });
   }
   const headers = {
+    // The type comes from the item's metadata, which whoever sent it chose:
+    // as the server does for contents, nothing in them may run here.
     "Content-Type": stream.mime || "application/octet-stream",
+    "Content-Security-Policy": "default-src 'none'; sandbox",
+    "X-Content-Type-Options": "nosniff",
     "Content-Length": String(range.end - range.start + 1),
     "Accept-Ranges": "bytes",
     "Cache-Control": "no-store",

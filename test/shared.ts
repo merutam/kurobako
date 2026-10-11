@@ -818,6 +818,11 @@ export const sharedTests = (harness: Harness) => {
       const download = await call(`/${ns}/${file.id}/d`);
       expect(download.headers.get("content-disposition")).toMatch(/^attachment/);
       expect(download.headers.get("content-security-policy")).toContain("sandbox");
+      // A short text, kept in the database rather than as a file: sandboxed all the same.
+      const markup = await parse<Item>(sendText(ns, "<script>alert(1)</script>"));
+      const shown = await call(`/${ns}/${markup.id}`);
+      expect(shown.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+      expect(shown.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
     });
 
     test("keeps file names safe on every system", async () => {

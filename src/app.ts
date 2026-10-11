@@ -49,6 +49,8 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
   "Cross-Origin-Resource-Policy": "same-origin",
+  // A window another site opened, or that opened this one, cannot reach in.
+  "Cross-Origin-Opener-Policy": "same-origin",
   "Content-Security-Policy":
     "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
