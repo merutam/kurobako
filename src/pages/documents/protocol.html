@@ -11,8 +11,17 @@
   (<a class="external-link" href="https://www.rfc-editor.org/rfc/rfc4648#section-5" target="_blank" rel="noopener">RFC 4648 §5</a>);
   every error is JSON, <code>{"error": "…"}</code>.
 </p>
+<p class="page-parts">
+  <a href="#using">Using a client</a> · <a href="#implementing">Implementing a client</a>
+</p>
 
-<h2>Model</h2>
+<h2 id="using">Using a client</h2>
+<p>
+  What Kurobako does and how to drive it, with <code>curl</code> or
+  <a href="#cli"><code>k.mjs</code></a>.
+</p>
+
+<h3>Model</h3>
 <p>
   A namespace is a short queue of items (texts and files), newest first.
   A <strong>plain</strong> one, <code>/&lt;name&gt;</code>, is stored as
@@ -29,64 +38,7 @@
   <code>403</code>. There are no accounts and no owners.
 </p>
 
-<h2>Discovery</h2>
-<p>
-  <code>GET /.well-known/kurobako</code> describes the server. Every path
-  below goes after its <code>base</code> (<code>""</code> or e.g.
-  <code>"/k"</code>).
-</p>
-<div class="table-scroll">
-  <table class="data-table">
-    <tbody>
-      <tr>
-        <td><code>protocol</code></td>
-        <td>this page's version, <code>8</code>; a client of another cannot open encrypted items</td>
-      </tr>
-      <tr>
-        <td><code>maxFileBytes</code>, <code>maxTextBytes</code></td>
-        <td>size limits; texts past <code>inlineTextBytes</code> are listed with a <code>preview</code></td>
-      </tr>
-      <tr>
-        <td><code>maxItems</code>, <code>itemTtlSeconds</code></td>
-        <td>queue length and default lifetime (<code>0</code>: no expiry)</td>
-      </tr>
-      <tr>
-        <td><code>sendsPerMinute</code>, <code>missesPerMinute</code></td>
-        <td>per client address (IPv6 by /64); past them, <code>429</code></td>
-      </tr>
-      <tr>
-        <td><code>maxStorageBytes</code></td>
-        <td>all items together, or <code>null</code>; a send that does not fit gets <code>507</code></td>
-      </tr>
-      <tr>
-        <td><code>namespace</code>, <code>sealed</code></td>
-        <td>plain names' <code>pattern</code>, <code>maxLength</code> and <code>reserved</code> names; <code>sealed.maxNameLength</code></td>
-      </tr>
-      <tr>
-        <td><code>live</code></td>
-        <td>the WebSocket's <code>ping</code>/<code>pong</code> messages and <code>pingSeconds</code></td>
-      </tr>
-      <tr>
-        <td><code>private</code></td>
-        <td>
-          if <code>true</code>, requests need
-          <code>Authorization: Bearer &lt;key&gt;</code> or get <code>401</code>
-          (share links may be exempt)
-        </td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-<p>
-  A miss (a namespace, item or share link that is not there) counts toward
-  <code>missesPerMinute</code>; past it, reads get <code>429</code> until
-  the minute ends. <code>automatedNetworks</code> says whether sends from
-  hosting, VPN and Tor networks are counted per network
-  (<code>"limit"</code>) or refused with <code>403</code>
-  (<code>"block"</code>).
-</p>
-
-<h2>Requests</h2>
+<h3>Requests</h3>
 <p>
   Every request works with <code>curl</code>. Below, <code>$BOX</code> is the
   site (<code>BOX=https://&lt;site&gt;</code>) and <code>ns</code> a plain
@@ -97,7 +49,7 @@
   start of it, ignoring case (<code>$BOX/ns/report</code> finds
   <code>Report 2024.pdf</code>).
 </p>
-<h3>Reading</h3>
+<h4>Reading</h4>
 <div class="table-scroll">
   <table class="data-table">
     <thead>
@@ -150,7 +102,7 @@
     </tbody>
   </table>
 </div>
-<h3>Writing</h3>
+<h4>Writing</h4>
 <div class="table-scroll">
   <table class="data-table">
     <thead>
@@ -189,8 +141,8 @@
         <td>replaces a text's contents if unchanged since that version (else <code>412</code>); before any change, use <code>createdAt</code></td>
       </tr>
       <tr>
-        <td><code>curl -H 'If-Match: "&lt;updatedAt&gt;"' -H 'Content-Type: application/octet-stream' --data-binary @notes.tar $BOX/ns/1/e</code></td>
-        <td>replaces a bundle with another; <code>X-Filename</code> renames it</td>
+        <td><code>curl -X POST -T notes.tar -H 'If-Match: "&lt;updatedAt&gt;"' $BOX/ns/1/e</code></td>
+        <td>replaces a bundle with another (sent as a file, so <code>-T</code>, not <code>-d</code>); <code>X-Filename</code> renames it</td>
       </tr>
       <tr>
         <td><code>curl -d 'new name' $BOX/ns/1/n</code></td>
@@ -203,7 +155,7 @@
     </tbody>
   </table>
 </div>
-<h3>Backups</h3>
+<h4>Backups</h4>
 <div class="table-scroll">
   <table class="data-table">
     <thead>
@@ -232,85 +184,13 @@
     </tbody>
   </table>
 </div>
-<p>
-  An archive holds <code>manifest.json</code> first (each item and the path
-  of its contents), then the contents; encrypted items stay sealed as
-  <code>&lt;id&gt;.sealed</code>. An import keeps IDs and dates, skips what
-  is there, applies newer text contents and names, and never deletes; an
-  encrypted namespace only takes its own items. Read-limited items are left
-  out.
-</p>
-<p>
-  On a private instance, add
-  <code>-H "Authorization: Bearer $KEY"</code> to every command.
-</p>
 
-<h3>Items</h3>
-<p>
-  Every item has <code>id</code>, <code>kind</code>, <code>size</code>
-  (bytes), <code>createdAt</code>, <code>updatedAt</code> once changed, and
-  <code>expiresAt</code> (<code>null</code>: never). In a plain namespace,
-  <code>kind</code> is <code>text</code> (with <code>name</code>, and
-  <code>text</code> or <code>preview</code>), <code>image</code> or
-  <code>file</code> (with <code>filename</code> and <code>mime</code>).
-  Types come from the bytes: PNG, JPEG, GIF, WebP, AVIF and HEIC are
-  images; MP4, MOV, WebM and Matroska are files with a <code>video/*</code>
-  type; anything else is <code>application/octet-stream</code>.
-</p>
-
-<h3>Sending, in detail</h3>
-<ul>
-  <li>
-    <code>Content-Type: text/plain</code> or
-    <code>application/x-www-form-urlencoded</code> sends a UTF-8 text,
-    named by percent-encoded <code>X-Text-Name</code> or else by its first
-    words (up to 80 characters). Any other type sends a file, named by
-    percent-encoded <code>X-Filename</code>.
-  </li>
-  <li>
-    <code>Expires-In: &lt;seconds&gt;</code> shortens the lifetime (at most
-    30 days when the server has none). <code>Reads: &lt;n&gt;</code>
-    (1–1,000,000) deletes the item after <em>n</em> reads of its contents;
-    <code>Burn: 1</code> means one, shown as <code>burn: true</code>, more
-    as <code>readsLeft</code>. Listing, <code>.json</code> and
-    <code>/s</code> are not reads. Such items have no preview, no name, no
-    ranges and no place in backups.
-  </li>
-  <li>
-    Sending contents already in a plain queue moves that item to the top
-    (<code>200</code>, <code>"existing": true</code>) unless the send has
-    <code>No-Dedup: 1</code>.
-  </li>
-  <li>
-    Edits and encrypted renames send
-    <code>If-Match: "&lt;updatedAt or createdAt&gt;"</code>; if the item
-    changed since, <code>412</code>. A text becomes another text and a
-    bundle another bundle; other files and read-limited items cannot be
-    edited.
-  </li>
-</ul>
-
-<h3 id="live">Live updates</h3>
-<p>
-  <code>&lt;ns&gt;/live</code> sends <code>{"type": "ready", "revision": n}</code>,
-  then <code>{"type": "change", "revision", "upserts", "removed", "order"}</code>
-  for each change and <code>{"type": "viewers", "count"}</code> when pages
-  open or close. Connect first, then fetch <code>ls?summary</code> and
-  apply the buffered changes newer than its <code>X-Queue-Revision</code>;
-  on a gap in revisions, fetch again. Send <code>ping</code> every
-  <code>pingSeconds</code>; the answer is <code>pong</code>.
-</p>
-
-<h2 id="bundles">Bundles</h2>
+<h3 id="bundles">Bundles</h3>
 <p>
   A bundle sends texts and files together as one item, so that a Markdown
-  text shows with its images. It is a plain tar whose first entry is
-  <code>kurobako.json</code>; any file whose first bytes are
-  <code>kurobako.json</code> and a NUL is typed
-  <code>application/vnd.kurobako.bundle+tar</code> and named
-  <code>.tar</code> (by the server for plain sends, by the client for
-  encrypted ones). It is otherwise a file like any other: one item, within
-  <code>maxFileBytes</code>, downloaded as the tar it is.
+  text shows with its images: a tar whose first entry is
+  <code>kurobako.json</code>, the manifest
+  (see <a href="#bundle-format">its format</a>).
 </p>
 <div class="table-scroll">
   <table class="data-table">
@@ -336,6 +216,190 @@
     </tbody>
   </table>
 </div>
+
+<h3>Sharing</h3>
+<p>
+  <code>/i/&lt;token&gt;</code> opens one item without revealing its
+  namespace, until the item is gone (<code>$BOX/ns/1/s</code> gives it).
+  An encrypted item's link carries its key after the <code>#</code>, which
+  never reaches the server and opens that item alone.
+</p>
+<p>
+  <code>/v/&lt;token&gt;</code>, a view, lists item links without revealing
+  the namespace. One view per namespace is active and gains new sends;
+  making another freezes which items the old one lists, while their
+  contents stay live. A namespace keeps at most 100 views.
+</p>
+
+<h3 id="cli">Command line: k.mjs</h3>
+<p>
+  <a href="/k.mjs"><code>k.mjs</code></a> implements this protocol as a
+  command line with curl's options (Node 20+ or Bun, no dependencies;
+  <code>curl -O $BOX/k.mjs</code>). Every command on this page works as
+  <code>node k.mjs</code>, on a plain namespace as it is and on an
+  encrypted one with <code>"$BOX/e#&lt;secret name&gt;"</code> in place of
+  <code>$BOX/ns</code>: it seals what it sends, opens what comes back, and
+  adds the <code>Write-Key</code> and, for edits, the <code>If-Match</code>.
+  Share links come with the item's key after the <code>#</code>. It does
+  more than curl, such as exporting a namespace, following it live and
+  reading a backup offline: <code>node k.mjs --help</code> shows it all.
+</p>
+
+<h2 id="implementing">Implementing a client</h2>
+<p>
+  What a client needs beyond the commands above: the server's description,
+  the formats, live updates and the encryption, with test vectors.
+</p>
+
+<h3>Discovery</h3>
+<p>
+  <code>GET /.well-known/kurobako</code> describes the server. Every path
+  below goes after its <code>base</code> (<code>""</code> or e.g.
+  <code>"/k"</code>).
+</p>
+<div class="table-scroll">
+  <table class="data-table">
+    <tbody>
+      <tr>
+        <td><code>protocol</code></td>
+        <td>
+          the version of everything this page describes, <code>8</code>: its
+          requests, formats and encryption. A client written for another
+          version may not work with this server
+        </td>
+      </tr>
+      <tr>
+        <td><code>maxFileBytes</code>, <code>maxTextBytes</code></td>
+        <td>size limits; texts past <code>inlineTextBytes</code> are listed with a <code>preview</code></td>
+      </tr>
+      <tr>
+        <td><code>maxItems</code>, <code>itemTtlSeconds</code></td>
+        <td>queue length and default lifetime (<code>0</code>: no expiry)</td>
+      </tr>
+      <tr>
+        <td><code>sendsPerMinute</code>, <code>missesPerMinute</code></td>
+        <td>
+          sends, and requests for what is not there, a client may make in a
+          minute; past them, <code>429</code> with <code>Retry-After</code>
+        </td>
+      </tr>
+      <tr>
+        <td><code>maxStorageBytes</code></td>
+        <td>all items together, or <code>null</code>; a send that does not fit gets <code>507</code></td>
+      </tr>
+      <tr>
+        <td><code>namespace</code>, <code>sealed</code></td>
+        <td>plain names' <code>pattern</code>, <code>maxLength</code> and <code>reserved</code> names; <code>sealed.maxNameLength</code></td>
+      </tr>
+      <tr>
+        <td><code>live</code></td>
+        <td>the WebSocket's <code>ping</code>/<code>pong</code> messages and <code>pingSeconds</code></td>
+      </tr>
+      <tr>
+        <td><code>private</code></td>
+        <td>
+          if <code>true</code>, requests need
+          <code>Authorization: Bearer &lt;key&gt;</code> or get <code>401</code>
+          (share links may be exempt)
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h3>Items</h3>
+<p>
+  Every item has <code>id</code>, <code>kind</code>, <code>size</code>
+  (bytes), <code>createdAt</code>, <code>updatedAt</code> once changed, and
+  <code>expiresAt</code> (<code>null</code>: never). In a plain namespace,
+  <code>kind</code> is <code>text</code> (with <code>name</code>, and
+  <code>text</code> or <code>preview</code>), <code>image</code> or
+  <code>file</code> (with <code>filename</code> and <code>mime</code>).
+  Types come from the bytes: PNG, JPEG, GIF, WebP, AVIF and HEIC are
+  images; MP4, MOV, WebM and Matroska are files with a <code>video/*</code>
+  type; anything else is <code>application/octet-stream</code>.
+</p>
+
+<h3>Sending, in detail</h3>
+<ul>
+  <li>
+    <code>Content-Type: text/plain</code> or
+    <code>application/x-www-form-urlencoded</code> sends a UTF-8 text,
+    named by percent-encoded <code>X-Text-Name</code> or else by its first
+    words (up to 80 characters). Any other type sends a file, named by
+    percent-encoded <code>X-Filename</code>.
+  </li>
+  <li>
+    Nothing is empty: a send or edit without contents gets
+    <code>400</code>.
+  </li>
+  <li>
+    <code>Expires-In: &lt;seconds&gt;</code> shortens the lifetime (at most
+    30 days when the server has none). <code>Reads: &lt;n&gt;</code>
+    (1–1,000,000) deletes the item after <em>n</em> reads of its contents;
+    <code>Burn: 1</code> means one, shown as <code>burn: true</code>, more
+    as <code>readsLeft</code>. Listing, <code>.json</code> and
+    <code>/s</code> are not reads. Such items have no preview, no name, no
+    ranges and no place in backups.
+  </li>
+  <li>
+    Sending contents already in a plain queue moves that item to the top
+    (<code>200</code>, <code>"existing": true</code>) unless the send has
+    <code>No-Dedup: 1</code>.
+  </li>
+  <li>
+    Edits and encrypted renames send
+    <code>If-Match: "&lt;updatedAt or createdAt&gt;"</code>: without it,
+    <code>400</code>; if the item changed since, <code>412</code>. A text becomes another text and a
+    bundle another bundle; other files and read-limited items cannot be
+    edited.
+  </li>
+</ul>
+
+<h3>Backup archives</h3>
+<p>
+  An archive holds <code>manifest.json</code> first, then each item's
+  contents at its <code>path</code>; encrypted items stay sealed, as
+  <code>&lt;id&gt;.sealed</code> with their <code>metadata</code> in the
+  manifest:
+</p>
+<pre><code>{"kurobako": "backup", "version": 1, "exportedAt": "2026-10-11T18:03:51.578Z",
+ "namespaces": [{"space": "plain", "name": "ns", "items": [
+   {"id": "erqgrq", "kind": "text", "createdAt": "…", "expiresAt": "…",
+    "size": 4, "path": "plain/ns/notes.md", "name": "notes.md"},
+   {"id": "bslclk", "kind": "image", "createdAt": "…", "expiresAt": "…",
+    "size": 28, "path": "plain/ns/photo.png", "filename": "photo.png", "mime": "image/png"}]}]}</code></pre>
+<p>
+  An encrypted namespace is <code>"space": "sealed"</code>, its ID as the
+  <code>name</code>, and items at <code>sealed/&lt;ID&gt;/&lt;id&gt;.sealed</code>.
+  <code>updatedAt</code> appears once an item changed; a part of a backup
+  in parts carries <code>"next"</code>. An import keeps IDs and dates,
+  skips what is there, applies newer text contents and names, and never
+  deletes; an encrypted namespace only takes its own items. Read-limited
+  items are left out.
+</p>
+
+<h3 id="live">Live updates</h3>
+<p>
+  <code>&lt;ns&gt;/live</code> sends <code>{"type": "ready", "revision": n}</code>,
+  then <code>{"type": "change", "revision", "upserts", "removed", "order"}</code>
+  for each change and <code>{"type": "viewers", "count"}</code> when pages
+  open or close. Connect first, then fetch <code>ls?summary</code> and
+  apply the buffered changes newer than its <code>X-Queue-Revision</code>;
+  on a gap in revisions, fetch again. After a drop, start over the same
+  way: connect, then fetch. Send <code>live.ping</code> as a text message
+  every <code>pingSeconds</code>; the answer is <code>live.pong</code>, and
+  two intervals without a word from the server mean the connection is gone.
+</p>
+
+<h3 id="bundle-format">Bundle format</h3>
+<p>
+  Any file whose first bytes are <code>kurobako.json</code> and a NUL is a
+  bundle: typed <code>application/vnd.kurobako.bundle+tar</code> and named
+  <code>.tar</code> (by the server for plain sends, by the client for
+  encrypted ones). It is otherwise a file like any other: one item, within
+  <code>maxFileBytes</code>, downloaded as the tar it is.
+</p>
 <p>
   The manifest lists the entries in the order a client shows them, and
   which text comes first:
@@ -352,21 +416,81 @@
   holds: no HTML, and no images from elsewhere.
 </p>
 
-<h2 id="encrypted">Encrypted namespaces</h2>
+
+<h3 id="encrypted">Encrypted namespaces</h3>
 <p>
   The secret name derives the <strong>namespace ID</strong> (the address),
   the <strong>write key</strong> and the <strong>namespace key</strong>.
   Each item has a random <strong>item key</strong>, which seals its
   metadata and contents and is wrapped with the namespace key. Ciphers:
-  AES-128-GCM, and AES-KW for wrapping.
+  AES-128-GCM, and AES-KW for wrapping. Every key is 16 bytes but K.
+</p>
+<div class="table-scroll">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>For</th>
+        <th>From</th>
+        <th>Label (salt, HKDF info or AES-GCM data)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>K, 32 bytes</td>
+        <td>the name, PBKDF2</td>
+        <td><code>kurobako/v4</code></td>
+      </tr>
+      <tr>
+        <td>write key</td>
+        <td>K, HKDF</td>
+        <td><code>kurobako/v4/write</code></td>
+      </tr>
+      <tr>
+        <td>namespace key</td>
+        <td>K, HKDF</td>
+        <td><code>kurobako/v4/namespace</code></td>
+      </tr>
+      <tr>
+        <td>sealed metadata</td>
+        <td>item key, AES-GCM</td>
+        <td><code>kurobako/v4/metadata</code></td>
+      </tr>
+      <tr>
+        <td>body key</td>
+        <td>item key, HKDF</td>
+        <td><code>kurobako/v4/body/0</code>, or <code>kurobako/v4/body/&lt;rev&gt;/&lt;bodyId&gt;</code> once replaced</td>
+      </tr>
+      <tr>
+        <td>view key</td>
+        <td>K, HKDF</td>
+        <td><code>kurobako/v6/view/&lt;viewId&gt;</code></td>
+      </tr>
+      <tr>
+        <td>view entry (an item key)</td>
+        <td>view key, AES-GCM</td>
+        <td><code>kurobako/v6/view-entry/&lt;viewId&gt;</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  A label names the protocol version that brought it in, and never
+  changes: another label makes other keys, and every existing namespace
+  unreadable.
 </p>
 
-<h3>Keys</h3>
+<h4>Keys</h4>
 <ol>
   <li>
-    Normalize the name: Unicode NFC, trimmed. It cannot contain
-    <code>/</code>, which starts a path in a link
-    (<code>/e#name/ls</code>).
+    Normalize the name: Unicode NFC, then trimmed of the whitespace
+    JavaScript's <code>String.prototype.trim()</code> removes: U+0009–U+000D,
+    U+0020, U+00A0, U+1680, U+2000–U+200A, U+2028, U+2029, U+202F, U+205F,
+    U+3000 and U+FEFF, but not U+0085, which other languages trim. Another
+    set of whitespace derives other keys from the same name. The name cannot
+    contain <code>/</code>, which starts a path in a link
+    (<code>/e#name/ls</code>), and has at most
+    <code>sealed.maxNameLength</code> UTF-16 code units, as JavaScript
+    counts a string (an emoji outside the BMP counts two).
   </li>
   <li>
     <strong>K</strong> = PBKDF2-SHA-256(the name in UTF-8, salt
@@ -398,8 +522,13 @@
   characters (about 80 bits) holds for ages; a phrase someone would pick
   falls in seconds.
 </p>
+<p>
+  A wrong name is no error: it derives another namespace, most likely
+  empty. An item that does not open is damaged or sealed with another
+  key; AES-GCM cannot tell which.
+</p>
 
-<h3>Sealing</h3>
+<h4>Sealing</h4>
 <p>
   <em>Seal(key, label, data)</em> is a random 12-byte IV, then the AES-GCM
   ciphertext and its 16-byte tag, with the label in UTF-8 as additional
@@ -429,7 +558,7 @@
   </li>
 </ul>
 
-<h3>Items</h3>
+<h4>Items</h4>
 <p>
   Metadata is JSON: <code>{"title": "…"}</code> for a text
   (<code>{}</code> for a read-limited one), <code>{"filename": "…", "mime": "…"}</code>
@@ -457,7 +586,7 @@
   such as <a href="#cli"><code>k.mjs</code></a>.
 </p>
 
-<h3>Test vectors</h3>
+<h4>Test vectors</h4>
 <p>
   The seal of the metadata uses a fixed IV here; a client must use a random
   one. Bytes are hex unless marked base64url.
@@ -467,31 +596,38 @@
     <tbody>
       <tr>
         <th scope="row">Name as typed</th>
-        <td><code>"  café horse battery  "</code> (JavaScript string: two spaces, a decomposed é, two spaces)</td>
+        <td>
+          <code>"\u3000\uFEFF Koma never leaves くろは\u3099こ 🐈\u200D⬛📦 ﾑｹﾞﾝ♾\uFE0F\u0085 \t"</code>
+          (a JavaScript string). Koma, the cat on the logo, never leaves the
+          box. Each part is a trap: ideographic space and U+FEFF to trim,
+          U+0085 to keep, a decomposed ば to compose, half-width ﾑｹﾞﾝ that
+          NFKC (not NFC) would change, and emoji outside the BMP, joined by
+          ZWJ and with a variation selector
+        </td>
       </tr>
       <tr>
         <th scope="row">Normalized, UTF-8</th>
-        <td><code data-vector="name">636166c3a920686f7273652062617474657279</code> (<code>café horse battery</code>)</td>
+        <td><code data-vector="name">4b6f6d61206e65766572206c656176657320e3818fe3828de381b0e3819320f09f9088e2808de2ac9bf09f93a620efbe91efbdb9efbe9eefbe9de299beefb88fc285</code> (<code>Koma never leaves くろばこ 🐈‍⬛📦 ﾑｹﾞﾝ♾️</code> and U+0085: 37 UTF-16 code units)</td>
       </tr>
       <tr>
         <th scope="row">K (PBKDF2)</th>
-        <td><code data-vector="pbkdf2">c5fe3ce8006b431432b19384393bb5f8d38d4e81752b4da5a8f1e7484f16b731</code></td>
+        <td><code data-vector="pbkdf2">76c6180cb6affa091c516d141d27109a8fc2e8e7b2f1a0051aee960c5107a15d</code></td>
       </tr>
       <tr>
         <th scope="row">Namespace ID</th>
-        <td><code data-vector="id">aTMsG4JlDfcMrK8Kuh1trQ</code> (base64url)</td>
+        <td><code data-vector="id">PSQbmOAAKv22JHSTgC4bTQ</code> (base64url)</td>
       </tr>
       <tr>
         <th scope="row">Namespace key</th>
-        <td><code data-vector="namespace-key">128c9430aa3a21d7db8b5fa3342c425a</code></td>
+        <td><code data-vector="namespace-key">4709c7de00a34cd9bb823a9a5711b544</code></td>
       </tr>
       <tr>
         <th scope="row">Write key</th>
-        <td><code data-vector="write-key">oqG0guS9qykLSg3fe2lMrg</code> (base64url)</td>
+        <td><code data-vector="write-key">dt58FtvGKfYf65PBO3ZGow</code> (base64url)</td>
       </tr>
       <tr>
         <th scope="row">Read-only link</th>
-        <td><code>/e#/</code><code data-vector="read-token">aTMsG4JlDfcMrK8Kuh1trRKMlDCqOiHX24tfozQsQlo</code></td>
+        <td><code>/e#/</code><code data-vector="read-token">PSQbmOAAKv22JHSTgC4bTUcJx94Ao0zZu4I6mlcRtUQ</code></td>
       </tr>
       <tr>
         <th scope="row">Item key</th>
@@ -503,7 +639,7 @@
       </tr>
       <tr>
         <th scope="row">Wrapped item key</th>
-        <td>AES-KW, RFC 3394's default IV; base64url: <code data-vector="wrapped">2Wttdp8noLebj59hKI4h5QurXR9E_h9r</code></td>
+        <td>AES-KW, RFC 3394's default IV; base64url: <code data-vector="wrapped">okrvYnnD364imYZusqEExjLqv9kZzRR6</code></td>
       </tr>
       <tr>
         <th scope="row">Sealed metadata</th>
@@ -549,24 +685,13 @@
   </table>
 </div>
 
-<h2>Sharing</h2>
-<h3>Item links</h3>
+<h3>Sharing</h3>
 <p>
-  <code>/i/&lt;token&gt;</code> opens one item without revealing its
-  namespace, until the item is gone: <code>.json</code> gives the item
-  (without its ID), <code>/c</code> its contents, <code>/d</code> a
-  download. An encrypted item's link is
-  <code>/i/&lt;token&gt;#&lt;base64url(item key)&gt;</code>; the fragment
-  never reaches the server. Open the second part of its
-  <code>metadata</code> and its contents with that key.
-</p>
-
-<h3>Views</h3>
-<p>
-  <code>/v/&lt;token&gt;</code> lists item links without revealing the
-  namespace. One view per namespace is active and gains new sends; making
-  another freezes which items the old one lists, while their contents stay
-  live. A namespace keeps at most 100 views.
+  An item link's <code>.json</code> gives the item (without its ID),
+  <code>/c</code> its contents and <code>/d</code> a download. For an
+  encrypted item, the link is
+  <code>/i/&lt;token&gt;#&lt;base64url(item key)&gt;</code>: open the second
+  part of its <code>metadata</code> and its contents with that key.
 </p>
 <ul>
   <li>
@@ -591,99 +716,3 @@
   </li>
 </ul>
 
-<h2 id="cli">Command line: k.mjs</h2>
-<p>
-  <a href="/k.mjs"><code>k.mjs</code></a> implements this protocol as a
-  command line with curl's options (Node 20+ or Bun, no dependencies;
-  <code>curl -O $BOX/k.mjs</code>). Every command on this page works as
-  <code>node k.mjs</code>, on a plain namespace as it is and on an
-  encrypted one with <code>"$BOX/e#&lt;secret name&gt;"</code> in place of
-  <code>$BOX/ns</code>: it seals what it sends, opens what comes back, and
-  adds the <code>Write-Key</code> and, for edits, the <code>If-Match</code>.
-  Share links come with the item's key after the <code>#</code>. Beyond
-  curl, it does:
-</p>
-<div class="table-scroll">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th>Command</th>
-        <th>Does</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><code>node k.mjs $BOX/ns</code></td>
-        <td>the items, one per line, reading none</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs -O $BOX/ns</code></td>
-        <td>exports every item, decrypted, into this folder (<code>--no-clobber</code> keeps existing files)</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs $BOX/ns/live</code></td>
-        <td>a line per change until stopped: <code>new &lt;id&gt; &lt;name&gt;</code>, <code>moved</code>, <code>changed</code>, <code>gone &lt;id&gt;</code>; reconnects by itself</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs -X POST $BOX/ns/views</code></td>
-        <td>creates a shared view, with its envelopes (<code>GET</code> lists them)</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs "$BOX/i/&lt;token&gt;#&lt;key&gt;"</code></td>
-        <td>a shared item, decrypted</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs "$BOX/v/&lt;token&gt;#&lt;key&gt;"</code></td>
-        <td>a shared view, one line per item</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-<h3>Backups, offline</h3>
-<p>
-  An extracted backup reads like a namespace, with no server: keep its
-  <code>manifest.json</code> beside the files.
-</p>
-<div class="table-scroll">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th>Command</th>
-        <th>Does</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><code>node k.mjs ./backup/ls</code></td>
-        <td>lists a plain backup (<code>/1</code>, <code>/&lt;id&gt;</code>, <code>/1.json</code> too)</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs ./backup/plain/&lt;ns&gt;/1</code></td>
-        <td>one namespace of a whole instance's backup</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs "./backup#&lt;name&gt;/ls"</code></td>
-        <td>lists an encrypted backup, decrypted</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs "./backup#&lt;name&gt;/1"</code></td>
-        <td>decrypts its newest item</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs -O "./backup#&lt;name&gt;"</code></td>
-        <td>exports the whole backup, decrypted</td>
-      </tr>
-      <tr>
-        <td><code>node k.mjs "./backup/sealed/&lt;ns id&gt;/&lt;id&gt;.sealed#&lt;name&gt;"</code></td>
-        <td>decrypts one sealed file</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-<p>
-  As with curl, binary contents never go to a terminal and errors go to
-  standard error with exit status 1. <code>KUROBAKO_SECRET</code> can carry
-  the secret name, <code>KUROBAKO_KEY</code> a private instance's key, and
-  <code>KUROBAKO_WRITE_KEY</code> a write key on its own.
-  <code>node k.mjs --help</code> lists everything.
-</p>

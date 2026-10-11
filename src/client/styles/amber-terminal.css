@@ -1,0 +1,90 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Kurobako contributors
+ * Palette: amber-terminal
+ * data-theme="dark"  -> dark
+ * data-theme="light" -> light
+ * data-theme="auto" or absent -> prefers-color-scheme
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: #121211;
+  --fg: #e6e1d6;
+  --dim: #b9b3a6;
+  --muted: #8c877c;
+  --border: #3a3934;
+  --rule: #2e2d29;
+  --panel: #1a1917;
+  --chip: #24231f;
+  --accent: #e8b04f;
+  --accent-hover: #f2c779;
+  --on-accent: #121211;
+  --ok: #8fc27a;
+  --err: #e7806c;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 56px;
+  --gap: var(--space-4);
+  --gap-section: var(--space-7);
+
+  /* Typography */
+  --font:
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas,
+    "DejaVu Sans Mono", "Courier New", monospace;
+  --text-body: 15px;
+  --text-list: 14px;
+  --text-small: 13px;
+  --text-h2: 22px;
+  --text-h1: clamp(32px, 6vw, 48px);
+
+  /* Shapes and sizes */
+  --hit: 44px;
+  --col: 1120px;
+  --page-gutter: 20px;
+  --prose-width: 72ch;
+}
+
+/* Auto follows the operating-system preference. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+  color-scheme: light;
+  --bg: #f4f1ea;
+  --fg: #1a1915;
+  --dim: #4a463f;
+  --muted: #615c53;
+  --border: #bdb6a8;
+  --rule: #d6d0c3;
+  --panel: #ece8de;
+  --chip: #e2ddd1;
+  --accent: #8a5200;
+  --accent-hover: #9a5c00;
+  --on-accent: #ffffff;
+  --ok: #2f6b1f;
+  --err: #a3321f;
+  }
+}
+
+/* Explicit light overrides system preference. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f1ea;
+  --fg: #1a1915;
+  --dim: #4a463f;
+  --muted: #615c53;
+  --border: #bdb6a8;
+  --rule: #d6d0c3;
+  --panel: #ece8de;
+  --chip: #e2ddd1;
+  --accent: #8a5200;
+  --accent-hover: #9a5c00;
+  --on-accent: #ffffff;
+  --ok: #2f6b1f;
+  --err: #a3321f;
+}

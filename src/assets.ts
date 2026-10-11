@@ -21,6 +21,8 @@ export const TOKENS = "tokens";
 export type Manifest = {
   /** A hash of every file built, shown in the footer. */
   build: string;
+  /** Theme CSS as written, embedded in /k/theme by the server. */
+  themes: Record<string, string>;
   /** By name ("namespace", "site", "styles"): its file in ASSETS_PATH, and the chunks it imports. */
   files: Record<
     string,

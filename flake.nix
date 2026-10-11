@@ -222,6 +222,10 @@
             pkgs.nodejs
             # A local S3-compatible store for the server, as compose.yaml runs.
             pkgs.garage_2
+            # For ksync rust daemon.
+            pkgs.cargo
+            # For ops scripts
+            pkgs.imagemagick
           ];
           shellHook = ''
             echo "Kurobako: bun install, then bun run dev (Worker) or bun run start (server)."

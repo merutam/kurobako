@@ -1230,6 +1230,13 @@ button.media-preview:hover img {
 
 /* --- Editors -------------------------------------------------------------- */
 
+.theme-preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-5);
+}
+
 .editor-toolbar,
 .form-footer {
   display: flex;
@@ -1440,6 +1447,22 @@ button.media-preview:hover img {
 .prose > h3 {
   margin-top: var(--space-6);
 }
+/* A part's sections have their own parts (the protocol's Keys, Sealing…). */
+.prose > h4 {
+  margin: var(--space-5) 0 var(--space-2);
+  color: var(--fg);
+  font-size: 15px;
+  line-height: 1.4;
+}
+.prose h4::before {
+  content: "#### " / "";
+  color: var(--accent);
+}
+/* The parts of a long page, linked at its top. */
+.prose > .page-parts {
+  margin: 0 0 var(--gap);
+  font-weight: 700;
+}
 .prose ul,
 .prose ol {
   padding-left: 3ch;
@@ -1567,9 +1590,16 @@ summary::before {
 .prose li > .table-scroll {
   margin-top: var(--space-2);
 }
-/* On text pages only the first column (a command or a route) stays on one line. */
+/* On text pages only the first column (a command or a route) stays on one
+   line, and the second keeps room to read: a table too wide for both
+   scrolls in its box rather than squeeze them. Short code in a description
+   (-d, 412) stays whole: a hyphen is no place to break. */
 .prose .data-table td:nth-child(2) {
+  min-width: 18rem;
   white-space: normal;
+}
+.prose .data-table td:nth-child(2) code {
+  white-space: nowrap;
 }
 .data-table td small {
   display: block;

@@ -1848,8 +1848,30 @@ export const sharedTests = (harness: Harness) => {
       const page = await (await call("/k/theme")).text();
       expect(page).toContain('id="theme-css"');
       expect(page).toContain('<meta name="robots" content="noindex"/>');
-      // Every page links it.
-      expect(await (await call("/")).text()).toContain('href="/k/theme">Theme</a>');
+      const presets = JSON.parse(
+        defined(
+          /<script type="application\/json" id="theme-presets">([^<]+)<\/script>/.exec(page)?.[1],
+          "theme presets",
+        ),
+      ) as Record<string, string>;
+      expect(Object.keys(presets).sort()).toEqual([
+        "amber-terminal.css",
+        "midnight-plum.css",
+        "nordic-slate.css",
+        "paper-and-ink.css",
+        "phosphor-green.css",
+        "retro-macintosh.css",
+      ]);
+      for (const [name, css] of Object.entries(presets)) {
+        expect(page).toContain(`data-preset="${name}"`);
+        expect(css).toContain(`Palette: ${name.slice(0, -4)}`);
+        expect(css).toContain("--accent:");
+      }
+      // Other pages link to it without carrying the embedded CSS.
+      const home = await (await call("/")).text();
+      expect(home).toContain('href="/k/theme">Theme</a>');
+      expect(home).not.toContain('id="theme-presets"');
+      expect(home).not.toContain("Palette: amber-terminal");
       // The tokens it starts from: as written, comments and indentation kept,
       // unlike the minified styles.
       const tokens = defined(/data-tokens="([^"]+)"/.exec(page)?.[1], "the tokens' address");

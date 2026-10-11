@@ -20,6 +20,18 @@ const form = element("#theme-form");
 const textarea = element("#theme-css");
 const previewToggle = element("#theme-preview");
 const state = element("#theme-state");
+const presets = JSON.parse(element("#theme-presets").textContent);
+
+element("#theme-preset-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-preset]");
+  if (!button) return;
+  try {
+    await copyText(presets[button.dataset.preset]);
+    status.success(`${button.dataset.preset} copied.`);
+  } catch (error) {
+    status.error(error.message);
+  }
+});
 
 // The editor takes the textarea into itself: where it goes, from before that.
 const parent = textarea.parentNode;

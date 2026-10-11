@@ -10,20 +10,29 @@ import { Page, type SiteView } from "./components/layout";
 export const renderThemePage = (site: SiteView) => {
   const tokens = site.manifest.files[TOKENS];
   if (!tokens) throw new Error("The bundle has no tokens.");
+  const presets = site.manifest.themes;
   return Page({
     site,
     title: "Theme · Kurobako",
     scripts: ["theme"],
+    data: { id: "theme-presets", value: presets },
     noIndex: true,
     children: (
       <>
         <h1 id="page-title">Theme</h1>
-        <p class="intro">
-          Your own colors, spacing and type for this site, on this device: the site's tokens below,
-          with their notes, shown here as you type. Saved, every other page uses them before it
-          shows.
-        </p>
+        <p class="intro">Your own colors, spacing and type for this site.</p>
         <p id="status" class="status" role="status" aria-live="polite" />
+        <section aria-labelledby="theme-presets-title">
+          <h2 id="theme-presets-title">Ready-made themes</h2>
+          <p class="hint">Click a CSS file to copy its contents.</p>
+          <div id="theme-preset-list" class="theme-preset-list">
+            {Object.keys(presets).map((name) => (
+              <button type="button" data-preset={name}>
+                {name}
+              </button>
+            ))}
+          </div>
+        </section>
         <form
           id="theme-form"
           class="stack"

@@ -41,7 +41,7 @@ const contentHash = (body: Uint8Array | string) =>
 
 export const bundle = async (): Promise<Bundle> => {
   const files = new Map<string, BuiltFile>();
-  const manifest: Manifest = { build: "", files: {} };
+  const manifest: Manifest = { build: "", themes: {}, files: {} };
 
   for (const [folder, kind, format, splitting] of [
     ["pages", "module", "esm", true],
@@ -123,6 +123,17 @@ export const bundle = async (): Promise<Bundle> => {
   files.set(tokensFile, { body: new TextEncoder().encode(tokens), type: "text/css;charset=utf-8" });
   manifest.files[TOKENS] = { file: tokensFile, kind: "style", preload: [] };
 
-  manifest.build = contentHash([...files.keys()].sort().join("\n"));
+  // Keep the palettes' original text for /k/theme. The manifest travels with
+  // the bundle, so both servers can put it into the HTML without a file read.
+  const themesDir = join(CLIENT_DIR, "styles", "themes");
+  for (const name of readdirSync(themesDir)
+    .filter((name) => name.endsWith(".css"))
+    .sort()) {
+    manifest.themes[name] = await Bun.file(join(themesDir, name)).text();
+  }
+
+  manifest.build = contentHash(
+    [...files.keys()].sort().join("\n") + JSON.stringify(manifest.themes),
+  );
   return { manifest, files };
 };

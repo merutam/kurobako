@@ -1400,9 +1400,12 @@ describe("rules kept in two places", () => {
       const value = new RegExp(`data-vector="${name}">([^<]*)<`).exec(page)?.[1];
       return defined(value, `the ${name} vector`).replaceAll("&quot;", '"');
     };
-    const typed = "  cafe\u0301 horse battery  ";
+    // Koma never leaves the box: whitespace JavaScript trims (U+3000, U+FEFF)
+    // and keeps (U+0085), a decomposed ば, half-width ﾑｹﾞﾝ, emoji with ZWJ.
+    const typed = "\u3000\uFEFF Koma never leaves くろは\u3099こ 🐈\u200D⬛📦 ﾑｹﾞﾝ♾\uFE0F\u0085 \t";
     const name = Buffer.from(vector("name"), "hex");
     expect(name.toString("utf8")).toBe(typed.normalize("NFC").trim());
+    expect(typed.normalize("NFC").trim().length).toBe(37);
 
     const secret = pbkdf2Sync(name, "kurobako/v4", 600_000, 32, "sha256");
     expect(secret.toString("hex")).toBe(vector("pbkdf2"));

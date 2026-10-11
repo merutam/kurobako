@@ -1,0 +1,90 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Kurobako contributors
+ * Palette: nordic-slate
+ * data-theme="dark"  -> dark
+ * data-theme="light" -> light
+ * data-theme="auto" or absent -> prefers-color-scheme
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: #202630;
+  --fg: #e0e5e9;
+  --dim: #adb9c5;
+  --muted: #8796a4;
+  --border: #424e5a;
+  --rule: #343f4b;
+  --panel: #29313c;
+  --chip: #35414d;
+  --accent: #8fc4d7;
+  --accent-hover: #b5deea;
+  --on-accent: #17242c;
+  --ok: #a7d2a0;
+  --err: #e9a69d;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 56px;
+  --gap: var(--space-4);
+  --gap-section: var(--space-7);
+
+  /* Typography */
+  --font:
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas,
+    "DejaVu Sans Mono", "Courier New", monospace;
+  --text-body: 15px;
+  --text-list: 14px;
+  --text-small: 13px;
+  --text-h2: 22px;
+  --text-h1: clamp(32px, 6vw, 48px);
+
+  /* Shapes and sizes */
+  --hit: 44px;
+  --col: 1120px;
+  --page-gutter: 20px;
+  --prose-width: 72ch;
+}
+
+/* Auto follows the operating-system preference. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+  color-scheme: light;
+  --bg: #edf1f4;
+  --fg: #202b35;
+  --dim: #485967;
+  --muted: #687987;
+  --border: #aebcc7;
+  --rule: #d0dbe2;
+  --panel: #e3eaf0;
+  --chip: #d7e2e9;
+  --accent: #235c79;
+  --accent-hover: #327495;
+  --on-accent: #ffffff;
+  --ok: #2e704a;
+  --err: #a53c40;
+  }
+}
+
+/* Explicit light overrides system preference. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #edf1f4;
+  --fg: #202b35;
+  --dim: #485967;
+  --muted: #687987;
+  --border: #aebcc7;
+  --rule: #d0dbe2;
+  --panel: #e3eaf0;
+  --chip: #d7e2e9;
+  --accent: #235c79;
+  --accent-hover: #327495;
+  --on-accent: #ffffff;
+  --ok: #2e704a;
+  --err: #a53c40;
+}
