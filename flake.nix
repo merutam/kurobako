@@ -168,11 +168,6 @@
               ];
             };
             cargoLock.lockFile = ./clients/ksync/Cargo.lock;
-            # aws-lc-rs, the cryptography under rustls, builds its C with these.
-            nativeBuildInputs = [
-              pkgs.cmake
-              pkgs.perl
-            ];
             meta = {
               description = "Keeps a Linux desktop's clipboard and a Kurobako namespace in step";
               license = lib.licenses.agpl3Plus;

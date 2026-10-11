@@ -1,0 +1,47 @@
+[package]
+name = "ksync"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.53.2", features = ["macros", "rt", "signal", "sync", "time"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider"]}
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["rustls-tls-webpki-roots", "connect"]}
+futures-util = "0.3.0"
+bytes = "1.12.1"
+# ring rather than aws-lc-rs, rustls's default: a third of the binary less.
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+
+serde = { version = "1.0.229", features = ["derive"]}
+serde_json = "1.0.151"
+toml = "1.1.6"
+
+directories = "6.0.0"
+
+thiserror = "2.0.21"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+
+x11-clipboard = "0.9.3"
+# Already under x11-clipboard: ksync owns the selection with it (see x11_owner.rs).
+x11rb = "0.13.2"
+wl-clipboard-rs = "0.9.4"
+
+# Crypto
+sha2 = "0.11.0"
+pbkdf2 = "0.13.0"
+hkdf = "0.13.0"
+aes-gcm = "0.11.1"
+aes-kw = "0.3.1"
+base64 = "0.23.1"
+rand = "0.10.3"
+unicode-normalization = "0.1.25"
+# 600 000 PBKDF2 rounds take seconds unoptimized: dependencies are built
+# optimized even in debug builds.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
