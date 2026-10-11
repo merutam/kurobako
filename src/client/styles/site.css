@@ -1,0 +1,9 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Kurobako contributors
+ */
+
+/* The stylesheet the build makes (src/client/build.ts): the tokens, then the
+   styles, minified into one file. Restyling starts in tokens.css. */
+@import "./tokens.css";
+@import "./styles.css";

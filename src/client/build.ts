@@ -6,7 +6,7 @@
 //   pages/<name>.js   a page's script, a module (src/pages/<name>.tsx loads it)
 //   head/<name>.js    a classic script, run in <head> before the first paint
 //                     (head/parts/ holds what they bundle)
-//   styles/           tokens.css then styles.css, as one file
+//   styles/           site.css: tokens.css then styles.css, as one minified file
 //
 // Each is named in the manifest by <name> ("namespace", "site", "styles").
 // Files are minified, named by their contents and come with source maps. Each
@@ -22,8 +22,6 @@ import { basename, join } from "node:path";
 import { type Manifest, STYLES } from "../assets";
 
 const CLIENT_DIR = import.meta.dir;
-/** The styles, in the order they apply. */
-const STYLE_FILES = ["tokens.css", "styles.css"];
 
 export type BuiltFile = { body: Uint8Array; type: string };
 export type Bundle = {
@@ -102,9 +100,19 @@ export const bundle = async (): Promise<Bundle> => {
     }
   }
 
-  const css = (
-    await Promise.all(STYLE_FILES.map((name) => Bun.file(join(CLIENT_DIR, "styles", name)).text()))
-  ).join("\n");
+  // Minified, without a source map, which Bun makes for scripts only: a
+  // browser's DevTools formats it to read, and minifying renames no variable,
+  // class or ID, so a theme still overrides tokens.css's variables.
+  const styles = await Bun.build({
+    entrypoints: [join(CLIENT_DIR, "styles", "site.css")],
+    minify: true,
+    // Addresses from where the file is served (the logo), not files to bundle.
+    external: ["*.png"],
+  });
+  if (!styles.success) throw new AggregateError(styles.logs, "The styles did not build.");
+  const built = styles.outputs.find((output) => output.path.endsWith(".css"));
+  if (!built) throw new Error("The styles built into no stylesheet.");
+  const css = await built.text();
   const cssFile = `styles-${contentHash(css)}.css`;
   files.set(cssFile, { body: new TextEncoder().encode(css), type: "text/css;charset=utf-8" });
   manifest.files[STYLES] = { file: cssFile, kind: "style", preload: [] };
