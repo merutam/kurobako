@@ -460,8 +460,11 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     }
     fileInput.files = renamed.files;
   };
+  /** The files listed, as the browser's picker is about to replace them. */
+  let picked = [];
   const showFiles = () => {
     normalizeFiles();
+    picked = [...fileInput.files];
     const files = [...fileInput.files];
     if (previewing) showPreview();
     fileList.hidden = files.length === 0;
@@ -521,7 +524,22 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     // Focus stays in the list, on the next file's button or the clear.
     fileList.querySelectorAll(".row-action")[Math.min(index, fileInput.files.length)]?.focus();
   };
-  fileInput.addEventListener("change", showFiles);
+  // The browser's picker, and a drop on the field, replace what was picked:
+  // what they bring is added instead (the list removes files one by one).
+  // The page's own changes (a paste, a removal) come untrusted and as they are.
+  const sameFile = (a, b) =>
+    a.size === b.size && a.lastModified === b.lastModified && sendName(a.name) === b.name;
+  fileInput.addEventListener("change", (event) => {
+    if (event.isTrusted && picked.length) {
+      const all = new DataTransfer();
+      for (const file of picked) all.items.add(file);
+      for (const file of fileInput.files) {
+        if (!picked.some((kept) => sameFile(file, kept))) all.items.add(file);
+      }
+      fileInput.files = all.files;
+    }
+    showFiles();
+  });
   const clearFiles = () => {
     fileInput.value = "";
     showFiles();
