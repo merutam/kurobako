@@ -89,7 +89,7 @@ export const renderSharedItemPage = (
   Page({
     site,
     title: "Shared item · Kurobako",
-    scripts: [{ path: "/item.js", module: true }],
+    scripts: ["item.js"],
     data: { id: "item-data", value: item ? sharedItem(item) : null },
     noIndex: true,
     children:

@@ -44,7 +44,7 @@ export const renderHomePage = (site: SiteView, config: AppConfig) => {
   return Page({
     site,
     title: "Kurobako",
-    scripts: [{ path: "/home.js", module: true }],
+    scripts: ["home.js"],
     config: true,
     children: (
       <>

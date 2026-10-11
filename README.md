@@ -350,10 +350,13 @@ bun pm version minor # new version, in package.json and public/k.mjs
 - `src/views/*.tsx` renders every page on the server with Hono JSX, data
   included: plain namespace, shared-item, view, log and admin pages arrive
   with their initial data; encrypted pages wait for decryption in the browser.
-  `public/` has browser scripts, styles and images. The protocol and the
-  licenses (`src/views/templates/`) never change, so on Cloudflare
-  `ops/pages.ts` renders them into `public/k/` at build time and they are
-  served as static assets, without the Worker.
+  `public/` has the browser's scripts and styles as source, and the icons.
+  They are bundled (`src/bun/bundle.ts`) into files named by their contents,
+  served at `/k/assets/` and cached for good; each page preloads every chunk
+  it needs. The Bun server bundles in memory when it starts; for Cloudflare,
+  `bun run build` (`ops/build.ts`, which Wrangler runs before `dev` and
+  `deploy`) writes `dist/`: the bundle, `sw.js`, `k.mjs`, the icons, and the
+  protocol and licenses pages, which never change and so need no Worker.
 - `test/shared.ts` runs on both platforms.
 - After changing `wrangler.jsonc`, run `bun run types`; after changing
   `assets/icon.png`, run `ops/icons.sh`.

@@ -13,6 +13,7 @@ import { CLOUDFLARE_LIMITS } from "../src/cloudflare/limits";
 import { HUB_NAME } from "../src/cloudflare/objects";
 import worker from "../src/cloudflare/worker";
 import { loadConfig } from "../src/config";
+import { ASSETS_PATH, FIXED_FILES, ICON_FILES, MANIFEST_FILE, type Manifest } from "../src/pages";
 import type { AccessLogEntry } from "../src/request-info";
 import { TEST_ADMIN_KEY } from "./admin-key";
 import { sharedTests } from "./shared";
@@ -348,18 +349,21 @@ describe("live updates", () => {
 
 describe("site", () => {
   test("leaves scripts and styles to Workers Static Assets", async () => {
-    // In production these never reach the Worker (run_worker_first); the
-    // Worker itself has no route for them.
-    expect((await call("/namespaces/index.js")).status).toBe(404);
-    for (const path of [
-      "namespaces/index.js",
-      "namespaces/item-list.js",
-      "components.js",
-      "styles.css",
-      "vendor/uqr.js",
-    ]) {
-      expect((await env.ASSETS.fetch(`https://assets.invalid/${path}`)).status).toBe(200);
+    // dist/ (ops/build.ts) has every file the manifest names, and the fixed
+    // ones; in production they never reach the Worker.
+    const manifest = (await (
+      await env.ASSETS.fetch(`https://assets.invalid${ASSETS_PATH}/${MANIFEST_FILE}`)
+    ).json()) as Manifest;
+    const files = Object.values(manifest.files).flatMap(({ file, preload }) => [file, ...preload]);
+    for (const file of new Set(files)) {
+      const response = await env.ASSETS.fetch(`https://assets.invalid${ASSETS_PATH}/${file}`);
+      expect(response.status, file).toBe(200);
     }
+    for (const path of [...FIXED_FILES, ...ICON_FILES]) {
+      expect((await env.ASSETS.fetch(`https://assets.invalid/${path}`)).status, path).toBe(200);
+    }
+    // The browser's sources are not served.
+    expect((await env.ASSETS.fetch("https://assets.invalid/common.js")).status).toBe(404);
   });
 
   test("serves system routes under /k and keeps that name from becoming a namespace", async () => {

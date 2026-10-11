@@ -25,10 +25,11 @@ export const element = (selector) => {
 };
 
 /**
- * The site's own path under its domain: "" at the root, or e.g. "/k". This
- * file is served at the site's root, so its own address tells.
+ * The site's own path under its domain: "" at the root, or e.g. "/k". Every
+ * page says it on its <html data-base>; scripts are bundled under /k/assets/,
+ * so their own address cannot tell. (Tests import this module with no page.)
  */
-export const SITE = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
+export const SITE = globalThis.document?.documentElement.dataset.base ?? "";
 
 /** Builds an element: el("td", { className: "x" }, "text", child). Null children are left out. */
 export const el = (tag, properties = {}, ...children) => {

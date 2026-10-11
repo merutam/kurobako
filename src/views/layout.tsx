@@ -2,11 +2,13 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import type { Child } from "hono/jsx";
+import { ASSETS_PATH, type Manifest, STYLES } from "../pages";
 import { Icon } from "./icons";
 
 export type SiteView = {
   basePath: string;
-  staticVersion: string;
+  /** The bundle's files (see src/pages.ts). */
+  manifest: Manifest;
   appVersion: string;
   publicConfig: unknown;
 };
@@ -14,8 +16,39 @@ export type SiteView = {
 /** Script data is raw HTML text, so escape < to prevent a closing script tag. */
 export const safeJson = (value: unknown) => JSON.stringify(value).replaceAll("<", "\\u003c");
 
-export const assetUrl = (site: SiteView, path: string) =>
-  `${site.basePath}${path}?v=${site.staticVersion}`;
+/** A bundled file's URL: named by its contents, so cached for good. */
+const assetUrl = (site: SiteView, file: string) => `${site.basePath}${ASSETS_PATH}/${file}`;
+
+/** An entry of the bundle (its source in public/, such as "home.js"). */
+const entryOf = (site: SiteView, entry: string) => {
+  const found = site.manifest.files[entry];
+  if (!found) throw new Error(`The bundle has no ${entry}.`);
+  return found;
+};
+
+/**
+ * A page's scripts, by their source in public/: classic ones run as they
+ * come, in <head>; modules come with every chunk they import, preloaded, so
+ * the browser fetches them all at once rather than one import after another.
+ */
+const Scripts = ({ site, entries }: { site: SiteView; entries: readonly string[] }) => {
+  const chunks = new Set(entries.flatMap((entry) => entryOf(site, entry).preload));
+  return (
+    <>
+      {entries.map((entry) => {
+        const { file, kind } = entryOf(site, entry);
+        return kind === "module" ? (
+          <script type="module" src={assetUrl(site, file)} />
+        ) : (
+          <script src={assetUrl(site, file)} />
+        );
+      })}
+      {[...chunks].map((file) => (
+        <link rel="modulepreload" href={assetUrl(site, file)} />
+      ))}
+    </>
+  );
+};
 
 export const Page = ({
   site,
@@ -30,7 +63,8 @@ export const Page = ({
 }: {
   site: SiteView;
   title: string;
-  scripts: ReadonlyArray<{ path: string; module?: boolean }>;
+  /** Entries of the bundle, by their source in public/ ("home.js"). */
+  scripts: readonly string[];
   config?: boolean;
   data?: { id: string; value: unknown };
   noIndex?: boolean;
@@ -40,25 +74,18 @@ export const Page = ({
 }) => {
   const { basePath } = site;
   return `<!doctype html>\n${String(
-    <html lang="en">
+    <html lang="en" data-base={basePath}>
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <link rel="stylesheet" href={assetUrl(site, "/tokens.css")} />
-        <link rel="stylesheet" href={assetUrl(site, "/styles.css")} />
-        <script src={assetUrl(site, "/theme.js")} />
-        <script src={assetUrl(site, "/scroll-top.js")} defer />
+        <link rel="stylesheet" href={assetUrl(site, entryOf(site, STYLES).file)} />
+        <script src={assetUrl(site, entryOf(site, "theme.js").file)} />
+        <script src={assetUrl(site, entryOf(site, "scroll-top.js").file)} defer />
         <link rel="icon" href={`${basePath}/favicon.ico`} sizes="any" />
         <link rel="apple-touch-icon" href={`${basePath}/apple-touch-icon.png`} />
         {noIndex ? <meta name="robots" content="noindex" /> : null}
         <title>{title}</title>
-        {scripts.map(({ path, module }) =>
-          module ? (
-            <script type="module" src={assetUrl(site, path)} />
-          ) : (
-            <script src={assetUrl(site, path)} />
-          ),
-        )}
+        <Scripts site={site} entries={scripts} />
         {config ? (
           <script
             type="application/json"
@@ -114,7 +141,7 @@ export const Page = ({
           </a>
         </footer>
         <button id="scroll-top" type="button" hidden>
-          ↑ Top
+          Top
         </button>
       </body>
     </html>,

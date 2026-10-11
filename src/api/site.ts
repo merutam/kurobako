@@ -15,7 +15,7 @@ const STATS_TTL_MS = 30_000;
 export const mountSite = (app: App, api: Api) => {
   const { page, pageView, hub, publicConfig, siteView, config } = api;
   // The same for every request: rendered once. On Cloudflare, the protocol and
-  // the licenses are usually answered by static assets instead (ops/pages.ts).
+  // the licenses are usually answered by static assets instead (ops/build.ts).
   const pages = {
     home: renderHomePage(siteView, config),
     protocol: renderProtocolPage(siteView),

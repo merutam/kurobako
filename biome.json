@@ -6,6 +6,7 @@
       "!clients",
       "!data",
       "!.wrangler",
+      "!dist",
       "!public/vendor",
       "!src/worker-configuration.d.ts"
     ]

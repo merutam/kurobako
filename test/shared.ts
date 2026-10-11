@@ -872,9 +872,9 @@ export const sharedTests = (harness: Harness) => {
       expect(alphaLog).toContain("203.0.113.42");
       expect(alphaLog).toContain("Itabirito, Minas Gerais, BR");
       expect(alphaLog).not.toContain("198.51.100.20");
-      expect(alphaLog).toContain(`href="/${alpha}">← Back to namespace</a>`);
+      expect(alphaLog).toContain(`href="/${alpha}">Back to namespace</a>`);
       expect(alphaLog).toContain('data-icon="json"');
-      expect(alphaLog).toContain('type="module" src="/log.js?');
+      expect(alphaLog).toMatch(/type="module" src="\/k\/assets\/log-[0-9a-z]+\.js"/);
       expect(alphaLog).not.toContain("<main data-loading>");
       expect(alphaLog).not.toContain('id="log-back-row" hidden');
       expect((await call("/log.json")).status).toBe(404);
@@ -1064,7 +1064,7 @@ export const sharedTests = (harness: Harness) => {
       expect(log).toContain("203.0.113.7");
       expect(log).toContain("encrypted namespace");
       expect(log).toContain('id="log-back-row" hidden');
-      expect(log).toContain('src="/log.js?');
+      expect(log).toMatch(/src="\/k\/assets\/log-[0-9a-z]+\.js"/);
       expect(log).not.toContain(`href="/e/${id}"`);
     });
   });
@@ -1589,13 +1589,21 @@ export const sharedTests = (harness: Harness) => {
   });
 
   describe("site", () => {
-    test("assembles pages: versioned scripts, footer and the embedded config", async () => {
+    test("assembles pages: bundled scripts, footer and the embedded config", async () => {
       const html = await (await call(`/${fresh()}`)).text();
-      const version = html.match(/\/namespaces\/index\.js\?v=([0-9a-f]+)/)?.[1];
-      expect(version).toBeDefined();
-      expect(html).not.toContain("%APP_VERSION%");
-      expect(html).not.toContain("%CONFIG%");
-      expect(html).toContain(`(build ${version})`);
+      // The page's script, named by its contents, and every chunk it imports
+      // preloaded at once.
+      const script = html.match(
+        /<script type="module" src="(\/k\/assets\/index-[0-9a-z]+\.js)"/,
+      )?.[1];
+      const response = await call(defined(script, "the namespace page's script"));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("javascript");
+      const chunks = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)];
+      expect(chunks.length).toBeGreaterThan(0);
+      for (const [, chunk] of chunks)
+        expect((await call(defined(chunk, "a chunk"))).status).toBe(200);
+      expect(html).toMatch(/\(build [0-9a-f]{12}\)/);
       expect(html.match(/<k-file-field>/g)).toHaveLength(2);
       expect(html).toContain('<select id="expires-in"></select>');
       expect(html).toContain('id="media-feed-list"');
@@ -1609,7 +1617,7 @@ export const sharedTests = (harness: Harness) => {
       expect(home).toContain('id="e2ee-help"');
       expect(home).toContain('id="e2ee-dialog" class="e2ee-dialog"');
       expect(home).toMatch(
-        /href="\/tokens\.css\?v=[0-9a-f]+"[\s\S]*href="\/styles\.css\?v=[0-9a-f]+"[\s\S]*src="\/theme\.js\?v=[0-9a-f]+"/,
+        /href="\/k\/assets\/styles-[0-9a-f]+\.css"[\s\S]*src="\/k\/assets\/theme-[0-9a-z]+\.js"/,
       );
       expect(home).toMatch(/id="random-name"[^>]*><svg[^>]*>/);
       expect(home).toMatch(/data-icon="json" href="\/stats\.json"><svg[^>]*>/);

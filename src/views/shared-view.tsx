@@ -16,7 +16,7 @@ export const renderSharedViewPage = (site: SiteView, view: ViewPageData) => {
   return Page({
     site,
     title: "Shared view · Kurobako",
-    scripts: [{ path: "/view.js", module: true }],
+    scripts: ["view.js"],
     config: true,
     data: { id: "view-data", value: view },
     noIndex: true,

@@ -19,7 +19,7 @@ export const renderNamespacePage = (
   return Page({
     site,
     title: plain ? `/${name} · Kurobako` : "Kurobako",
-    scripts: [{ path: "/access.js" }, { path: "/namespaces/index.js", module: true }],
+    scripts: ["access.js", "namespaces/index.js"],
     config: true,
     unlocking: !plain,
     children: (

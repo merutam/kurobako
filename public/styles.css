@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (C) 2026 Kurobako contributors
  */
-/* The site's styles, loaded after tokens.css by src/views/layout.tsx. */
+/* The site's styles, after tokens.css in the file the build makes of both. */
 
 /* --- Base ----------------------------------------------------------------- */
 
