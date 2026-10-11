@@ -662,7 +662,7 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 // ============================================================================
 
 /** This file's version, the same as the server it comes from (package.json). */
-export const VERSION = "0.8.12";
+export const VERSION = "0.8.13";
 /** The protocol this file speaks; a server says its own in /.well-known/kurobako. */
 export const PROTOCOL = 8;
 // Everything below only runs when this file is executed directly. It reads
@@ -697,7 +697,9 @@ takes the place of the namespace and k.mjs does the encryption:
   node k.mjs -X POST <site>/e#<name>/views     creates a read-only shared view
   node k.mjs <site>/e#<name>/views             lists its shared views
   node k.mjs <site>/i/<token>#<key>           a shared item
+  node k.mjs <site>/i/<token>#<key>/ls        its one item as a JSON list
   node k.mjs <site>/v/<token>#<view-key>      a shared view, one line per item
+  node k.mjs <site>/v/<token>#<view-key>/ls   its items as a JSON list
   node k.mjs <site>/e#<name>/1 | mpv -        contents stream as they arrive
   node k.mjs play <site>/e#<name>/1           plays it in mpv, seeking included
   node k.mjs serve <site>/e#<name>/1          a local address for any player
@@ -859,6 +861,15 @@ const parseArgs = (args) => {
   return link === null ? null : { link, options };
 };
 
+/** A shared link's fragment: its key, then optionally /ls or another path. */
+const splitSharedFragment = (fragment) => {
+  const decoded = decodeURIComponent(fragment);
+  const slash = decoded.indexOf("/");
+  return slash === -1
+    ? { keyText: decoded, suffix: "" }
+    : { keyText: decoded.slice(0, slash), suffix: decoded.slice(slash) };
+};
+
 /** A link as the site shows it; "https://" may be left out. */
 const parseLink = (text) => {
   // What is left of "$BOX/e#name" when BOX is empty.
@@ -883,20 +894,24 @@ const parseLink = (text) => {
   }
   const shared = /^((?:\/[^/]+)*)\/i\/([A-Za-z0-9_-]{14})(.*)$/.exec(url.pathname);
   if (shared && fragment) {
+    const key = splitSharedFragment(fragment);
+    if (shared[3] && key.suffix) throw new Error("Use one path, before or after #.");
     return {
       kind: "shared",
       base: `${url.origin}${shared[1]}/i/${shared[2]}`,
-      suffix: shared[3],
-      keyText: decodeURIComponent(fragment),
+      suffix: (key.suffix || shared[3] || "") + url.search,
+      keyText: key.keyText,
     };
   }
-  const view = /^((?:\/[^/]+)*)\/v\/([A-Za-z0-9_-]{14})(\.json)?$/.exec(url.pathname);
+  const view = /^((?:\/[^/]+)*)\/v\/([A-Za-z0-9_-]{14})(\.json|\/ls)?$/.exec(url.pathname);
   if (view) {
+    const key = splitSharedFragment(fragment);
+    if (view[3] && key.suffix) throw new Error("Use one path, before or after #.");
     return {
       kind: "view",
       base: `${url.origin}${view[1]}/v/${view[2]}`,
-      suffix: view[3] ?? "",
-      keyText: decodeURIComponent(fragment),
+      suffix: (key.suffix || view[3] || "") + url.search,
+      keyText: key.keyText,
     };
   }
   return { kind: "plain", url: `${url.origin}${url.pathname}${url.search}` };
@@ -2146,15 +2161,28 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
 // SECTION 20 - Shared item and read-only view routes
 // ============================================================================
 
-/** A shared encrypted item: /i/<token>#key and its /c, /d and .json. */
+/** A shared encrypted item: /i/<token>#key and its /c, /d, /ls and .json. */
 const sharedRequest = async ({ base, suffix, keyText }, options) => {
   if (options.method !== "GET") throw new Error("A shared item can only be read.");
   await requireProtocol(base);
   const item = await (await call(`${base}.json`)).json();
   const opened = await openSharedItem(keyText, item.metadata, item.size);
   if (suffix === ".json") return printJson(itemJson(item, opened.metadata));
+  const [path, query = ""] = suffix.split("?", 2);
+  const entry = {
+    item: { ...item, id: base.split("/").pop() },
+    opened,
+    contentUrl: `${base}/c`,
+  };
+  if (path === "/ls") {
+    return printJson(
+      await entriesJson([entry], {
+        summary: new URLSearchParams(query).has("summary"),
+        inlineLimit: await inlineLimitOf(`${base}/ls`),
+      }),
+    );
+  }
   if (!["", "/c", "/d"].includes(suffix)) throw new Error(`Unknown path "${suffix}".`);
-  const entry = { item, opened, contentUrl: `${base}/c` };
   return deliverEntry(entry, options, suffix ? suffix.slice(1) : base.split("/").pop());
 };
 
@@ -2178,6 +2206,15 @@ const viewRequest = async ({ base, suffix, keyText }, options) => {
       };
     }),
   );
+  const [path, query = ""] = suffix.split("?", 2);
+  if (path === "/ls") {
+    return printJson(
+      await entriesJson(entries, {
+        summary: new URLSearchParams(query).has("summary"),
+        inlineLimit: await inlineLimitOf(`${base}/ls`),
+      }),
+    );
+  }
   if (suffix === ".json") {
     return printJson({
       active: view.active,
@@ -2185,6 +2222,7 @@ const viewRequest = async ({ base, suffix, keyText }, options) => {
       items: await entriesJson(entries),
     });
   }
+  if (suffix) throw new Error(`Unknown path "${suffix}".`);
   if (options.remoteName) return saveAll(entries, options);
   return console.log(itemsTable(entries.map(tableJson)));
 };

@@ -235,6 +235,8 @@
   each share token as the item ID. <code>/i/&lt;token&gt;/ls</code> lists
   the one shared item. Both accept <code>?summary</code> and
   <code>?limit=1</code> like a namespace's <code>/ls</code>.
+  For encrypted links, <code>node k.mjs "$BOX/v/&lt;token&gt;#&lt;view-key&gt;/ls"</code>
+  prints the decrypted items as a JSON array.
 </p>
 
 <h3 id="cli">Command line: k.mjs</h3>

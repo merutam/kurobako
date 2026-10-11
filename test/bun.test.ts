@@ -395,6 +395,43 @@ describe("bun server", () => {
     expect((await k("-X", "POST", `${link}/1/s`)).trim()).toBe(url);
     expect(url).toMatch(/\/i\/[A-Za-z0-9_-]{14}#/);
     expect((await run([url])).out).toEqual(png);
+    expect(JSON.parse(await k(`${url}/ls`))).toMatchObject([{ kind: "image" }]);
+
+    const viewSpace = await openSealedSpace(`cli view ${crypto.randomUUID()}`);
+    const sealedViewItem = await viewSpace.sealItem(new TextEncoder().encode("view text"), {
+      kind: "text",
+      title: "view text",
+      size: 9,
+    });
+    const viewItem = await json<Item>(`/e/${viewSpace.id}/new`, {
+      method: "POST",
+      headers: {
+        "x-sealed-metadata": sealedViewItem.header,
+        "write-key": viewSpace.writeKey,
+      },
+      body: sealedViewItem.body,
+    });
+    const viewId = newViewId();
+    const view = await json<{ url: string }>(`/e/${viewSpace.id}/views`, {
+      method: "POST",
+      headers: { "write-key": viewSpace.writeKey },
+      body: JSON.stringify({
+        viewId,
+        previousToken: null,
+        entries: [
+          {
+            id: viewItem.id,
+            envelope: await viewSpace.sealViewEntry(viewId, sealedViewItem.keyText),
+          },
+        ],
+      }),
+    });
+    const viewLink = `${base}${view.url}#${await viewSpace.viewKey(viewId)}`;
+    expect(JSON.parse(await k(`${viewLink}/ls`))).toMatchObject([
+      { kind: "text", name: "view text", text: "view text" },
+    ]);
+    expect(JSON.parse(await k(`${viewLink}/ls?summary`))).toHaveLength(1);
+    expect(await k(viewLink)).toContain("view text");
 
     // -O on the bare link saves every item; DELETE removes one.
     const all = mkdtempSync(join(tmpdir(), "kurobako-all-"));
