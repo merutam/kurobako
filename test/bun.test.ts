@@ -660,6 +660,26 @@ describe("bun server", () => {
       (await json<{ entries: unknown[] }>(`${new URL(second.url).pathname}.json`)).entries,
     ).toHaveLength(3);
     expect((await k(`${link}/views`)).views).toHaveLength(2);
+
+    // Its items are found as a namespace's, decrypted with the view's key.
+    const raw = async (...args: string[]) => {
+      const child = Bun.spawn(["bun", script, ...args], { stdout: "pipe", stderr: "pipe" });
+      const [out, error] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      return { out, error };
+    };
+    expect((await raw(`${second.url}/1`)).out).toBe("three");
+    expect((await raw(`${second.url}/3/c`)).out).toBe("one");
+    const details = await k(`${second.url}/2.json`);
+    expect(details).toMatchObject({ position: 2, text: "two" });
+    expect(details.shareUrl).toMatch(/\/i\/[A-Za-z0-9_-]{14}#[A-Za-z0-9_-]{22}$/);
+    const shared = (await raw(`${second.url}/2/s`)).out.trim();
+    expect(shared).toBe(details.shareUrl);
+    expect((await raw(shared)).out).toBe("two");
+    expect((await raw(`${second.url}/9`)).error).toContain('No item "9" in this view.');
   });
 
   test("keeps items across a restart and deletes a namespace once it is empty", async () => {
@@ -879,6 +899,21 @@ describe("bun server", () => {
     );
     expect(played.code).toBe(0);
     expect(new Uint8Array(readFileSync(join(workDir, "played.bin")))).toEqual(media);
+
+    // An item of an encrypted view plays the same, by its position in the view.
+    const created = await run("-X", "POST", `${link}/views`);
+    const view = JSON.parse(new TextDecoder().decode(created.out)) as { url: string };
+    const fromView = await run(
+      "play",
+      "--player",
+      "bun",
+      `${view.url}/1`,
+      "--",
+      "player.mjs",
+      "from-view.bin",
+    );
+    expect(fromView.code).toBe(0);
+    expect(new Uint8Array(readFileSync(join(workDir, "from-view.bin")))).toEqual(media);
 
     // A player reads many times: an item deleted once read is refused, and kept.
     expect((await run("-H", "burn:1", "-d", "once", `${link}/new`)).code).toBe(0);

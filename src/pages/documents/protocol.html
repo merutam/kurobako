@@ -235,6 +235,9 @@
   each share token as the item ID. <code>/i/&lt;token&gt;/ls</code> lists
   the one shared item. Both accept <code>?summary</code> and
   <code>?limit=1</code> like a namespace's <code>/ls</code>.
+  A view's items are found as a namespace's: <code>$BOX/v/&lt;token&gt;/2</code>
+  is its second item, by position or by its share token, with
+  <code>/c</code>, <code>/d</code>, <code>.json</code> and <code>/s</code>.
   For encrypted links, <code>node k.mjs "$BOX/v/&lt;token&gt;#&lt;view-key&gt;/ls"</code>
   prints the decrypted items as a JSON array.
 </p>
@@ -722,6 +725,15 @@
     public share tokens as IDs. Encrypted entries also carry their
     <code>viewId</code> and <code>envelope</code>.
     <code>GET /i/&lt;token&gt;/ls</code> gives a one-item array.
+  </li>
+  <li>
+    <code>GET /v/&lt;token&gt;/&lt;item&gt;</code>, <code>/c</code> and
+    <code>/d</code> serve one entry's contents, <code>&lt;item&gt;</code>
+    being its position (1 is the first) or its share token;
+    <code>.json</code> gives it as <code>/ls</code> does, with its
+    <code>position</code> and <code>shareUrl</code>; <code>/s</code> its
+    share link as text. Encrypted contents stay sealed: the entry's
+    <code>envelope</code> holds its key.
   </li>
   <li>
     Encrypted: the link is <code>/v/&lt;token&gt;#&lt;base64url(view key)&gt;</code>,

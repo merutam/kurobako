@@ -1228,6 +1228,46 @@ export const sharedTests = (harness: Harness) => {
         .replaceAll("/", "_")
         .replace(/=+$/, "");
 
+    test("a view's items are found as a namespace's: by position or token", async () => {
+      const ns = fresh("view");
+      const first = await parse<Item>(sendText(ns, "one"));
+      const created = await json<{ url: string }>(`/${ns}/views`, {
+        method: "POST",
+        body: JSON.stringify({
+          viewId: viewId(),
+          previousToken: null,
+          entries: [{ id: first.id }],
+        }),
+      });
+      await sendText(ns, "two");
+      const listed = await json<Item[]>(`${created.url}/ls`);
+      const [newest, oldest] = listed.map(({ id }) => id);
+
+      expect(await (await call(`${created.url}/1`)).text()).toBe("two");
+      expect(await (await call(`${created.url}/2/c`)).text()).toBe("one");
+      expect(await (await call(`${created.url}/${newest}`)).text()).toBe("two");
+      const download = await call(`${created.url}/2/d`);
+      expect(download.headers.get("content-disposition")).toMatch(/^attachment/);
+      expect(await download.text()).toBe("one");
+
+      const details = await json<Item & { position: number; shareUrl: string }>(
+        `${created.url}/2.json`,
+      );
+      expect(details).toMatchObject({ id: oldest, position: 2, text: "one" });
+      expect(new URL(details.shareUrl).pathname).toBe(`/i/${oldest}`);
+      expect(await shareLink(`${created.url}/2/s`)).toBe(`/i/${oldest}`);
+      // Nothing that leads back to the namespace.
+      expect(JSON.stringify(details)).not.toContain(ns);
+      expect(JSON.stringify(details)).not.toContain(first.id);
+
+      expect((await call(`${created.url}/3`)).status).toBe(404);
+      // Another namespace's share link is not one of this view's items.
+      const other = fresh("view");
+      await sendText(other, "elsewhere");
+      const foreign = (await shareLink(`/${other}/1/s`)).split("/").pop();
+      expect((await call(`${created.url}/${foreign}`)).status).toBe(404);
+    });
+
     test("plain views follow sends, then freeze membership on rotation", async () => {
       const ns = fresh("view");
       const first = await parse<Item>(sendText(ns, "one"));

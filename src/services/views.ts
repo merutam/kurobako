@@ -2,7 +2,13 @@
 // Copyright (C) 2026 Kurobako contributors
 
 // /v/<token>: a read-only list the writer can rotate; each item has its own share link.
-import { SHARE_TOKEN_PATTERN, type StoredItem, sharedItem } from "../core/model";
+import {
+  type NamespaceRef,
+  objectName,
+  SHARE_TOKEN_PATTERN,
+  type StoredItem,
+  sharedItem,
+} from "../core/model";
 import type { ViewEntry } from "../core/namespace/views";
 import type { AccessEvent } from "../core/visits";
 import type { Deps } from "./deps";
@@ -70,5 +76,50 @@ export const createViews = ({
     return { viewId: view.viewId, active: view.active, createdAt: view.createdAt, entries };
   };
 
-  return { describe };
+  /**
+   * One entry, by position (1 is the first) or by its link's token, as a
+   * namespace finds its items. Only its own share link is made.
+   */
+  const entry = async (token: string, visitor: AccessEvent, selector: string) => {
+    if (!SHARE_TOKEN_PATTERN.test(token)) return null;
+    const ref = await hub().resolveView(token);
+    if (!ref) return null;
+    const view = await namespace(ref).viewContents(token, visitor);
+    if (!view) return null;
+    const entries = view.entries as { item: StoredItem; envelope?: string }[];
+    const index = /^[1-9]\d{0,5}$/.test(selector)
+      ? Number(selector) - 1
+      : await indexOfShare(entries, ref, selector);
+    const found = entries[index];
+    if (!found) return null;
+    const [shareToken] = await hub().createShares(ref, [
+      { id: found.item.id, expiresAt: found.item.expiresAt },
+    ]);
+    return {
+      ref,
+      itemId: found.item.id,
+      shareToken: shareToken as string,
+      position: index + 1,
+      viewId: view.viewId,
+      item: sharedItem(found.item),
+      envelope: found.envelope,
+    };
+  };
+
+  /** -1 unless the token is a share link of this view's own namespace and items. */
+  const indexOfShare = async (
+    entries: { item: StoredItem }[],
+    ref: NamespaceRef,
+    shareToken: string,
+  ) => {
+    if (!SHARE_TOKEN_PATTERN.test(shareToken)) return -1;
+    const share = (await hub().resolveShare(shareToken)) as {
+      ref: NamespaceRef;
+      itemId: string;
+    } | null;
+    if (!share || objectName(share.ref) !== objectName(ref)) return -1;
+    return entries.findIndex(({ item }) => item.id === share.itemId);
+  };
+
+  return { describe, entry };
 };

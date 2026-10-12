@@ -6,14 +6,23 @@ import { publicItem } from "../core/model";
 import { renderPage } from "../pages/components/layout";
 import { GoneViewPage, SharedViewPage } from "../pages/shared-view";
 import { createViews, parseViewRequest } from "../services/views";
-import { type Api, type AppEnv, jsonError, readLimited, writeVerifier } from "./context";
+import type { createContents } from "./contents";
+import {
+  type Api,
+  type AppContext,
+  type AppEnv,
+  jsonError,
+  readLimited,
+  writeVerifier,
+} from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
 
 const MAX_VIEW_BODY = 100_000;
+const ENTRY_GONE = "Not in this view.";
 
-export const viewRoutes = (api: Api) => {
+export const viewRoutes = (api: Api, { serveItem }: ReturnType<typeof createContents>) => {
   const app = new Hono<AppEnv>();
-  const { namespace, refuseWrite, config, visit, siteView, pageView } = api;
+  const { namespace, refuseWrite, config, visit, siteView, pageView, platform } = api;
   const views = createViews(api);
   for (const space of SPACES) {
     const { inNamespace } = namespaceOf(space);
@@ -79,6 +88,49 @@ export const viewRoutes = (api: Api) => {
         ...(extra.envelope ? { viewId: view.viewId } : {}),
       })),
     );
+  });
+
+  // As in a namespace: /v/<token>/<item>, its /c, /d, .json and /s, <item>
+  // being a position or the entry's own token.
+  const entryOf = (c: AppContext) =>
+    views.entry(
+      c.req.param("token") ?? "",
+      visit(c),
+      (c.req.param("item") ?? "").replace(/\.json$/, ""),
+    );
+
+  app.get("/v/:token/:item{.+\\.json}", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const found = await entryOf(c);
+    if (!found) return jsonError(c, 404, ENTRY_GONE);
+    return c.json({
+      id: found.shareToken,
+      ...found.item,
+      position: found.position,
+      shareUrl: `${platform.origin(c)}${config.basePath}/i/${found.shareToken}`,
+      envelope: found.envelope,
+      viewId: found.envelope ? found.viewId : undefined,
+    });
+  });
+
+  for (const [suffix, inline] of [
+    ["", true],
+    ["/c", true],
+    ["/d", false],
+  ] as const) {
+    app.get(`/v/:token/:item${suffix}`, async (c) => {
+      const found = await entryOf(c);
+      if (!found) return jsonError(c, 404, ENTRY_GONE);
+      // Named after the entry's token, as on its share link.
+      const response = await serveItem(c, found.ref, found.itemId, inline, () => found.shareToken);
+      return response ?? jsonError(c, 404, ENTRY_GONE);
+    });
+  }
+
+  app.on(["GET", "POST"], "/v/:token/:item/s", async (c) => {
+    const found = await entryOf(c);
+    if (!found) return jsonError(c, 404, ENTRY_GONE);
+    return c.text(`${platform.origin(c)}${config.basePath}/i/${found.shareToken}\n`);
   });
 
   app.get("/v/:token{.+\\.json}", async (c) => {

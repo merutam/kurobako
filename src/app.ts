@@ -83,7 +83,7 @@ export const createApp = (config: AppConfig, assets: WebAssets, platform: Platfo
   app.route("/", siteRoutes(api));
   if (config.adminKey) app.route("/", adminRoutes(api, config.adminKey));
   app.route("/", shareRoutes(api, contents));
-  app.route("/", viewRoutes(api));
+  app.route("/", viewRoutes(api, contents));
   app.route("/", archiveRoutes(api));
   app.route("/", namespaceRoutes(api, uploads));
   app.route("/", itemRoutes(api, contents, uploads));

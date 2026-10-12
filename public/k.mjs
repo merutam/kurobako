@@ -602,6 +602,7 @@ const HELP_SECTIONS = [
       ["<site>/e#<name>/views", "its shared views"],
       ["<site>/i/<token>#<key>", "a shared item; /ls for JSON"],
       ["<site>/v/<token>#<view-key>", "a shared view, one line per item; /ls for JSON"],
+      ["<site>/v/<token>#<view-key>/2", "one of its items, as in a namespace (/c, /d, .json, /s)"],
       ["<site>/e#/<token>", "an older read-only link: reads, cannot write"],
     ],
   ],
@@ -854,7 +855,7 @@ const parseLink = (text) => {
       keyText: key.keyText,
     };
   }
-  const view = /^((?:\/[^/]+)*)\/v\/([A-Za-z0-9_-]{14})(\.json|\/ls)?$/.exec(url.pathname);
+  const view = /^((?:\/[^/]+)*)\/v\/([A-Za-z0-9_-]{14})(.*)$/.exec(url.pathname);
   if (view) {
     const key = splitSharedFragment(fragment);
     if (view[3] && key.suffix) throw new Error("Use one path, before or after #.");
@@ -2044,9 +2045,8 @@ const sharedRequest = async ({ base, suffix, keyText }, options) => {
   return deliverEntry(entry, options, suffix ? suffix.slice(1) : base.split("/").pop());
 };
 
-const viewRequest = async ({ base, suffix, keyText }, options) => {
-  if (options.method !== "GET") throw new Error("A shared view can only be read.");
-  await requireProtocol(base);
+/** Every entry of a view, opened: encrypted ones with the key each envelope holds. */
+const openView = async (base, keyText) => {
   const view = await (await call(`${base}.json`)).json();
   const entries = await Promise.all(
     view.entries.map(async ({ url, item, envelope }, index) => {
@@ -2063,6 +2063,28 @@ const viewRequest = async ({ base, suffix, keyText }, options) => {
       };
     }),
   );
+  return { view, entries };
+};
+
+/** As in a namespace: a position (1 is the first) or the entry's own token. */
+const viewEntry = (entries, selector) => {
+  const entry = /^[1-9][0-9]*$/.test(selector)
+    ? entries[Number(selector) - 1]
+    : entries.find(({ item }) => item.id === selector);
+  if (!entry) throw new Error(`No item "${selector}" in this view.`);
+  return entry;
+};
+
+/** The entry's share link, with its key after the # when it is encrypted. */
+const viewEntryLink = (entry) => {
+  const link = entry.contentUrl.replace(/\/c$/, "");
+  return entry.opened.keyText ? `${link}#${entry.opened.keyText}` : link;
+};
+
+const viewRequest = async ({ base, suffix, keyText }, options) => {
+  if (options.method !== "GET") throw new Error("A shared view can only be read.");
+  await requireProtocol(base);
+  const { view, entries } = await openView(base, keyText);
   const [path, query = ""] = suffix.split("?", 2);
   if (path === "/ls") {
     return printJson(
@@ -2072,16 +2094,30 @@ const viewRequest = async ({ base, suffix, keyText }, options) => {
       }),
     );
   }
-  if (suffix === ".json") {
+  if (path === ".json") {
     return printJson({
       active: view.active,
       createdAt: view.createdAt,
       items: await entriesJson(entries),
     });
   }
-  if (suffix) throw new Error(`Unknown path "${suffix}".`);
-  if (options.remoteName) return saveAll(entries, options);
-  return console.log(itemsTable(entries.map(tableJson)));
+  if (path === "") {
+    if (options.remoteName) return saveAll(entries, options);
+    return console.log(itemsTable(entries.map(tableJson)));
+  }
+  const item = /^\/([^/]+?)(\.json|\/c|\/d|\/s)?$/.exec(path);
+  if (!item) throw new Error(`Unknown path "${path}". See: node k.mjs`);
+  const [, selector, rest = ""] = item;
+  const entry = viewEntry(entries, selector);
+  if (rest === ".json") {
+    return printJson({
+      ...(await entryJson(entry, { inlineLimit: await inlineLimitOf(`${base}/ls`) })),
+      position: entry.number,
+      shareUrl: viewEntryLink(entry),
+    });
+  }
+  if (rest === "/s") return console.log(viewEntryLink(entry));
+  return deliverEntry(entry, options, rest ? rest.slice(1) : selector);
 };
 
 // ============================================================================
@@ -2328,6 +2364,7 @@ const MEDIA_HELP_SECTIONS = [
     "Item links",
     [
       ["<site>/e#<name>/<item>", "an encrypted namespace's item"],
+      ["<site>/v/<token>#<view-key>/<item>", "an item of a shared view"],
       ["<site>/i/<token>#<key>", "a shared item"],
       ["<site>/<namespace>/<item>", "a plain namespace's item"],
     ],
@@ -2354,23 +2391,29 @@ const refuseLimited = (item) => {
   }
 };
 
+/** A plain item streams from the server as it is, ranges included. */
+const plainPlayable = (item, contentUrl) => {
+  refuseLimited(item);
+  return {
+    filename: item.filename ?? textDownloadName(item.name ?? "", item.id),
+    mime: item.mime ?? "application/octet-stream",
+    size: item.size,
+    fetchParts: (range) =>
+      call(contentUrl, range ? { headers: { Range: `bytes=${range.start}-${range.end}` } } : {}),
+  };
+};
+
 const playable = async (link) => {
   const target = parseLink(link);
-  if (target.kind === "view") throw new Error("Pick one item of the view: open its link first.");
 
   if (target.kind === "plain") {
     // By ID, which does not move when something is sent.
     const url = target.url.replace(/\/[cd]\/?$/, "").replace(/\/$/, "");
     const item = await (await call(`${url}.json`)).json();
-    refuseLimited(item);
-    const contentUrl = `${url.slice(0, url.lastIndexOf("/"))}/${encodeURIComponent(item.id)}`;
-    return {
-      filename: item.filename ?? textDownloadName(item.name ?? "", item.id),
-      mime: item.mime ?? "application/octet-stream",
-      size: item.size,
-      fetchParts: (range) =>
-        call(contentUrl, range ? { headers: { Range: `bytes=${range.start}-${range.end}` } } : {}),
-    };
+    return plainPlayable(
+      item,
+      `${url.slice(0, url.lastIndexOf("/"))}/${encodeURIComponent(item.id)}`,
+    );
   }
 
   let item;
@@ -2381,6 +2424,13 @@ const playable = async (link) => {
     item = await (await call(`${target.base}.json`)).json();
     opened = await openSharedItem(target.keyText, item.metadata, item.size);
     contentUrl = `${target.base}/c`;
+  } else if (target.kind === "view") {
+    const selector = /^\/([^/]+?)(?:\/[cd])?$/.exec(target.suffix.split("?")[0]);
+    if (!selector) throw new Error("serve and play take one item: <site>/v/<token>#<key>/<item>.");
+    await requireProtocol(target.base);
+    const entry = viewEntry((await openView(target.base, target.keyText)).entries, selector[1]);
+    if (!entry.opened.bodyKey) return plainPlayable(entry.item, entry.contentUrl);
+    ({ item, opened, contentUrl } = entry);
   } else {
     await requireProtocol(`${target.site}/e`);
     const { first, second, extra } = parseNamespacePath(target.path);
