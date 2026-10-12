@@ -51,7 +51,7 @@ import {
 } from "../src/client/shared/bundle.js";
 import { sealedFileLimit } from "../src/client/shared/limits.js";
 import { type AppConfig, loadConfig } from "../src/config";
-import { readArchive, writeArchive } from "../src/core/archive";
+import { archiveSize, entrySize, readArchive, writeArchive } from "../src/core/archive";
 import type { BlobStore } from "../src/core/host";
 import { detectMedia, safeFileName, safeMediaName } from "../src/core/media";
 import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/core/model";
@@ -2691,8 +2691,8 @@ describe("backups", () => {
       expect(manifest.next).toBe(next ?? undefined);
       parts.push(bytes);
       const items = manifest.namespaces.flatMap((ns) => ns.items.map((item) => [ns.name, item]));
-      const size = items.reduce((sum, [, item]) => sum + (item as { size: number }).size, 0);
-      expect(items.length === 1 || size <= 1000).toBe(true);
+      // The whole part, headers and manifest included: what a restore's request carries.
+      expect(items.length === 1 || bytes.byteLength <= 1000).toBe(true);
       for (const [ns, item] of items) {
         if (ours.has(ns as string)) seen.push(`${ns}/${(item as { id: string }).id}`);
       }
@@ -2744,6 +2744,29 @@ describe("backups", () => {
     expect((await from(`/${first}/zip?max=none`)).status).toBe(400);
     expect((await from(`/${first}/zip?max=10&after=garbage`)).status).toBe(400);
   });
+
+  for (const format of ["zip", "tar"] as const) {
+    test(`a ${format} part never outgrows max, however small its items`, async () => {
+      const ns = fresh();
+      for (let index = 0; index < 10; index += 1) await from(`/${ns}/new`, text(`small ${index}`));
+      const max = 5_000;
+      const seen: string[] = [];
+      let after = "";
+      for (let round = 0; round < 20; round += 1) {
+        const response = await from(`/${ns}/${format}?max=${max}${after ? `&after=${after}` : ""}`);
+        const { bytes, manifest } = await unpack(response);
+        const items = manifest.namespaces.flatMap((entry) => entry.items);
+        expect(bytes.byteLength).toBeLessThanOrEqual(max);
+        expect(items.length).toBeGreaterThan(0);
+        seen.push(...items.map((item) => item.id));
+        const next = response.headers.get("x-kurobako-next");
+        if (!next) break;
+        after = next;
+      }
+      expect(seen).toHaveLength(10);
+      expect(new Set(seen).size).toBe(10);
+    });
+  }
 
   test("items sent in the same millisecond keep their order, through restore and export", async () => {
     const ns = fresh();
@@ -2866,6 +2889,36 @@ describe("backups", () => {
 });
 
 /** MAX_STORAGE_BYTES: every item together, across namespaces, stays under it. */
+describe("archive sizes", () => {
+  const at = new Date("2026-10-12T10:11:12Z");
+  const entry = (path: string, size: number) => ({
+    path,
+    size,
+    modified: at,
+    open: async () => new Blob([new Uint8Array(size).fill(7)]).stream(),
+  });
+  const entries = [
+    entry("manifest.json", 1234),
+    entry("plain/ns/empty.txt", 0),
+    entry("plain/ns/block.bin", 512),
+    entry("plain/ns/çãé 日本語.txt", 77),
+    entry(`plain/ns/${"x".repeat(150)}.bin`, 1000),
+  ];
+
+  for (const format of ["zip", "tar"] as const) {
+    test(`${format}: archiveSize and entrySize are what writeArchive writes`, async () => {
+      const written = (await new Response(writeArchive(format, entries)).arrayBuffer()).byteLength;
+      expect(archiveSize(format, entries)).toBe(written);
+      const [first, ...rest] = entries;
+      const incremental = rest.reduce(
+        (sum, next) => sum + entrySize(format, next),
+        archiveSize(format, [defined(first, "a first entry")]),
+      );
+      expect(incremental).toBe(written);
+    });
+  }
+});
+
 describe("a storage limit", () => {
   const dir = mkdtempSync(join(tmpdir(), "kurobako-storage-"));
   let limited: Awaited<ReturnType<typeof startServer>>;

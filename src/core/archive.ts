@@ -90,139 +90,87 @@ async function* entryBytes(entry: ArchiveEntry, each?: (chunk: Uint8Array) => vo
   if (total !== entry.size) throw new Error(`${entry.path} is shorter than it said.`);
 }
 
-async function* zipChunks(entries: ArchiveEntry[]): AsyncGenerator<Uint8Array> {
-  const central: Uint8Array[] = [];
-  let offset = 0;
-  const emit = (bytes: Uint8Array) => {
-    offset += bytes.byteLength;
-    return bytes;
-  };
+/** Zip's 32-bit fields stop at 4 GiB, for sizes and offsets alike. */
+type ZipPlace = { start: number; big: boolean };
+const zipPlace = (size: number, start: number): ZipPlace => ({
+  start,
+  big: size >= MAX_U32 || start >= MAX_U32,
+});
 
-  for (const [index, entry] of entries.entries()) {
-    const name = encoder.encode(entry.path);
-    const { time, date } = dosTime(entry.modified);
-    const start = offset;
-    const big = entry.size >= MAX_U32 || start >= MAX_U32;
-    // The first entry (the manifest) is small and written with its CRC up
-    // front, so a reader learns its size from its own header. The others
-    // carry theirs in a descriptor after the data (flag bit 3).
-    const known = index === 0 && !big;
-    let crc = 0;
-    let buffered: Uint8Array | null = null;
-    if (known) {
-      const chunks: Uint8Array[] = [];
-      for await (const chunk of entryBytes(entry)) chunks.push(chunk);
-      buffered = new Uint8Array(entry.size);
-      let at = 0;
-      for (const chunk of chunks) {
-        buffered.set(chunk, at);
-        at += chunk.byteLength;
-      }
-      crc = crc32(0, buffered);
-    }
-    // Bit 11: the name is UTF-8.
-    const flags = known ? 0x0800 : 0x0808;
-    const zip64Extra = big
-      ? new Fields().u16(0x0001).u16(16).u64(0).u64(0).done()
-      : new Uint8Array();
-    yield emit(
-      new Fields()
-        .u32(0x04034b50)
-        .u16(big ? 45 : 20)
-        .u16(flags)
-        .u16(0)
-        .u16(time)
-        .u16(date)
-        .u32(crc)
-        .u32(big ? MAX_U32 : known ? entry.size : 0)
-        .u32(big ? MAX_U32 : known ? entry.size : 0)
-        .u16(name.byteLength)
-        .u16(zip64Extra.byteLength)
-        .bytes(name)
-        .bytes(zip64Extra)
-        .done(),
-    );
-    if (buffered) {
-      yield emit(buffered);
-    } else {
-      for await (const chunk of entryBytes(entry, (value) => (crc = crc32(crc, value)))) {
-        yield emit(chunk);
-      }
-      const descriptor = new Fields().u32(0x08074b50).u32(crc);
-      yield emit(
-        (big
-          ? descriptor.u64(entry.size).u64(entry.size)
-          : descriptor.u32(entry.size).u32(entry.size)
-        ).done(),
-      );
-    }
+/**
+ * `known`: only the manifest has its CRC up front, so a reader learns every
+ * other entry's size from it without seeking. Flag bit 11: UTF-8 names.
+ */
+const zipLocalHeader = (
+  entry: Pick<ArchiveEntry, "path" | "size" | "modified">,
+  { big }: ZipPlace,
+  known: boolean,
+  crc: number,
+) => {
+  const name = encoder.encode(entry.path);
+  const { time, date } = dosTime(entry.modified);
+  const zip64Extra = big ? new Fields().u16(0x0001).u16(16).u64(0).u64(0).done() : new Uint8Array();
+  const size = big ? MAX_U32 : known ? entry.size : 0;
+  return new Fields()
+    .u32(0x04034b50)
+    .u16(big ? 45 : 20)
+    .u16(known ? 0x0800 : 0x0808)
+    .u16(0)
+    .u16(time)
+    .u16(date)
+    .u32(crc)
+    .u32(size)
+    .u32(size)
+    .u16(name.byteLength)
+    .u16(zip64Extra.byteLength)
+    .bytes(name)
+    .bytes(zip64Extra)
+    .done();
+};
 
-    // Its central directory record, with the real CRC and sizes.
-    const extra = new Fields();
-    if (big) {
-      extra.u16(0x0001).u16(24).u64(entry.size).u64(entry.size).u64(start);
-    }
-    const extraBytes = extra.done();
-    central.push(
-      new Fields()
-        .u32(0x02014b50)
-        .u16(45)
-        .u16(big ? 45 : 20)
-        .u16(flags)
-        .u16(0)
-        .u16(time)
-        .u16(date)
-        .u32(crc)
-        .u32(big ? MAX_U32 : entry.size)
-        .u32(big ? MAX_U32 : entry.size)
-        .u16(name.byteLength)
-        .u16(extraBytes.byteLength)
-        .u16(0)
-        .u16(0)
-        .u16(0)
-        .u32(0)
-        .u32(big ? MAX_U32 : start)
-        .bytes(name)
-        .bytes(extraBytes)
-        .done(),
-    );
-  }
+/** Streamed entries only know their CRC once written. */
+const zipDescriptor = (size: number, { big }: ZipPlace, crc: number) => {
+  const descriptor = new Fields().u32(0x08074b50).u32(crc);
+  return (big ? descriptor.u64(size).u64(size) : descriptor.u32(size).u32(size)).done();
+};
 
-  const centralStart = offset;
-  for (const record of central) yield emit(record);
-  const centralSize = offset - centralStart;
-  const count = entries.length;
-  if (count >= MAX_U16 || centralStart >= MAX_U32 || centralSize >= MAX_U32) {
-    const zip64End = offset;
-    yield emit(
-      new Fields()
-        .u32(0x06064b50)
-        .u64(44)
-        .u16(45)
-        .u16(45)
-        .u32(0)
-        .u32(0)
-        .u64(count)
-        .u64(count)
-        .u64(centralSize)
-        .u64(centralStart)
-        .done(),
-    );
-    yield emit(new Fields().u32(0x07064b50).u32(0).u64(zip64End).u32(1).done());
-    yield emit(
-      new Fields()
-        .u32(0x06054b50)
-        .u16(0)
-        .u16(0)
-        .u16(MAX_U16)
-        .u16(MAX_U16)
-        .u32(MAX_U32)
-        .u32(MAX_U32)
-        .u16(0)
-        .done(),
-    );
-  } else {
-    yield emit(
+const zipCentralRecord = (
+  entry: Pick<ArchiveEntry, "path" | "size" | "modified">,
+  { start, big }: ZipPlace,
+  known: boolean,
+  crc: number,
+) => {
+  const name = encoder.encode(entry.path);
+  const { time, date } = dosTime(entry.modified);
+  const extra = big
+    ? new Fields().u16(0x0001).u16(24).u64(entry.size).u64(entry.size).u64(start).done()
+    : new Uint8Array();
+  return new Fields()
+    .u32(0x02014b50)
+    .u16(45)
+    .u16(big ? 45 : 20)
+    .u16(known ? 0x0800 : 0x0808)
+    .u16(0)
+    .u16(time)
+    .u16(date)
+    .u32(crc)
+    .u32(big ? MAX_U32 : entry.size)
+    .u32(big ? MAX_U32 : entry.size)
+    .u16(name.byteLength)
+    .u16(extra.byteLength)
+    .u16(0)
+    .u16(0)
+    .u16(0)
+    .u32(0)
+    .u32(big ? MAX_U32 : start)
+    .bytes(name)
+    .bytes(extra)
+    .done();
+};
+
+const zipEnd = (count: number, centralStart: number, centralSize: number): Uint8Array[] => {
+  if (count < MAX_U16 && centralStart < MAX_U32 && centralSize < MAX_U32) {
+    return [
       new Fields()
         .u32(0x06054b50)
         .u16(0)
@@ -233,7 +181,79 @@ async function* zipChunks(entries: ArchiveEntry[]): AsyncGenerator<Uint8Array> {
         .u32(centralStart)
         .u16(0)
         .done(),
-    );
+    ];
+  }
+  const zip64End = centralStart + centralSize;
+  return [
+    new Fields()
+      .u32(0x06064b50)
+      .u64(44)
+      .u16(45)
+      .u16(45)
+      .u32(0)
+      .u32(0)
+      .u64(count)
+      .u64(count)
+      .u64(centralSize)
+      .u64(centralStart)
+      .done(),
+    new Fields().u32(0x07064b50).u32(0).u64(zip64End).u32(1).done(),
+    new Fields()
+      .u32(0x06054b50)
+      .u16(0)
+      .u16(0)
+      .u16(MAX_U16)
+      .u16(MAX_U16)
+      .u32(MAX_U32)
+      .u32(MAX_U32)
+      .u16(0)
+      .done(),
+  ];
+};
+
+const concat = (chunks: Uint8Array[], size: number) => {
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return out;
+};
+
+async function* zipChunks(entries: ArchiveEntry[]): AsyncGenerator<Uint8Array> {
+  const central: Uint8Array[] = [];
+  let offset = 0;
+  const emit = (bytes: Uint8Array) => {
+    offset += bytes.byteLength;
+    return bytes;
+  };
+
+  for (const [index, entry] of entries.entries()) {
+    const place = zipPlace(entry.size, offset);
+    const known = index === 0 && !place.big;
+    let crc = 0;
+    if (known) {
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of entryBytes(entry)) chunks.push(chunk);
+      const buffered = concat(chunks, entry.size);
+      crc = crc32(0, buffered);
+      yield emit(zipLocalHeader(entry, place, known, crc));
+      yield emit(buffered);
+    } else {
+      yield emit(zipLocalHeader(entry, place, known, 0));
+      for await (const chunk of entryBytes(entry, (value) => (crc = crc32(crc, value)))) {
+        yield emit(chunk);
+      }
+      yield emit(zipDescriptor(entry.size, place, crc));
+    }
+    central.push(zipCentralRecord(entry, place, known, crc));
+  }
+
+  const centralStart = offset;
+  for (const record of central) yield emit(record);
+  for (const record of zipEnd(entries.length, centralStart, offset - centralStart)) {
+    yield emit(record);
   }
 }
 
@@ -273,28 +293,85 @@ const paxRecord = (key: string, value: string) => {
 
 const padding = (size: number) => new Uint8Array((TAR_BLOCK - (size % TAR_BLOCK)) % TAR_BLOCK);
 
+/** ustar holds only short ASCII names and sizes under 8 GiB: pax carries the rest. */
+const tarEntryHead = (entry: Pick<ArchiveEntry, "path" | "size" | "modified">): Uint8Array[] => {
+  const plain = /^[\x20-\x7e]{1,99}$/.test(entry.path);
+  const huge = entry.size > TAR_MAX_SIZE;
+  const header = (name: string) => tarHeader(name, huge ? 0 : entry.size, entry.modified, "0");
+  if (plain && !huge) return [header(entry.path)];
+  const records = encoder.encode(
+    (plain ? "" : paxRecord("path", entry.path)) +
+      (huge ? paxRecord("size", String(entry.size)) : ""),
+  );
+  const name = plain ? entry.path : entry.path.replace(/[^\x20-\x7e]/g, "_").slice(-99);
+  return [
+    tarHeader("PaxHeader", records.byteLength, entry.modified, "x"),
+    records,
+    padding(records.byteLength),
+    header(name),
+  ];
+};
+
+const TAR_END = TAR_BLOCK * 2;
+
 async function* tarChunks(entries: ArchiveEntry[]): AsyncGenerator<Uint8Array> {
   for (const entry of entries) {
-    // ustar holds short ASCII names and sizes below 8 GiB; pax the rest.
-    const plain = /^[\x20-\x7e]{1,99}$/.test(entry.path);
-    const huge = entry.size > TAR_MAX_SIZE;
-    let name = entry.path;
-    if (!plain || huge) {
-      const records = encoder.encode(
-        (plain ? "" : paxRecord("path", entry.path)) +
-          (huge ? paxRecord("size", String(entry.size)) : ""),
-      );
-      yield tarHeader("PaxHeader", records.byteLength, entry.modified, "x");
-      yield records;
-      yield padding(records.byteLength);
-      if (!plain) name = entry.path.replace(/[^\x20-\x7e]/g, "_").slice(-99);
-    }
-    yield tarHeader(name, huge ? 0 : entry.size, entry.modified, "0");
+    yield* tarEntryHead(entry);
     yield* entryBytes(entry);
     yield padding(entry.size);
   }
-  yield new Uint8Array(TAR_BLOCK * 2);
+  yield new Uint8Array(TAR_END);
 }
+
+// --- Sizes --------------------------------------------------------------------
+
+export type SizedEntry = { path: string; size: number };
+
+const byteLength = (chunks: Uint8Array[]) =>
+  chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+
+/** Dates never change a header's length. */
+const ANY_TIME = new Date(0);
+
+/**
+ * Exact, from the writer's own headers, so a backup part can be held under a
+ * request limit before it is written.
+ */
+export const archiveSize = (format: ArchiveFormat, entries: readonly SizedEntry[]) => {
+  const sized = entries.map((entry) => ({ ...entry, modified: ANY_TIME }));
+  if (format === "tar") {
+    const heads = sized.map((entry) => byteLength(tarEntryHead(entry)));
+    const bodies = sized.map((entry) => entry.size + padding(entry.size).byteLength);
+    return [...heads, ...bodies].reduce((sum, bytes) => sum + bytes, 0) + TAR_END;
+  }
+  let offset = 0;
+  let central = 0;
+  for (const [index, entry] of sized.entries()) {
+    const place = zipPlace(entry.size, offset);
+    const known = index === 0 && !place.big;
+    offset +=
+      zipLocalHeader(entry, place, known, 0).byteLength +
+      entry.size +
+      (known ? 0 : zipDescriptor(entry.size, place, 0).byteLength);
+    central += zipCentralRecord(entry, place, known, 0).byteLength;
+  }
+  return offset + central + byteLength(zipEnd(sized.length, offset, central));
+};
+
+/** archiveSize one entry at a time, for parts with thousands of items; exact under 4 GiB. */
+export const entrySize = (format: ArchiveFormat, entry: SizedEntry) => {
+  const sized = { ...entry, modified: ANY_TIME };
+  if (format === "tar") {
+    return byteLength(tarEntryHead(sized)) + entry.size + padding(entry.size).byteLength;
+  }
+  const place = zipPlace(entry.size, 0);
+  return (
+    zipLocalHeader(sized, place, false, 0).byteLength +
+    entry.size +
+    zipDescriptor(entry.size, place, 0).byteLength +
+    zipCentralRecord(sized, place, false, 0).byteLength
+  );
+};
 
 /** An archive of `entries`, generated as it is read. */
 export const writeArchive = (format: ArchiveFormat, entries: ArchiveEntry[]) => {

@@ -129,14 +129,16 @@ reading are left out.
 
 A backup also comes in parts, each a whole backup of its own items, for
 anything with a request size limit (Cloudflare takes 100 MB per request):
-`?max=<bytes>` stops a part at about that size, and its `X-Kurobako-Next`
-header, given back as `?after=`, starts the next one. The last part has none:
+`?max=<bytes>` keeps each part within that size, headers and manifest
+included (an item larger than that still goes, alone in its part), and its
+`X-Kurobako-Next` header, given back as `?after=`, starts the next one. The
+last part has none:
 
 ```sh
 next=
 while :; do
   curl -fsS -OJ -D head -H "Authorization: Bearer $ADMIN_KEY" \
-    "$BOX/k/a/zip?max=90000000&after=$next" || break
+    "$BOX/k/a/zip?max=99000000&after=$next" || break
   next=$(sed -n 's/^x-kurobako-next: *//Ip' head | tr -d '\r')
   [ -n "$next" ] || break
 done
