@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import type { Context } from "hono";
+import { type Context, Hono } from "hono";
 import { getCookie } from "hono/cookie";
+import { createMiddleware } from "hono/factory";
 import { ADMIN_PATH } from "../core/routing";
 import { renderAdminPage } from "../pages/admin";
-import { type Api, type App, jsonError } from "./context";
+import { type Api, type AppEnv, jsonError } from "./context";
 import { hasBearer, loginWith, logoutOf, type SessionCookie, signedSessions } from "./session";
 
 const SESSION_COOKIE = "kurobako_admin";
@@ -25,14 +26,11 @@ const pageQuery = (c: Context) => ({
 });
 
 /**
- * Mounts the dashboard at /a. Its JSON needs a session cookie (set by logging
- * in with the key) or `Authorization: Bearer <key>` for scripts. The key never
- * travels in a URL. Sessions are signed with the key, so they hold on every
- * server sharing it. Failed logins are counted in the hub of the server that
- * gets them (behind src/runtime/bun/router.ts, always the first).
+ * The dashboard's session: a cookie set by logging in with the key, or
+ * `Authorization: Bearer <key>` for scripts. The key never travels in a URL.
+ * Sessions are signed with the key, so they hold on every server sharing it.
  */
-export const mountAdmin = (app: App, api: Api, key: string) => {
-  const { hub, page, platform, appVersion, siteView } = api;
+const adminSession = (api: Api, key: string) => {
   const sessions = signedSessions(key, "admin-session");
   // Sent to the admin's routes only, under the site's base path.
   const cookie: SessionCookie = {
@@ -42,16 +40,32 @@ export const mountAdmin = (app: App, api: Api, key: string) => {
     ms: api.config.adminSessionHours * 3_600_000,
   };
   const hasSession = (c: Context) => sessions.valid(getCookie(c, SESSION_COOKIE));
+  return { sessions, cookie, hasSession };
+};
 
-  // Registered before the routes below so it guards all of them; the page
-  // itself and the login are open.
+/**
+ * Guards everything under /a, including the instance's backups (archives.ts);
+ * the page itself and the login are open.
+ */
+export const adminGuard = (api: Api, key: string) => {
+  const { hasSession } = adminSession(api, key);
   const OPEN_PATHS = new Set([ADMIN_PATH, `${ADMIN_PATH}/`, `${ADMIN_PATH}/login`]);
-  app.use(`${ADMIN_PATH}/*`, async (c, next) => {
+  return createMiddleware<AppEnv>(async (c, next) => {
     if (OPEN_PATHS.has(c.req.path)) return next();
     c.header("Cache-Control", "no-store");
     if (hasSession(c) || hasBearer(c, key)) return next();
     return jsonError(c, 401, "Unauthorized.");
   });
+};
+
+/**
+ * The dashboard at /a. Failed logins are counted in the hub of the server
+ * that gets them (behind src/runtime/bun/router.ts, always the first).
+ */
+export const adminRoutes = (api: Api, key: string) => {
+  const app = new Hono<AppEnv>();
+  const { hub, page, platform, appVersion, siteView } = api;
+  const { sessions, cookie, hasSession } = adminSession(api, key);
 
   const overview = async (c: Context) => {
     return {
@@ -85,4 +99,5 @@ export const mountAdmin = (app: App, api: Api, key: string) => {
 
   app.get(`${ADMIN_PATH}/overview`, async (c) => c.json(await overview(c)));
   app.get(`${ADMIN_PATH}/namespaces`, async (c) => c.json(await namespacesPage(c)));
+  return app;
 };

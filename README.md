@@ -360,7 +360,9 @@ src/
     hub.ts            site-wide state: stats, share links, logins
     model.ts          items and names; archive.ts, media.ts, routing.ts, …
     host.ts           what the cores need from where they run (SQL, a blob store)
-  api/                the HTTP routes, one file per kind of thing
+  api/                the HTTP routes, one file per kind of thing: each gives a Hono
+                      app (xRoutes) or a middleware, put together in app.ts
+  services/           what the routes do, with no HTTP in it: backups, sends, shares, …
   pages/              the pages, rendered on the server with Hono JSX
     components/       the layout and the pieces pages share
     documents/        the protocol and the licenses
@@ -378,11 +380,14 @@ test/                 shared.ts runs against both runtimes
 ```
 
 A request goes from `runtime/<platform>` to `app.ts`, then to a route in
-`api/`, which asks a core through the platform (a Durable Object on
+`api/`. The route reads the request (path, query, headers, body), asks a
+service in `services/` or a core through the platform (a Durable Object on
 Cloudflare, an object in the same process on Bun) and answers with JSON or a
-page from `pages/`. Pages arrive with their data; their script takes over the
-HTML as it is. Only encrypted contents wait for the browser, which holds the
-key.
+page from `pages/`. A service never sees the request: it takes plain values
+and gives back data, so status codes and headers stay in `api/`.
+
+Pages arrive with their data; their script takes over the HTML as it is.
+Only encrypted contents wait for the browser, which holds the key.
 
 The browser's code is bundled into files named by their contents, served at
 `/k/assets/` and cached for good; each page preloads the chunks it imports,

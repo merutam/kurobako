@@ -1,65 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Receiving items: small texts stay in SQLite; files and larger texts stream
-// to the blob store.
-import { createHash } from "node:crypto";
-import { BUNDLE_MIME, isBundle } from "../client/shared/bundle.js";
-import { detectMedia, SIGNATURE_BYTES, safeFileName, safeMediaName } from "../core/media";
+// Receiving items: a send's or an edit's headers and body, and the answer.
+// Keeping the contents is services/items.ts.
+import { SIGNATURE_BYTES, safeFileName } from "../core/media";
 import {
   type NamespaceRef,
   publicItem,
   SEALED_METADATA_PATTERN,
-  type StoredItem,
   TEXT_PREVIEW_CHARS,
 } from "../core/model";
-import type { ItemRef, Saved, SaveInput } from "../core/namespace";
+import type { ItemRef, Saved } from "../core/namespace";
+import {
+  createItems,
+  describePlainFile,
+  type EditOptions,
+  InvalidUtf8Error,
+  peek,
+  type ReplaceResult,
+  type SendOptions,
+  sha256Of,
+  strictUtf8,
+  type Upload,
+  validatedText,
+} from "../services/items";
 import { type Api, type AppContext, jsonError, readLimited, writeVerifier } from "./context";
-
-/** A file-backed item before its bytes are in the blob store. */
-export type ObjectInput = DistributiveOmit<
-  Extract<SaveInput, { object: string }>,
-  "object" | "size"
->;
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 const BURN_HEADER_VALUES = new Set(["1", "true", "yes"]);
 const MAX_EXPIRES_IN_SECONDS = 30 * 24 * 60 * 60;
 const MAX_READS = 1_000_000;
 /** Request types stored as text: what the page sends, and what `curl -d` sends. */
 const TEXT_TYPES = new Set(["text/plain", "application/x-www-form-urlencoded"]);
-export const TEXT_MIME = "text/plain; charset=utf-8";
-
-export class InvalidUtf8Error extends Error {}
-
-/** A decoder that refuses anything but UTF-8, as texts must be (a new one each time: it keeps state). */
-export const strictUtf8 = () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
-
-/** Where an item's contents go in the blob store: never shown, never reused. */
-export const objectKey = (ref: NamespaceRef) => `${ref.space}/${ref.name}/${crypto.randomUUID()}`;
-
-/** SHA-256 of bytes, as the server keeps it to spot the same contents sent again. */
-export const sha256Of = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-
-/**
- * The stream as it is, its SHA-256 worked out on the way through: `digest()`
- * once it has been read whole.
- */
-export const hashing = (stream: ReadableStream<Uint8Array>) => {
-  const hash = createHash("sha256");
-  return {
-    stream: stream.pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          hash.update(chunk);
-          controller.enqueue(chunk);
-        },
-      }),
-    ),
-    digest: () => hash.digest("hex"),
-  };
-};
-
 /** The name a send gives, or null when it gives none. */
 export const decodeFilename = (value: string | undefined): string | null => {
   if (!value) return null;
@@ -106,52 +77,6 @@ const requestedReads = (c: AppContext): number | null | Response => {
   return count;
 };
 
-/**
- * A file upload, streamed to the blob store without holding it in memory.
- * The store needs the length up front and fails if the body does not match.
- */
-export type Upload = {
-  body: ReadableStream;
-  size: number;
-  /** The first bytes, enough to recognize an image, read before uploading. */
-  head: Uint8Array;
-};
-
-/** Reads the first `length` bytes and returns a stream that still yields everything. */
-export const peek = async (body: ReadableStream<Uint8Array>, length: number) => {
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let read = 0;
-  let done = false;
-  while (read < length && !done) {
-    const result = await reader.read();
-    done = result.done;
-    if (result.value) {
-      chunks.push(result.value);
-      read += result.value.byteLength;
-    }
-  }
-  const head = new Uint8Array(read);
-  let offset = 0;
-  for (const chunk of chunks) {
-    head.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  const rest = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(chunk);
-      if (done) controller.close();
-    },
-    async pull(controller) {
-      const result = await reader.read();
-      if (result.done) controller.close();
-      else controller.enqueue(result.value);
-    },
-    cancel: (reason) => reader.cancel(reason),
-  });
-  return { head: head.subarray(0, length), body: rest };
-};
-
 const streamedBody = async (c: AppContext, limit: number): Promise<Upload | Response> => {
   const size = Number(c.req.header("content-length") ?? Number.NaN);
   if (size === 0 || !c.req.raw.body) return jsonError(c, 400, "The content is empty.");
@@ -163,90 +88,12 @@ const streamedBody = async (c: AppContext, limit: number): Promise<Upload | Resp
   return { body, size, head };
 };
 
-/** Validates streamed UTF-8 while retaining just enough text for list previews. */
-export const validatedText = (upload: Upload) => {
-  const decoder = strictUtf8();
-  const input: ObjectInput = { kind: "text", preview: "" };
-  let invalid = false;
-  const appendPreview = (value: string) => {
-    if (input.kind === "text" && input.preview.length < TEXT_PREVIEW_CHARS) {
-      input.preview += value.slice(0, TEXT_PREVIEW_CHARS - input.preview.length);
-    }
-  };
-  const body = upload.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        if (!invalid) {
-          try {
-            appendPreview(decoder.decode(chunk, { stream: true }));
-          } catch {
-            // Keep the fixed-length upload flowing; it is deleted below before
-            // any namespace row can point at it.
-            invalid = true;
-          }
-        }
-        controller.enqueue(chunk);
-      },
-      flush() {
-        if (!invalid) {
-          try {
-            appendPreview(decoder.decode());
-          } catch {
-            invalid = true;
-          }
-        }
-      },
-    }),
-  );
-  return {
-    upload: { ...upload, body },
-    input,
-    validate: () => {
-      if (invalid) throw new InvalidUtf8Error();
-    },
-  };
-};
-
 /** Reads a (small) request body, stopping at `limit`. */
 const readBody = async (c: AppContext, limit: number) => {
   const bytes = await readLimited(c, limit);
   if (!bytes) return jsonError(c, 413, `The limit is ${limit} bytes.`);
   if (bytes.byteLength === 0) return jsonError(c, 400, "The content is empty.");
   return bytes;
-};
-
-/** The type comes from the bytes themselves, never from what the client claims. */
-export const describePlainFile = (upload: Upload, filename: string | null): ObjectInput => {
-  const detected = detectMedia(upload.head);
-  // A send without a name gets a default one, which never renames an item.
-  const named = filename !== null;
-  // Recognized images are shown inline; video and audio keep their type so pages
-  // can play them (still a "file" in the queue); anything else is a download.
-  if (detected) {
-    return {
-      kind: detected.kind === "image" ? "image" : "file",
-      mime: detected.mime,
-      filename: safeMediaName(filename ?? "file", detected.extension, detected.kind),
-      named,
-    };
-  }
-  // A bundle (texts and files sent as one tar) keeps its type, so pages can
-  // show what it holds; it is downloaded as the tar it is.
-  if (isBundle(upload.head)) {
-    const name = safeFileName(filename ?? "bundle");
-    return {
-      kind: "file",
-      mime: BUNDLE_MIME,
-      filename: name.toLowerCase().endsWith(".tar") ? name : `${name}.tar`,
-      named,
-    };
-  }
-  return {
-    kind: "file",
-    mime: "application/octet-stream",
-    filename: safeFileName(filename ?? "file"),
-    named,
-  };
 };
 
 /** A send's answer: 201 for a new item, 200 for contents already there, now on top. */
@@ -256,65 +103,35 @@ const sentResponse = (c: AppContext, saved: Saved) =>
     : c.json(publicItem(saved.item), 201);
 
 export const createUploads = (api: Api) => {
-  const { config, namespace, platform, later, record, visit } = api;
-  const viewOf = (c: AppContext) => {
+  const { config, later, record, visit } = api;
+  const items = createItems(api);
+  const defer = (c: AppContext) => (work: Promise<unknown>) => later(c, work);
+
+  /** The send's options, from its headers (see SendOptions). */
+  const sendOptions = async (
+    c: AppContext,
+    expiresInSeconds: number | null,
+    reads: number | null,
+  ): Promise<SendOptions> => {
     const token = c.req.header("view-token");
     const envelope = c.req.header("view-envelope");
-    return token ? { token, ...(envelope ? { envelope } : {}) } : undefined;
-  };
-  const deduplicate = (c: AppContext) => c.req.header("no-dedup") !== "1";
-  /** The sending device's push subscription (see core/push.ts), not told of its own send. */
-  const pushSkip = (c: AppContext) => {
     const skip = c.req.header("push-skip")?.trim() ?? "";
-    return /^[A-Za-z0-9_-]{22}$/.test(skip) ? skip : null;
+    return {
+      burn: burnRequested(c),
+      visitor: visit(c),
+      expiresInSeconds,
+      reads,
+      verifier: await writeVerifier(c),
+      view: token ? { token, ...(envelope ? { envelope } : {}) } : undefined,
+      deduplicate: c.req.header("no-dedup") !== "1",
+      // The sending device's push subscription (see core/push.ts).
+      pushSkip: /^[A-Za-z0-9_-]{22}$/.test(skip) ? skip : null,
+    };
   };
-
-  /** Streams contents into the blob store, then records their key in the namespace. */
-  const saveObject = async (
-    c: AppContext,
-    ref: NamespaceRef,
-    upload: Upload,
-    input: ObjectInput,
-    validate?: () => void,
-    expiresInSeconds: number | null = null,
-    reads: number | null = null,
-  ): Promise<Saved> => {
-    // The file's own key, never shown: the item's ID is picked by the namespace.
-    const object = objectKey(ref);
-    const contentType =
-      input.kind === "sealed"
-        ? "application/octet-stream"
-        : input.kind === "text"
-          ? TEXT_MIME
-          : input.mime;
-    const { blobs } = platform;
-    // Plain files are hashed on the way to storage, so the same contents sent
-    // again can be spotted; encrypted ones never match, so they are not.
-    const hashed = input.kind === "sealed" ? null : hashing(upload.body);
-    await blobs.put(object, hashed?.stream ?? upload.body, upload.size, contentType);
-    try {
-      validate?.();
-      const saved = (await namespace(ref).save(
-        ref,
-        { ...input, object, size: upload.size, ...(hashed ? { sha256: hashed.digest() } : {}) },
-        burnRequested(c),
-        visit(c),
-        expiresInSeconds,
-        reads,
-        await writeVerifier(c),
-        viewOf(c),
-        deduplicate(c),
-        pushSkip(c),
-      )) as Saved;
-      // Already there: the file just uploaded is a copy nothing points at.
-      if (saved.existing) later(c, blobs.delete([object]));
-      return saved;
-    } catch (error) {
-      // Nothing points at the file anymore.
-      later(c, blobs.delete([object]));
-      throw error;
-    }
-  };
+  const editOptions = async (c: AppContext): Promise<EditOptions> => ({
+    visitor: visit(c),
+    verifier: await writeVerifier(c),
+  });
 
   const uploadFile = async (c: AppContext, ref: NamespaceRef, filename: string | null) => {
     const expiresIn = requestedExpiry(c, config.itemTtlMs);
@@ -323,14 +140,12 @@ export const createUploads = (api: Api) => {
     if (reads instanceof Response) return reads;
     const upload = await streamedBody(c, config.maxFileBytes);
     if (upload instanceof Response) return upload;
-    const saved = await saveObject(
-      c,
+    const saved = await items.saveObject(
       ref,
       upload,
       describePlainFile(upload, filename),
-      undefined,
-      expiresIn,
-      reads,
+      await sendOptions(c, expiresIn, reads),
+      defer(c),
     );
     record(c, "sentFile");
     return sentResponse(c, saved);
@@ -361,14 +176,13 @@ export const createUploads = (api: Api) => {
       if (upload instanceof Response) return upload;
       const external = validatedText(upload);
       try {
-        const saved = await saveObject(
-          c,
+        const saved = await items.saveObject(
           ref,
           external.upload,
           { ...external.input, ...(name ? { name } : {}) },
+          await sendOptions(c, expiresIn, reads),
+          defer(c),
           external.validate,
-          expiresIn,
-          reads,
         );
         record(c, "sentText");
         return sentResponse(c, saved);
@@ -390,17 +204,15 @@ export const createUploads = (api: Api) => {
     }
     let saved: Saved;
     if (bytes.byteLength > config.inlineTextBytes) {
-      saved = await saveObject(
-        c,
+      saved = await items.saveObject(
         ref,
         { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
         { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS), ...(name ? { name } : {}) },
-        undefined,
-        expiresIn,
-        reads,
+        await sendOptions(c, expiresIn, reads),
+        defer(c),
       );
     } else {
-      saved = (await namespace(ref).save(
+      saved = await items.save(
         ref,
         {
           kind: "text",
@@ -409,15 +221,8 @@ export const createUploads = (api: Api) => {
           sha256: sha256Of(bytes),
           ...(name ? { name } : {}),
         },
-        burnRequested(c),
-        visit(c),
-        expiresIn,
-        reads,
-        await writeVerifier(c),
-        viewOf(c),
-        deduplicate(c),
-        pushSkip(c),
-      )) as Saved;
+        await sendOptions(c, expiresIn, reads),
+      );
     }
     record(c, "sentText");
     return sentResponse(c, saved);
@@ -435,58 +240,15 @@ export const createUploads = (api: Api) => {
     // The browser checks that ciphertext (contents plus IV and tag) fits.
     const upload = await streamedBody(c, config.maxFileBytes);
     if (upload instanceof Response) return upload;
-    const saved = await saveObject(
-      c,
+    const saved = await items.saveObject(
       ref,
       upload,
       { kind: "sealed", metadata },
-      undefined,
-      expiresIn,
-      reads,
+      await sendOptions(c, expiresIn, reads),
+      defer(c),
     );
     record(c, "sentEncrypted");
     return sentResponse(c, saved);
-  };
-
-  type ReplaceResult = { item: StoredItem } | { error: string; conflict?: true } | null;
-
-  /** Uploads replacement bytes, deleting them only when they are certainly unreferenced. */
-  const replaceObject = async (
-    c: AppContext,
-    ref: NamespaceRef,
-    item: ItemRef,
-    expected: string,
-    upload: Upload,
-    input: ObjectInput,
-    validate?: () => void,
-  ): Promise<ReplaceResult> => {
-    const object = objectKey(ref);
-    const { blobs } = platform;
-    const hashed = input.kind === "sealed" ? null : hashing(upload.body);
-    const contentType =
-      input.kind === "sealed"
-        ? "application/octet-stream"
-        : input.kind === "text"
-          ? TEXT_MIME
-          : input.mime;
-    await blobs.put(object, hashed?.stream ?? upload.body, upload.size, contentType);
-    try {
-      validate?.();
-    } catch (error) {
-      later(c, blobs.delete([object]));
-      throw error;
-    }
-    const result = (await namespace(ref).replace(
-      item,
-      { ...input, object, size: upload.size, ...(hashed ? { sha256: hashed.digest() } : {}) },
-      expected,
-      visit(c),
-      await writeVerifier(c),
-    )) as ReplaceResult;
-    // A null or error answer guarantees the namespace did not commit. A thrown
-    // RPC does not: leave the blob, since the committed row may point at it.
-    if (!result || "error" in result) later(c, blobs.delete([object]));
-    return result;
   };
 
   const editResponse = (c: AppContext, result: ReplaceResult) => {
@@ -511,7 +273,15 @@ export const createUploads = (api: Api) => {
       if (upload instanceof Response) return upload;
       return editResponse(
         c,
-        await replaceObject(c, ref, item, expected, upload, { kind: "sealed", metadata }),
+        await items.replaceObject(
+          ref,
+          item,
+          expected,
+          upload,
+          { kind: "sealed", metadata },
+          await editOptions(c),
+          defer(c),
+        ),
       );
     }
 
@@ -521,7 +291,18 @@ export const createUploads = (api: Api) => {
       const upload = await streamedBody(c, config.maxFileBytes);
       if (upload instanceof Response) return upload;
       const input = describePlainFile(upload, decodeFilename(c.req.header("x-filename")));
-      return editResponse(c, await replaceObject(c, ref, item, expected, upload, input));
+      return editResponse(
+        c,
+        await items.replaceObject(
+          ref,
+          item,
+          expected,
+          upload,
+          input,
+          await editOptions(c),
+          defer(c),
+        ),
+      );
     }
     const declared = Number(c.req.header("content-length") ?? Number.NaN);
     if (Number.isSafeInteger(declared) && declared > config.maxTextBytes) {
@@ -534,13 +315,14 @@ export const createUploads = (api: Api) => {
       try {
         return editResponse(
           c,
-          await replaceObject(
-            c,
+          await items.replaceObject(
             ref,
             item,
             expected,
             external.upload,
             external.input,
+            await editOptions(c),
+            defer(c),
             external.validate,
           ),
         );
@@ -562,21 +344,22 @@ export const createUploads = (api: Api) => {
     }
     const result =
       bytes.byteLength > config.inlineTextBytes
-        ? await replaceObject(
-            c,
+        ? await items.replaceObject(
             ref,
             item,
             expected,
             { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
             { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS) },
+            await editOptions(c),
+            defer(c),
           )
-        : ((await namespace(ref).replace(
+        : await items.replace(
+            ref,
             item,
-            { kind: "text", text, size: bytes.byteLength, sha256: sha256Of(bytes) },
             expected,
-            visit(c),
-            await writeVerifier(c),
-          )) as ReplaceResult);
+            { kind: "text", text, size: bytes.byteLength, sha256: sha256Of(bytes) },
+            await editOptions(c),
+          );
     return editResponse(c, result);
   };
 

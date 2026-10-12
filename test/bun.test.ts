@@ -37,7 +37,6 @@ import {
   textDownloadName,
   textFileBase,
 } from "../public/k.mjs";
-import type { Manifest } from "../src/api/archives";
 import { SECURITY_HEADERS } from "../src/app";
 import { FIXED_FILES, ICON_FILES, STYLES, TOKENS } from "../src/assets";
 import { bundle } from "../src/client/build";
@@ -70,6 +69,7 @@ import {
 import { clientKey } from "../src/core/visits";
 import { startRouter } from "../src/runtime/bun/router";
 import { startServer } from "../src/runtime/bun/server";
+import type { Manifest } from "../src/services/backups";
 import { TEST_ADMIN_KEY } from "./admin-key";
 import { type Harness, sharedTests } from "./shared";
 import { defined, type FileItem, type Item, type LiveMessage, type SharedItem } from "./support";

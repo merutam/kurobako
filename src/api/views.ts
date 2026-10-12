@@ -1,24 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { publicItem, SHARE_TOKEN_PATTERN, type StoredItem, sharedItem } from "../core/model";
-import type { ViewEntry } from "../core/namespace/views";
+import { Hono } from "hono";
+import { publicItem } from "../core/model";
 import { renderGoneViewPage, renderSharedViewPage } from "../pages/shared-view";
-import {
-  type Api,
-  type App,
-  type AppContext,
-  jsonError,
-  readLimited,
-  writeVerifier,
-} from "./context";
+import { createViews, parseViewRequest } from "../services/views";
+import { type Api, type AppEnv, jsonError, readLimited, writeVerifier } from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
 
 const MAX_VIEW_BODY = 100_000;
 
 /** Writer-side rotation and the opaque, read-only view index. */
-export const mountViews = (app: App, api: Api) => {
-  const { namespace, hub, refuseWrite, config, visit, siteView, pageView } = api;
+export const viewRoutes = (api: Api) => {
+  const app = new Hono<AppEnv>();
+  const { namespace, refuseWrite, config, visit, siteView, pageView } = api;
+  const views = createViews(api);
   for (const space of SPACES) {
     const { inNamespace } = namespaceOf(space);
     app.get(
@@ -49,65 +45,19 @@ export const mountViews = (app: App, api: Api) => {
         } catch {
           return jsonError(c, 400, "Invalid view JSON.");
         }
-        if (
-          !body ||
-          typeof body !== "object" ||
-          !("viewId" in body) ||
-          typeof body.viewId !== "string" ||
-          !("entries" in body) ||
-          !Array.isArray(body.entries) ||
-          !("previousToken" in body) ||
-          (body.previousToken !== null && typeof body.previousToken !== "string") ||
-          !body.entries.every(
-            (entry: unknown) =>
-              entry &&
-              typeof entry === "object" &&
-              "id" in entry &&
-              typeof entry.id === "string" &&
-              (!("envelope" in entry) || typeof entry.envelope === "string"),
-          )
-        ) {
-          return jsonError(c, 400, "Invalid view entries.");
-        }
+        const request = parseViewRequest(body);
+        if (!request) return jsonError(c, 400, "Invalid view entries.");
         const view = await namespace(ref).createView(
           ref,
-          body.viewId,
-          body.entries as ViewEntry[],
-          body.previousToken,
+          request.viewId,
+          request.entries,
+          request.previousToken,
           await writeVerifier(c),
         );
         return c.json({ ...view, url: `${config.basePath}/v/${view.token}` }, 201);
       }),
     );
   }
-
-  const describeView = async (
-    c: AppContext,
-    token: string,
-    { summary = false, limit }: { summary?: boolean; limit?: number } = {},
-  ) => {
-    if (!SHARE_TOKEN_PATTERN.test(token)) return null;
-    const ref = await hub().resolveView(token);
-    if (!ref) return null;
-    const view = await namespace(ref).viewContents(token, visit(c));
-    if (!view) return null;
-    const selected = limit === undefined ? view.entries : view.entries.slice(0, limit);
-    const tokens = await hub().createShares(
-      ref,
-      selected.map(({ item }) => ({
-        id: item.id,
-        expiresAt: item.expiresAt,
-      })),
-    );
-    const entries = selected.map(
-      ({ item, envelope }: { item: StoredItem; envelope?: string }, index) => ({
-        url: `${config.basePath}/i/${tokens[index]}`,
-        item: sharedItem(item, summary),
-        ...(envelope ? { envelope } : {}),
-      }),
-    );
-    return { viewId: view.viewId, active: view.active, createdAt: view.createdAt, entries };
-  };
 
   // The same array shape as a namespace's /ls, with public share tokens as IDs.
   app.get("/v/:token/ls", async (c) => {
@@ -116,7 +66,7 @@ export const mountViews = (app: App, api: Api) => {
     if (limit !== undefined && !/^[1-9]\d{0,5}$/.test(limit)) {
       return jsonError(c, 400, "limit must be a positive whole number.");
     }
-    const view = await describeView(c, c.req.param("token"), {
+    const view = await views.describe(c.req.param("token"), visit(c), {
       summary: c.req.query("summary") !== undefined,
       limit: limit === undefined ? undefined : Number(limit),
     });
@@ -133,12 +83,12 @@ export const mountViews = (app: App, api: Api) => {
 
   app.get("/v/:token{.+\\.json}", async (c) => {
     c.header("Cache-Control", "no-store");
-    const view = await describeView(c, c.req.param("token").slice(0, -5));
+    const view = await views.describe(c.req.param("token").slice(0, -5), visit(c));
     return view ? c.json(view) : jsonError(c, 404, "Shared view not found.");
   });
   app.get("/v/:token", async (c) => {
     c.header("Cache-Control", "no-store");
-    const view = await describeView(c, c.req.param("token"));
+    const view = await views.describe(c.req.param("token"), visit(c));
     // A browser gets a page saying so, as a gone share link does; .json stays JSON.
     if (!view) return c.html(renderGoneViewPage(siteView), 404);
     return pageView(
@@ -146,4 +96,5 @@ export const mountViews = (app: App, api: Api) => {
       renderSharedViewPage(siteView, view, `${config.basePath}/v/${c.req.param("token")}`),
     );
   });
+  return app;
 };

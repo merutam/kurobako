@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import type { Next } from "hono";
 // A namespace: its page, queue, sends, access log and live updates. A plain
 // namespace lives at /<name>, an encrypted one at /e/<id>, under the same
 // short, fixed suffixes, so everything can be typed by hand.
-import type { Next } from "hono";
+import { Hono } from "hono";
 import {
   type NamespaceRef,
   namespacePath,
@@ -18,7 +19,7 @@ import {
 import type { ListedItem } from "../pages/components/items";
 import { renderLogPage } from "../pages/log";
 import { renderNamespacePage } from "../pages/namespace";
-import { type Api, type App, type AppContext, jsonError, readLimited } from "./context";
+import { type Api, type AppContext, type AppEnv, jsonError, readLimited } from "./context";
 
 /** A browser's push subscription is a few hundred bytes. */
 const MAX_PUSH_BODY_BYTES = 4_000;
@@ -64,11 +65,11 @@ export const namespaceOf = (space: Space) => {
   return { resolve, inNamespace };
 };
 
-export const mountNamespaces = (
-  app: App,
+export const namespaceRoutes = (
   api: Api,
   { uploadFile, uploadPlain, uploadSealed }: ReturnType<typeof createUploads>,
 ) => {
+  const app = new Hono<AppEnv>();
   const {
     namespace,
     visit,
@@ -236,4 +237,5 @@ export const mountNamespaces = (
     const filename = c.req.param("filename") ?? c.req.header("x-filename");
     return uploadFile(c, ref, decodeFilename(filename));
   });
+  return app;
 };

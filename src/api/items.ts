@@ -4,13 +4,14 @@
 // One item of a namespace: <ns>/<item>, where <item> is its position (digits,
 // 1 being the newest), its ID or its name, resolved in that order. Mounted
 // after the namespace's fixed paths (ls, new, log, live), which always win.
+import { Hono } from "hono";
 import { nameOf, publicItem, type StoredItem } from "../core/model";
 import type { ItemRef } from "../core/namespace";
 import type { createContents } from "./contents";
 import {
   type Api,
-  type App,
   type AppContext,
+  type AppEnv,
   jsonError,
   readLimited,
   writeVerifier,
@@ -25,12 +26,12 @@ const ITEM = ":item";
 const toItemRef = (raw: string): ItemRef => (/^\d+$/.test(raw) ? Number(raw) : raw);
 const itemRef = (c: AppContext): ItemRef => toItemRef(c.req.param("item") ?? "");
 
-export const mountItems = (
-  app: App,
+export const itemRoutes = (
   api: Api,
   { serveItem }: ReturnType<typeof createContents>,
   { editText }: ReturnType<typeof createUploads>,
 ) => {
+  const app = new Hono<AppEnv>();
   const { namespace, hub, visit, platform, refuseSend, refuseWrite, storageFull, config } = api;
   const site = config.basePath;
 
@@ -182,4 +183,5 @@ export const mountItems = (
       }, "Item not found."),
     );
   }
+  return app;
 };

@@ -3,19 +3,19 @@
 
 // The site's own pages and documents: home, encryption spec, health, the
 // well-known description, stats.
+import { Hono } from "hono";
 import { LICENSES_PATH, PROTOCOL_PATH, WELL_KNOWN_PATH } from "../core/routing";
 import { renderLicensesPage, renderProtocolPage } from "../pages/documents";
 import { renderHomePage } from "../pages/home";
 import { renderNamespacePage } from "../pages/namespace";
 import { renderSharePage } from "../pages/share";
 import { renderThemePage } from "../pages/theme";
-import type { Api, App } from "./context";
+import { createStats, STATS_TTL_MS } from "../services/stats";
+import type { Api, AppEnv } from "./context";
 
-/** The home page's stats, shared by every request to this instance for a little while. */
-const STATS_TTL_MS = 30_000;
-
-export const mountSite = (app: App, api: Api) => {
-  const { page, pageView, hub, publicConfig, siteView, config } = api;
+export const siteRoutes = (api: Api) => {
+  const app = new Hono<AppEnv>();
+  const { page, pageView, publicConfig, siteView, config } = api;
   // The same for every request: rendered once. On Cloudflare, the protocol and
   // the licenses are usually answered by static assets instead (ops/build.ts).
   const pages = {
@@ -26,7 +26,7 @@ export const mountSite = (app: App, api: Api) => {
     share: renderSharePage(siteView),
     theme: renderThemePage(siteView),
   };
-  let statsCache: { expires: number; body: Promise<Record<string, unknown>> } | null = null;
+  const stats = createStats(api);
 
   app.get("/", (c) => pageView(c, pages.home));
   app.get(PROTOCOL_PATH, (c) => page(c, pages.protocol));
@@ -92,18 +92,8 @@ export const mountSite = (app: App, api: Api) => {
     return c.json(publicConfig);
   });
   app.get("/stats.json", async (c) => {
-    if (!statsCache || statsCache.expires < Date.now()) {
-      statsCache = {
-        expires: Date.now() + STATS_TTL_MS,
-        // A plain copy: an RPC result must not outlive its request.
-        body: hub()
-          .stats()
-          .then((stats) => ({ ...stats })),
-      };
-      // A failed read must not be served from the cache.
-      statsCache.body.catch(() => (statsCache = null));
-    }
     c.header("Cache-Control", `public, max-age=${STATS_TTL_MS / 1000}`);
-    return c.json(await statsCache.body);
+    return c.json(await stats.current());
   });
+  return app;
 };

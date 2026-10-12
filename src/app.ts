@@ -20,22 +20,22 @@
 //
 // <item> is an item's position in the queue (1 is the newest), its ID or its name.
 import { Hono } from "hono";
-import { mountAccess } from "./api/access";
-import { mountAdmin } from "./api/admin";
-import { mountArchives } from "./api/archives";
+import { accessGuard, accessRoutes } from "./api/access";
+import { adminGuard, adminRoutes } from "./api/admin";
+import { archiveRoutes } from "./api/archives";
 import { createContents } from "./api/contents";
 import { type AppEnv, createContext, jsonError } from "./api/context";
-import { mountItems } from "./api/items";
-import { mountMissLimit } from "./api/misses";
-import { mountNamespaces } from "./api/namespaces";
-import { mountShares } from "./api/shares";
-import { mountSite } from "./api/site";
+import { itemRoutes } from "./api/items";
+import { missLimit } from "./api/misses";
+import { namespaceRoutes } from "./api/namespaces";
+import { shareRoutes } from "./api/shares";
+import { siteRoutes } from "./api/site";
 import { createUploads } from "./api/uploads";
-import { mountViews } from "./api/views";
+import { viewRoutes } from "./api/views";
 import type { WebAssets } from "./assets";
 import type { AppConfig } from "./config";
 import { logError } from "./core/log";
-import { sitePath } from "./core/routing";
+import { ADMIN_PATH, sitePath } from "./core/routing";
 import type { Platform } from "./runtime/platform";
 
 export type { AppEnv };
@@ -62,7 +62,6 @@ export const createApp = (config: AppConfig, assets: WebAssets, platform: Platfo
     getPath: (request) => sitePath(config.basePath, new URL(request.url).pathname) ?? OUTSIDE,
   });
   const api = createContext(config, assets, platform);
-  const contents = createContents(api);
 
   app.use("*", async (c, next) => {
     await next();
@@ -75,20 +74,29 @@ export const createApp = (config: AppConfig, assets: WebAssets, platform: Platfo
     c.res = response;
   });
 
-  // The order matters: fixed paths first, items last, since an item can have
-  // any name.
+  // Each file in api/ gives a group of routes (a Hono app, mounted here with
+  // app.route) or a middleware (registered here with app.use). Routes are
+  // written with their full paths, so all of them mount at "/".
+  //
+  // The order matters: middleware first, then fixed paths, items last, since
+  // an item can have any name.
   // Before every route: a private instance turns away whoever has no session.
-  if (config.accessKey) mountAccess(app, api, config.accessKey);
+  if (config.accessKey) app.use(accessGuard(api, config.accessKey));
   // Then whoever keeps finding nothing reads nothing for a while.
-  mountMissLimit(app, api);
-  mountSite(app, api);
-  if (config.adminKey) mountAdmin(app, api, config.adminKey);
-  mountShares(app, api, contents);
-  mountViews(app, api);
-  mountArchives(app, api);
+  app.use(missLimit(api));
+  // Everything under /a asks for the admin key, the backups in archives.ts too.
+  if (config.adminKey) app.use(`${ADMIN_PATH}/*`, adminGuard(api, config.adminKey));
+
+  const contents = createContents(api);
   const uploads = createUploads(api);
-  mountNamespaces(app, api, uploads);
-  mountItems(app, api, contents, uploads);
+  if (config.accessKey) app.route("/", accessRoutes(api, config.accessKey));
+  app.route("/", siteRoutes(api));
+  if (config.adminKey) app.route("/", adminRoutes(api, config.adminKey));
+  app.route("/", shareRoutes(api, contents));
+  app.route("/", viewRoutes(api));
+  app.route("/", archiveRoutes(api));
+  app.route("/", namespaceRoutes(api, uploads));
+  app.route("/", itemRoutes(api, contents, uploads));
 
   app.notFound((c) => jsonError(c, 404, "Not found."));
   app.onError((error, c) => {

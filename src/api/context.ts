@@ -19,6 +19,7 @@ import { isAutomatedNetwork, networkKey } from "../core/networks";
 import { CLIENT_PATH, PROTOCOL_PATH, PROTOCOL_VERSION } from "../core/routing";
 import { type AccessEvent, clientKey } from "../core/visits";
 import type { Platform } from "../runtime/platform";
+import { storageRefusal } from "../services/storage";
 
 export type AppEnv = {
   Bindings: object;
@@ -202,19 +203,10 @@ export const createContext = (config: AppConfig, assets: WebAssets, platform: Pl
     return null;
   };
 
-  /**
-   * Whether `bytes` more fit under MAX_STORAGE_BYTES; when they do not, the
-   * answer to send. Without a limit, nothing is asked of the hub.
-   */
+  /** Whether `bytes` more fit under MAX_STORAGE_BYTES; when they do not, the answer to send. */
   const storageFull = async (c: AppContext, bytes: number) => {
-    const limit = config.maxStorageBytes;
-    if (limit === null) return null;
-    if ((await hub().storedBytes()) + bytes <= limit) return null;
-    return jsonError(
-      c,
-      507,
-      `This Kurobako is full: it keeps at most ${limit} bytes. Delete some items, or wait for them to expire.`,
-    );
+    const refusal = await storageRefusal(config, hub, bytes);
+    return refusal ? jsonError(c, 507, refusal) : null;
   };
 
   return {
