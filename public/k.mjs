@@ -558,7 +558,7 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 // ============================================================================
 
 /** The same as the server it comes from, so mismatches can be reported. */
-export const VERSION = "0.8.15";
+export const VERSION = "0.8.16";
 export const PROTOCOL = 8;
 // Only when run directly. It reads like curl, with e#<name> in place of the namespace.
 
