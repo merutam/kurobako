@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+import {
+  describePlainFile,
+  InvalidUtf8Error,
+  peek,
+  sha256Of,
+  strictUtf8,
+  type Upload,
+  validatedText,
+} from "../core/contents";
 // Receiving items: a send's or an edit's headers and body, and the answer.
 // Keeping the contents is services/items.ts.
 import { SIGNATURE_BYTES, safeFileName } from "../core/media";
@@ -13,16 +22,9 @@ import {
 import type { ItemRef, Saved } from "../core/namespace";
 import {
   createItems,
-  describePlainFile,
   type EditOptions,
-  InvalidUtf8Error,
-  peek,
   type ReplaceResult,
   type SendOptions,
-  sha256Of,
-  strictUtf8,
-  type Upload,
-  validatedText,
 } from "../services/items";
 import { type Api, type AppContext, jsonError, readLimited, writeVerifier } from "./context";
 

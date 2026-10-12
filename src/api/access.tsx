@@ -10,7 +10,8 @@ import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { ADMIN_PATH, LICENSES_PATH, PROTOCOL_PATH, WELL_KNOWN_PATH } from "../core/routing";
-import { renderLoginPage } from "../pages/login";
+import { renderPage } from "../pages/components/layout";
+import { LoginPage } from "../pages/login";
 import { type Api, type AppContext, type AppEnv, jsonError } from "./context";
 import {
   hasBearer,
@@ -82,12 +83,12 @@ export const accessRoutes = (api: Api, key: string) => {
 
   // Where to go after logging in comes in ?next=, put there by the guard.
   app.get(LOGIN_PATH, (c) =>
-    page(c, renderLoginPage(siteView, { next: insidePath(c.req.query("next")) })),
+    page(c, renderPage(<LoginPage site={siteView} next={insidePath(c.req.query("next"))} />)),
   );
   app.post(
     LOGIN_PATH,
     loginWith(api, key, sessions, cookie, "Login", {
-      page: (error, next) => renderLoginPage(siteView, { error, next }),
+      page: (error, next) => renderPage(<LoginPage site={siteView} error={error} next={next} />),
       next: (next) => `${config.basePath}${next}`,
     }),
   );

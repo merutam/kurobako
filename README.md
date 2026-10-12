@@ -358,13 +358,14 @@ src/
   core/               the logic, with no HTTP and no runtime in it
     namespace/        one namespace: its queue, access log and shared views (SQLite)
     hub.ts            site-wide state: stats, share links, logins
-    model.ts          items and names; archive.ts, media.ts, routing.ts, …
+    model.ts          items and names; archive.ts, contents.ts, media.ts, routing.ts, …
     host.ts           what the cores need from where they run (SQL, a blob store)
   api/                the HTTP routes, one file per kind of thing: each gives a Hono
                       app (xRoutes) or a middleware, put together in app.ts
   services/           what the routes do, with no HTTP in it: backups, sends, shares, …
-  pages/              the pages, rendered on the server with Hono JSX
-    components/       the layout and the pieces pages share
+  pages/              the pages, rendered on the server with Hono JSX: each a component
+                      (<HomePage site={…} />), turned into HTML by renderPage
+    components/       <Layout>, every page's frame, and the pieces pages share
     documents/        the protocol and the licenses
   runtime/            platform.ts, the contract, and its two implementations:
     cloudflare/       Durable Objects, R2 and rate limiters (worker.ts is the entry)

@@ -3,7 +3,8 @@
 
 import { Hono } from "hono";
 import { publicItem } from "../core/model";
-import { renderGoneViewPage, renderSharedViewPage } from "../pages/shared-view";
+import { renderPage } from "../pages/components/layout";
+import { GoneViewPage, SharedViewPage } from "../pages/shared-view";
 import { createViews, parseViewRequest } from "../services/views";
 import { type Api, type AppEnv, jsonError, readLimited, writeVerifier } from "./context";
 import { namespaceOf, SPACES } from "./namespaces";
@@ -90,10 +91,16 @@ export const viewRoutes = (api: Api) => {
     c.header("Cache-Control", "no-store");
     const view = await views.describe(c.req.param("token"), visit(c));
     // A browser gets a page saying so, as a gone share link does; .json stays JSON.
-    if (!view) return c.html(renderGoneViewPage(siteView), 404);
+    if (!view) return c.html(renderPage(<GoneViewPage site={siteView} />), 404);
     return pageView(
       c,
-      renderSharedViewPage(siteView, view, `${config.basePath}/v/${c.req.param("token")}`),
+      renderPage(
+        <SharedViewPage
+          site={siteView}
+          view={view}
+          url={`${config.basePath}/v/${c.req.param("token")}`}
+        />,
+      ),
     );
   });
   return app;

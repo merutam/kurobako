@@ -5,11 +5,12 @@
 // well-known description, stats.
 import { Hono } from "hono";
 import { LICENSES_PATH, PROTOCOL_PATH, WELL_KNOWN_PATH } from "../core/routing";
-import { renderLicensesPage, renderProtocolPage } from "../pages/documents";
-import { renderHomePage } from "../pages/home";
-import { renderNamespacePage } from "../pages/namespace";
-import { renderSharePage } from "../pages/share";
-import { renderThemePage } from "../pages/theme";
+import { renderPage } from "../pages/components/layout";
+import { LicensesPage, ProtocolPage } from "../pages/documents";
+import { HomePage } from "../pages/home";
+import { NamespacePage } from "../pages/namespace";
+import { SharePage } from "../pages/share";
+import { ThemePage } from "../pages/theme";
 import { createStats, STATS_TTL_MS } from "../services/stats";
 import type { Api, AppEnv } from "./context";
 
@@ -19,12 +20,19 @@ export const siteRoutes = (api: Api) => {
   // The same for every request: rendered once. On Cloudflare, the protocol and
   // the licenses are usually answered by static assets instead (ops/build.ts).
   const pages = {
-    home: renderHomePage(siteView, config),
-    protocol: renderProtocolPage(siteView),
-    licenses: renderLicensesPage(siteView),
-    encrypted: renderNamespacePage(siteView, null, { items: [], revision: 0 }, config),
-    share: renderSharePage(siteView),
-    theme: renderThemePage(siteView),
+    home: renderPage(<HomePage site={siteView} config={config} />),
+    protocol: renderPage(<ProtocolPage site={siteView} />),
+    licenses: renderPage(<LicensesPage site={siteView} />),
+    encrypted: renderPage(
+      <NamespacePage
+        site={siteView}
+        name={null}
+        queue={{ items: [], revision: 0 }}
+        config={config}
+      />,
+    ),
+    share: renderPage(<SharePage site={siteView} />),
+    theme: renderPage(<ThemePage site={siteView} />),
   };
   const stats = createStats(api);
 

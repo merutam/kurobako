@@ -3,7 +3,7 @@
 
 // What the cores (namespace/, hub.ts) need from wherever they run: a SQLite
 // connection, a store for file contents and live sockets. Cloudflare and Bun
-// each provide them (src/runtime/); nothing in core/ knows which.
+// each provide them (src/runtime/).
 
 export type SqlValue = string | number | null;
 

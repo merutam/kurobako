@@ -26,7 +26,7 @@ import {
   siteViewOf,
 } from "../src/assets";
 import { bundle } from "../src/client/build";
-import { renderLicensesPage, renderProtocolPage } from "../src/pages/documents";
+import { STATIC_PAGE_RENDERERS } from "../src/pages/documents";
 
 const root = join(import.meta.dir, "..");
 const publicDir = join(root, "public");
@@ -57,8 +57,9 @@ if (basePath) {
   const assets = await loadAssets(async () => JSON.stringify(manifest));
   // The protocol and the licenses read no config.
   const site = siteViewOf(assets, "", null);
-  const render = { "k/protocol": renderProtocolPage, "k/licenses": renderLicensesPage };
-  for (const page of STATIC_PAGES) await write(join(dist, `${page}.html`), render[page](site));
+  for (const page of STATIC_PAGES) {
+    await write(join(dist, `${page}.html`), STATIC_PAGE_RENDERERS[page](site));
+  }
 }
 
 // Written over, never emptied first: a `wrangler dev` serving dist/ meanwhile

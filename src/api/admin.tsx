@@ -5,7 +5,8 @@ import { type Context, Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { ADMIN_PATH } from "../core/routing";
-import { renderAdminPage } from "../pages/admin";
+import { AdminPage } from "../pages/admin";
+import { renderPage } from "../pages/components/layout";
 import { type Api, type AppEnv, jsonError } from "./context";
 import { hasBearer, loginWith, logoutOf, type SessionCookie, signedSessions } from "./session";
 
@@ -81,17 +82,17 @@ export const adminRoutes = (api: Api, key: string) => {
 
   // With a session, the page comes with what the dashboard would ask for first.
   app.get(ADMIN_PATH, async (c) => {
-    if (!hasSession(c)) return page(c, renderAdminPage(siteView, null));
+    if (!hasSession(c)) return page(c, renderPage(<AdminPage site={siteView} data={null} />));
     c.header("Cache-Control", "no-store");
     const [first, namespaces] = await Promise.all([overview(c), namespacesPage(c)]);
-    return c.html(renderAdminPage(siteView, { overview: first, namespaces }));
+    return c.html(renderPage(<AdminPage site={siteView} data={{ overview: first, namespaces }} />));
   });
 
   const dashboard = `${api.config.basePath}${ADMIN_PATH}`;
   app.post(
     `${ADMIN_PATH}/login`,
     loginWith(api, key, sessions, cookie, "Admin login", {
-      page: (error) => renderAdminPage(siteView, null, error),
+      page: (error) => renderPage(<AdminPage site={siteView} data={null} error={error} />),
       next: () => dashboard,
     }),
   );

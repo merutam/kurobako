@@ -3,8 +3,7 @@
 
 // What the pages load. The browser's code (src/client/) is bundled
 // (src/client/build.ts) into files named by their contents, served at
-// /k/assets/ and cached for good; a manifest says which file is which.
-// public/ holds the few files served as they are.
+// /k/assets/ and cached for good.
 import packageJson from "../package.json";
 import type { SiteView } from "./pages/components/layout";
 
@@ -57,6 +56,7 @@ export const ICON_FILES = [
  * without the Worker (the app renders them too).
  */
 export const STATIC_PAGES = ["k/protocol", "k/licenses"] as const;
+export type StaticPage = (typeof STATIC_PAGES)[number];
 
 /** Whether a path inside the site (/k.mjs) is one of the fixed files above. */
 export const isFixedFile = (path: string) =>

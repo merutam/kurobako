@@ -17,8 +17,9 @@ import {
   summaryItem,
 } from "../core/model";
 import type { ListedItem } from "../pages/components/items";
-import { renderLogPage } from "../pages/log";
-import { renderNamespacePage } from "../pages/namespace";
+import { renderPage } from "../pages/components/layout";
+import { LogPage } from "../pages/log";
+import { NamespacePage } from "../pages/namespace";
 import { type Api, type AppContext, type AppEnv, jsonError, readLimited } from "./context";
 
 /** A browser's push subscription is a few hundred bytes. */
@@ -97,7 +98,14 @@ export const namespaceRoutes = (
         const shown = items.map((item) => summaryItem(item) as ListedItem & { id: string });
         return pageView(
           c,
-          renderNamespacePage(siteView, ref.name, { items: shown, revision }, config),
+          renderPage(
+            <NamespacePage
+              site={siteView}
+              name={ref.name}
+              queue={{ items: shown, revision }}
+              config={config}
+            />,
+          ),
         );
       });
     }
@@ -191,14 +199,16 @@ export const namespaceRoutes = (
       inNamespace(async (c, ref) =>
         page(
           c,
-          renderLogPage(
-            siteView,
-            space.kind === "sealed" ? "encrypted namespace" : `/${ref.name}`,
-            // The way back to an encrypted page needs the secret name; the
-            // browser's history has it.
-            space.kind === "sealed" ? null : namespacePath(config.basePath, ref),
-            `${namespacePath(config.basePath, ref)}/log.json`,
-            await namespace(ref).accessLog(visit(c)),
+          renderPage(
+            <LogPage
+              site={siteView}
+              title={space.kind === "sealed" ? "encrypted namespace" : `/${ref.name}`}
+              // The way back to an encrypted page needs the secret name; the
+              // browser's history has it.
+              backHref={space.kind === "sealed" ? null : namespacePath(config.basePath, ref)}
+              jsonHref={`${namespacePath(config.basePath, ref)}/log.json`}
+              entries={await namespace(ref).accessLog(visit(c))}
+            />,
           ),
         ),
       ),

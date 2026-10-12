@@ -9,6 +9,17 @@
 // in the manifest), so a backup needs no secret and reveals none. Items that
 // burn after reading are left out: reading them would consume them.
 import { type ArchiveEntry, type ArchiveFormat, readArchive, writeArchive } from "../core/archive";
+import {
+  describePlainFile,
+  hashing,
+  InvalidUtf8Error,
+  objectKey,
+  peek,
+  sha256Of,
+  strictUtf8,
+  TEXT_MIME,
+  validatedText,
+} from "../core/contents";
 import { SIGNATURE_BYTES, safeTextFileName } from "../core/media";
 import {
   ITEM_ID_LENGTH,
@@ -22,17 +33,6 @@ import {
 } from "../core/model";
 import type { Restored, SaveInput } from "../core/namespace";
 import type { Deps } from "./deps";
-import {
-  describePlainFile,
-  hashing,
-  InvalidUtf8Error,
-  objectKey,
-  peek,
-  sha256Of,
-  strictUtf8,
-  TEXT_MIME,
-  validatedText,
-} from "./items";
 import { storageRefusal } from "./storage";
 
 const MANIFEST = "manifest.json";

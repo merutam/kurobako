@@ -5,7 +5,7 @@ import { describePlain, itemMeta } from "../client/shared/item-row.js";
 import { readLimitedItem, type StoredItem, sharedItem } from "../core/model";
 import { h } from "./components/html";
 import { titleOf } from "./components/items";
-import { Page, type SiteView } from "./components/layout";
+import { Layout, type SiteView } from "./components/layout";
 
 type PlainItem = Exclude<StoredItem, { kind: "sealed" }>;
 
@@ -74,42 +74,50 @@ const SharedItemContent = ({
   );
 };
 
-export const renderSharedItemPage = (
-  site: SiteView,
-  item: StoredItem | null,
-  text: string | null,
-  url: string,
-) =>
-  Page({
-    site,
-    title: "Shared item · Kurobako",
-    scripts: ["shared-item"],
-    data: { id: "item-data", value: item ? sharedItem(item) : null },
-    noIndex: true,
+export const SharedItemPage = ({
+  site,
+  item,
+  text,
+  url,
+}: {
+  site: SiteView;
+  /** Null once it is gone. */
+  item: StoredItem | null;
+  /** A plain text's contents, when they are not inline in `item`. */
+  text: string | null;
+  url: string;
+}) => (
+  <Layout
+    site={site}
+    title="Shared item · Kurobako"
+    scripts={["shared-item"]}
+    data={{ id: "item-data", value: item ? sharedItem(item) : null }}
+    noIndex
     // An encrypted item shows only once decrypted, as a namespace does.
-    decrypting: item?.kind === "sealed" ? "Decrypting item…" : undefined,
-    children:
-      item && item.kind !== "sealed" ? (
-        <SharedItemContent item={item} text={text} url={url} />
-      ) : (
-        <>
-          <h1 id="item-title">Shared item</h1>
-          <p class="intro">
-            <span id="item-meta">
-              {item ? null : "This shared item is gone: deleted, expired or already read."}
-            </span>
-            {item ? (
-              <>
-                {" · "}
-                <a href={`${url}/ls`}>As JSON</a>
-              </>
-            ) : null}
-          </p>
-          <p id="status" class="status" role="status" aria-live="polite" />
-          <section id="item" class="shared-item stack" aria-labelledby="item-title" hidden>
-            <div id="item-body" />
-            <p id="item-actions" class="actions" />
-          </section>
-        </>
-      ),
-  });
+    decrypting={item?.kind === "sealed" ? "Decrypting item…" : undefined}
+  >
+    {item && item.kind !== "sealed" ? (
+      <SharedItemContent item={item} text={text} url={url} />
+    ) : (
+      <>
+        <h1 id="item-title">Shared item</h1>
+        <p class="intro">
+          <span id="item-meta">
+            {item ? null : "This shared item is gone: deleted, expired or already read."}
+          </span>
+          {item ? (
+            <>
+              {" · "}
+              <a href={`${url}/ls`}>As JSON</a>
+            </>
+          ) : null}
+        </p>
+        <p id="status" class="status" role="status" aria-live="polite" />
+        <section id="item" class="shared-item stack" aria-labelledby="item-title" hidden>
+          <div id="item-body" />
+          <p id="item-actions" class="actions" />
+        </section>
+      </>
+    )}
+  </Layout>
+);

@@ -5,7 +5,8 @@
 // never mention the namespace; visits still show in that namespace's access log.
 import { Hono } from "hono";
 import { readLimitedItem, sharedItem } from "../core/model";
-import { renderSharedItemPage } from "../pages/shared-item";
+import { renderPage } from "../pages/components/layout";
+import { SharedItemPage } from "../pages/shared-item";
 import { createShares } from "../services/shares";
 import type { createContents } from "./contents";
 import { type Api, type AppContext, type AppEnv, jsonError } from "./context";
@@ -57,7 +58,14 @@ export const shareRoutes = (api: Api, { serveItem }: ReturnType<typeof createCon
       }
     }
     return c.html(
-      renderSharedItemPage(siteView, stored, content, `${config.basePath}/i/${token}`),
+      renderPage(
+        <SharedItemPage
+          site={siteView}
+          item={stored}
+          text={content}
+          url={`${config.basePath}/i/${token}`}
+        />,
+      ),
       stored ? 200 : 404,
     );
   });

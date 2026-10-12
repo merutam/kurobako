@@ -50,7 +50,14 @@ const Scripts = ({ site, entries }: { site: SiteView; entries: readonly string[]
   );
 };
 
-export const Page = ({
+/**
+ * A page as the HTML text to send: `renderPage(<HomePage site={site} />)`.
+ * Text, so a page the same for every request can be rendered once and kept.
+ */
+export const renderPage = (page: Child) => `<!doctype html>\n${String(page)}`;
+
+/** Every page's frame: <head>, the site's header and footer, and the page in <main>. */
+export const Layout = ({
   site,
   title,
   scripts,
@@ -78,7 +85,7 @@ export const Page = ({
 }) => {
   const { basePath } = site;
 
-  return `<!doctype html>\n${String(
+  return (
     <html lang="en" data-base={basePath}>
       <head>
         <meta charset="UTF-8" />
@@ -157,6 +164,6 @@ export const Page = ({
           Top
         </button>
       </body>
-    </html>,
-  )}`;
+    </html>
+  );
 };
