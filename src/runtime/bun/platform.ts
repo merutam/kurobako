@@ -17,6 +17,7 @@ import { type NamespaceRef, objectName, type SpaceKind } from "../../core/model"
 import { LIVE, NamespaceCore } from "../../core/namespace";
 import { firstValue } from "../../core/visits";
 import type { Client, Platform } from "../platform";
+import { createAlarmIndex } from "./alarm-index";
 import { Alarm, openDatabase, sqlOf } from "./sqlite";
 
 export type BunOptions = {
@@ -63,24 +64,7 @@ export const createBunPlatform = (options: BunOptions) => {
     cleanUpNamespace: (ref) => namespaceOf(ref).core.cleanUpIfEmpty(ref),
   });
 
-  // So a restart restores timers without opening every namespace's database.
-  hubDatabase.run(`CREATE TABLE IF NOT EXISTS namespace_alarms (
-    space TEXT NOT NULL,
-    name TEXT NOT NULL,
-    at INTEGER NOT NULL,
-    PRIMARY KEY (space, name)
-  ) WITHOUT ROWID`);
-  const saveAlarm = (ref: NamespaceRef, time: number | null) => {
-    if (time === null) {
-      hubDatabase
-        .query("DELETE FROM namespace_alarms WHERE space = ? AND name = ?")
-        .run(ref.space, ref.name);
-    } else {
-      hubDatabase
-        .query("INSERT OR REPLACE INTO namespace_alarms (space, name, at) VALUES (?, ?, ?)")
-        .run(ref.space, ref.name, time);
-    }
-  };
+  const alarmIndex = createAlarmIndex(hubDatabase);
 
   type Entry = {
     core: NamespaceCore;
@@ -126,13 +110,13 @@ export const createBunPlatform = (options: BunOptions) => {
       },
       async deleteStorage() {
         alarm.set(null);
-        saveAlarm(ref, null);
+        alarmIndex.save(ref, null);
         closeDatabase();
         for (const suffix of ["", "-wal", "-shm"]) rmSync(`${file}${suffix}`, { force: true });
       },
       setAlarm: async (time) => {
         alarm.set(time);
-        saveAlarm(ref, time);
+        alarmIndex.save(ref, time);
       },
       sockets: () => [...sockets],
       blobs,
@@ -159,10 +143,7 @@ export const createBunPlatform = (options: BunOptions) => {
 
   /** Timers do not survive a restart; those already due run right away. */
   const resume = async () => {
-    const alarms = hubDatabase
-      .query("SELECT space, name, at FROM namespace_alarms")
-      .all() as (NamespaceRef & { at: number })[];
-    for (const { at, ...ref } of alarms) namespaceOf(ref).alarm.set(at);
+    for (const { at, ...ref } of alarmIndex.all()) namespaceOf(ref).alarm.set(at);
     await hub.resetConnections();
     hubAlarm.set(Date.now() + HUB_START_DELAY_MS);
   };
