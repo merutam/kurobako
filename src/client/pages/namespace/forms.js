@@ -30,11 +30,8 @@ import { h } from "../../shared/dom.js";
 import { maxFilesAtOnce, textSizeText } from "../../shared/limits.js";
 
 /*
- * The composer: text tabs and files, one Send. What it holds decides what a
- * send is: one text alone is a text item, files alone are an item each, and
- * anything else (texts with files, or several texts) one bundle, a tar the
- * pages show as its texts and files (see shared/bundle.js). An item's "edit"
- * opens it here: Send becomes Save changes, and saves it in place.
+ * What the composer holds decides the send: one text is a text item, files
+ * are an item each, anything else one bundle (see shared/bundle.js).
  */
 export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const sendForm = element("#send-form");
@@ -55,8 +52,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const fileList = element("#file-list");
   const burnInput = element("#burn");
   const expiresInput = element("#expires-in");
-  // The settings, folded into "[settings]" beside the Send heading: it says what
-  // differs from the defaults, so a send never surprises.
+  // Says what differs from the defaults, so a send never surprises.
   const settingsBox = element("#send-settings");
   const settingsState = element("#settings-state");
   const showSettings = () => {
@@ -70,7 +66,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   expiresInput.addEventListener("change", showSettings);
   // A page brought back from history may keep what was picked before.
   showSettings();
-  // Open, it closes on Escape or a click elsewhere, as a menu does.
+  // Closes on Escape or a click elsewhere, as a menu does.
   document.addEventListener("click", (event) => {
     if (settingsBox.open && !settingsBox.contains(event.target)) settingsBox.open = false;
   });
@@ -93,32 +89,24 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   let config = null;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
-  /**
-   * The item open here, or null: { entry, kind: "text" | "bundle" }, and for
-   * a text what it held and was called, to save only what changed.
-   */
+  /** Keeps what a text held and was called, to save only what changed. */
   let editing = null;
 
   const languageKey = "kurobako-text-language";
-  // Markdown until someone picks another language (Plain text is "").
   const savedLanguage = storage.get(languageKey) ?? "md";
   fillLanguages(textLanguage, savedLanguage);
-  // The editor takes the textarea into itself: where it goes, from before that.
+  // The editor takes the textarea in, so its place is found first.
   const textInputParent = textInput.parentNode;
   const textInputNext = textInput.nextSibling;
   const mainTextEditor = createTextEditor(textInput, {
     title: () => (textLanguage.value ? `source.${textLanguage.value}` : ""),
   });
   textInputParent.insertBefore(mainTextEditor.editor, textInputNext);
-  // The caret's line and column, with the language, below the text.
   textLanguage.parentElement.append(mainTextEditor.position);
 
   /** Encrypted files grow a little; the server's limit applies to what it receives. */
   const fileLimit = () => mode.fileLimit(config.maxFileBytes);
 
-  // --- Tabs ----------------------------------------------------------------
-
-  /** A text tab: its name (without extension), language, text, and whether its name follows the text. */
   const newTab = (base = "text", language = textLanguage.value) => ({
     base,
     language,
@@ -126,14 +114,12 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     automatic: true,
   });
   let tabs = [newTab()];
-  /** The text tab shown, or "files". */
   let active = 0;
   let previewing = false;
 
   const fileNameOf = (tab) => safeName(`${tab.base}.${tab.language || "txt"}`, "text");
   const current = () => (active === "files" ? null : tabs[active]);
 
-  /** The shown tab, back from the fields. */
   const saveTab = () => {
     const tab = current();
     if (!tab) return;
@@ -141,10 +127,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     tab.text = textInput.value;
   };
 
-  /**
-   * A name typed for a tab: a known extension picks its language
-   * (notes.md: Markdown); the rest is the name, made safe.
-   */
+  /** A known extension picks the language (notes.md: Markdown). */
   const rename = (tab, typed) => {
     let name = typed.trim();
     const match = /\.([A-Za-z0-9_+-]+)$/.exec(name);
@@ -160,7 +143,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     tab.automatic = false;
   };
 
-  /** Turns tab `index`'s label into a field for its name: Enter keeps it, Escape does not. */
   const startRename = (index, button) => {
     const tab = tabs[index];
     const input = h("input", {
@@ -234,7 +216,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
           },
           name,
         );
-        // A click on the tab already shown renames it, as does a double-click.
         button.addEventListener("click", () =>
           index === active ? startRename(index, button) : select(index),
         );
@@ -258,9 +239,8 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     filesTab.textContent = count ? `files (${count})` : "files";
   };
 
-  /** Markdown, shown as it will read, with the picked files' images in place. */
   let previewUrls = [];
-  /** SVGs' data: addresses (see addresses.js), read once each, then shown. */
+  /** Read once each: data: addresses (see addresses.js). */
   const svgUrls = new WeakMap();
   const svgUrlOf = (file) => {
     if (!svgUrls.has(file)) {
@@ -307,7 +287,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     if (previewToggle.hidden) setPreview(false);
   };
 
-  /** Shows tab `index` (a text tab's, or "files"). */
   const select = (index) => {
     saveTab();
     active = index;
@@ -315,7 +294,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     textPanel.hidden = !tab;
     filesPanel.hidden = Boolean(tab);
     if (tab) {
-      // An item's own extension, which the picker may not list yet.
+      // The picker may not list it yet.
       if (![...textLanguage.options].some((option) => option.value === tab.language)) {
         textLanguage.append(h("option", { value: tab.language }, `.${tab.language}`));
       }
@@ -339,10 +318,8 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     textInput.focus();
   });
   filesTab.addEventListener("click", () => select("files"));
-  // --- The text tab's fields --------------------------------------------------
 
   let nameTimer = null;
-  /** A Markdown text's words, without its images and link targets. */
   const wordsOf = (text) =>
     isMarkdown(`x.${textLanguage.value}`)
       ? text.replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -369,35 +346,28 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   });
   textLanguage.addEventListener("change", applyLanguage);
   showLanguage();
-  // The page comes with a Markdown tab: another saved language renames it.
   if (tabs[0].language !== "md") showTabs();
   suggestName();
 
-  // --- Files -----------------------------------------------------------------
-
-  /** The local date and time, 20261011-062124: names sort as pasted. */
+  /** So pasted names sort in order. */
   const pasteStamp = () => {
     const now = new Date();
     const two = (value) => String(value).padStart(2, "0");
     return `${now.getFullYear()}${two(now.getMonth() + 1)}${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}`;
   };
-  /** A pasted screenshot is "image.png" in every browser: give it its own name. */
+  /** Every browser names a pasted screenshot "image.png". */
   const named = (file) => {
     if (file.name && !/^image\.[a-z0-9]+$/i.test(file.name)) return file;
     const extension = file.type.split("/")[1]?.replace("jpeg", "jpg") || "bin";
     return new File([file], `paste-${pasteStamp()}.${extension}`, { type: file.type });
   };
-  /**
-   * Files pasted or dropped on the text join the selection, as if picked
-   * there; in a Markdown text, each also leaves its reference at the caret.
-   */
+  /** In a Markdown text, each also leaves its reference at the caret. */
   const takeFiles = (files) => {
     const picked = new DataTransfer();
     for (const file of fileInput.files) picked.items.add(file);
     for (const file of files.map(named)) picked.items.add(file);
     fileInput.files = picked.files;
     fileInput.dispatchEvent(new Event("change"));
-    // As listed once named for the bundle (see normalizeFiles).
     const added = [...fileInput.files].slice(-files.length);
     if (isMarkdown(fileNameOf(current() ?? tabs[0]))) {
       const references = added
@@ -421,11 +391,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     );
   };
 
-  /**
-   * A picked file's name, as a text refers to it once in a bundle
-   * (assets/photo.png): a click copies that path, whole even where the name
-   * shows cut short, as on a phone.
-   */
+  /** Copies the whole path, even where the name shows cut short, as on a phone. */
   const copyPathButton = (file) => {
     const path = `${ASSETS}${file.name}`;
     const control = h(
@@ -445,12 +411,8 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     return control;
   };
 
-  // The files picked, pasted or dropped, one per line with their sizes and
-  // the total: the browser's own field only says how many.
-  /**
-   * A picked file's name as a send keeps it: safe, and without spaces, so a
-   * Markdown text refers to it as it is ("My Banner (1).JPG": My-Banner-1.JPG).
-   */
+  // The browser's own field only says how many.
+  /** Without spaces, so a Markdown text refers to it as it is. */
   const sendName = (name) => {
     const safe = safeName(name, "file");
     const dot = safe.lastIndexOf(".");
@@ -462,10 +424,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
       .replace(/^-+|-+$/g, "");
     return `${tidy || "file"}${extension}`;
   };
-  /**
-   * Gives the picked files the names a send keeps (see sendName, and unique),
-   * so a text refers to them by the names listed here.
-   */
+  /** So a text refers to them by the names listed here. */
   const normalizeFiles = () => {
     const files = [...fileInput.files];
     const names = uniqueNames(files.map((file) => sendName(file.name)));
@@ -478,7 +437,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     }
     fileInput.files = renamed.files;
   };
-  /** The files listed, as the browser's picker is about to replace them. */
   let picked = [];
   const showFiles = () => {
     normalizeFiles();
@@ -493,7 +451,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
       return;
     }
     const total = files.reduce((sum, file) => sum + file.size, 0);
-    /** A small action in a row of the list. */
     const action = (label, name, onClick) => {
       const button = h(
         "button",
@@ -531,7 +488,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
       ),
     );
   };
-  /** Takes one file back out of the send. */
   const removeFile = (index) => {
     const kept = new DataTransfer();
     for (const [other, file] of [...fileInput.files].entries()) {
@@ -539,12 +495,11 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     }
     fileInput.files = kept.files;
     showFiles();
-    // Focus stays in the list, on the next file's button or the clear.
+    // Focus stays in the list.
     fileList.querySelectorAll(".row-action")[Math.min(index, fileInput.files.length)]?.focus();
   };
-  // The browser's picker, and a drop on the field, replace what was picked:
-  // what they bring is added instead (the list removes files one by one).
-  // The page's own changes (a paste, a removal) come untrusted and as they are.
+  // The picker and drops replace what was picked; this adds instead. The page's
+  // own changes (a paste, a removal) arrive untrusted and are taken as they are.
   const sameFile = (a, b) =>
     a.size === b.size && a.lastModified === b.lastModified && sendName(a.name) === b.name;
   fileInput.addEventListener("change", (event) => {
@@ -563,9 +518,8 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     showFiles();
   };
 
-  // Files pasted or dropped on the text join the files, as if picked there: a
-  // screenshot is sent as an image, not as text. A paste that also carries
-  // text (a spreadsheet's cells, say) stays text.
+  // So a screenshot is sent as an image, not text. A paste that also carries
+  // text (a spreadsheet's cells) stays text.
   textInput.addEventListener("paste", (event) => {
     const files = [...(event.clipboardData?.files ?? [])];
     if (!files.length || event.clipboardData.getData("text/plain").trim()) return;
@@ -579,11 +533,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     takeFiles(files);
   });
 
-  // --- What a send is ----------------------------------------------------------
-
-  /** The texts to send: the tabs with something in them. */
   const filledTabs = () => tabs.filter((tab) => tab.text.trim());
-  /** "text" | "files" | "bundle" | null, by what the composer holds. */
   const sendKind = () => {
     const texts = filledTabs().length;
     const files = fileInput.files.length;
@@ -609,20 +559,14 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
           : "";
   };
 
-  /** The same contents already in the queue move to the top instead (200, not 201). */
   const sentMessage = async (response) =>
     response.status === 200 && (await response.json()).existing
       ? "Already in the queue: moved to the top."
       : "Sent.";
 
-  /**
-   * The most files one send takes, by the server's own limits: no more than
-   * the queue holds (more would push out what was just sent) nor than it takes
-   * in a minute, since each file is a send. 20 if the server says neither.
-   */
+  /** More than the queue holds would push out what was just sent; each file is a send. */
   const maxFiles = () => maxFilesAtOnce(config);
 
-  /** Waits `seconds`, calling `tick(secondsLeft)` once a second. */
   const countdown = async (seconds, tick) => {
     for (let left = seconds; left > 0; left -= 1) {
       tick(left);
@@ -630,7 +574,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     }
   };
 
-  /** Back to one empty text tab and no files, after a send or an edit. */
   const clearComposer = () => {
     editing = null;
     showEditing();
@@ -658,8 +601,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
         `Too large (max ${formatBytes(fileLimit())}): ${tooLarge.map((file) => file.name).join(", ")}.`,
       );
     }
-    // The last picked goes first, so the queue, newest on top, lists them as
-    // they were picked.
+    // Last picked first, so the queue lists them as picked.
     const queue = files.toReversed();
     let sent = 0;
     let moved = 0;
@@ -671,8 +613,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
         try {
           response = await mode.sendFile(queue[index], sendSettings());
         } catch (error) {
-          // Past the sends allowed a minute: wait as the server asks, then go
-          // on with the same file. Three waits in a row without a send: stop.
+          // Rate limited: wait as the server asks, then go on. Three waits without a send: stop.
           if (error.status !== 429 || !error.retryAfter || waits >= 3) throw error;
           waits += 1;
           await countdown(error.retryAfter, (left) =>
@@ -688,7 +629,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
         index += 1;
       }
     } catch (error) {
-      // Keep only what was not sent, so sending again sends the rest.
+      // So sending again sends the rest.
       const rest = new DataTransfer();
       for (const file of queue.slice(sent).toReversed()) rest.items.add(file);
       fileInput.files = rest.files;
@@ -704,11 +645,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
       : `Sent ${files.length} files${moved ? ` (${moved} already in the queue, moved to the top)` : ""}.`;
   };
 
-  /**
-   * A Markdown text's references to the attached files by their bare name
-   * (![](photo.png)) made to point where the bundle keeps them
-   * (assets/photo.png), so the text reads right in any Markdown viewer.
-   */
+  /** So the text reads right in any Markdown viewer once extracted. */
   const withAssetPaths = (text, files) => {
     const names = new Set(files.map((file) => file.name));
     return text.replace(/(!?\[[^\]\n]*\]\(\s*)(<?)([^)\s>]+)/g, (whole, start, open, target) => {
@@ -722,11 +659,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     });
   };
 
-  /**
-   * Texts and files together, as one tar named after the first text: the
-   * texts at its root, the files under assets/ (their names are already
-   * unique, see normalizeFiles).
-   */
   const bundleFile = async (texts, files) => {
     const names = uniqueNames(texts.map(fileNameOf));
     const entries = [
@@ -761,13 +693,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     return sentMessage(await mode.sendFile(file, sendSettings()));
   };
 
-  // --- Taking a share ---------------------------------------------------------
-
-  /**
-   * What was shared to the installed app (see pages/share.js): its text, with
-   * its link unless the text holds it, in the text tab, named after its title;
-   * its files in files. Nothing is sent until Send.
-   */
+  /** Nothing is sent until Send. */
   const takeShare = ({ title, text, url, files }) => {
     if (editing) clearComposer();
     const body = url && !text.includes(url) ? [text, url].filter(Boolean).join("\n\n") : text;
@@ -785,22 +711,17 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     sendForm.scrollIntoView({ block: "start" });
   };
 
-  // --- Editing an item ---------------------------------------------------------
-
-  /** Send, or Save changes: what the form says it does. */
   const showEditing = () => {
     sendTitle.textContent = editing ? "Edit" : "Send";
     sendButton.textContent = editing ? "Save changes" : "Send";
     cancelEdit.hidden = !editing;
     // Burn and expiry are a send's; an edit keeps the item's.
     settingsBox.hidden = Boolean(editing);
-    // A text stays one text: no tabs or files to add.
     const single = editing?.kind === "text";
     addTab.hidden = single;
     filesTab.hidden = single;
   };
 
-  /** A tab for a text called `title` (notes.md: Markdown). */
   const tabOf = (title, text) => {
     const extension = extensionOf(title);
     return {
@@ -811,7 +732,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     };
   };
 
-  /** Opens an item's text, or a bundle's texts and files, here to be edited. */
   const edit = async (entry) => {
     saveTab();
     const holding = filledTabs().length > 0 || fileInput.files.length > 0;
@@ -835,7 +755,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
       if (info.isBundle) {
         const bundle = readBundle(new Uint8Array(await (await mode.loadBlob(item)).arrayBuffer()));
         const texts = bundle.entries.filter((part) => part.text);
-        // The main text is the first tab, as it was sent.
         texts.sort((a, b) => Number(b.path === bundle.main) - Number(a.path === bundle.main));
         const files = new DataTransfer();
         for (const part of bundle.entries.filter((part) => !part.text)) {
@@ -878,7 +797,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     status.success("Edit cancelled.");
   });
 
-  /** Saves the item open here, at the version it was opened at. */
+  /** At the version it was opened at, so a concurrent edit is never overwritten. */
   const saveEdit = async (kind) => {
     const { item } = editing.entry;
     if (editing.kind === "text") {
@@ -906,7 +825,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   sendForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     saveTab();
-    // A name still following the text takes its last words.
     clearTimeout(nameTimer);
     suggestName();
     const kind = sendKind();
@@ -936,9 +854,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     }
   });
 
-  // --- The rest of the page -------------------------------------------------------
-
-  // The server names the file and sends it as a download: the page stays.
   backupZip.addEventListener("click", () => window.location.assign(`${mode.basePath}/zip`));
   backupTar.addEventListener("click", () => window.location.assign(`${mode.basePath}/tar`));
 
@@ -954,7 +869,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
           body: file,
         })
       ).json(),
-    // The live connection brings the new queue; this is for when it is down.
+    // For when the live connection is down.
     done: refreshUnlessLive,
   });
 
@@ -970,20 +885,16 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   pageUrl.addEventListener("click", copyLink);
   copyLinkButton.addEventListener("click", copyLink);
 
-  // The limits, expiry and hints come written by the server (namespace.tsx);
-  // only the address, which an encrypted page holds in its fragment, is ours.
+  // Limits and hints come from the server; only an encrypted page's address is ours.
   const showPage = () => {
     pageUrl.value = mode.shareUrl;
-    // A reload, or a page brought back from history, may keep the files
-    // picked before without saying so: list them (with the mode, which
-    // tells their limit).
+    // A reload may keep files picked before without saying so.
     showFiles();
   };
   window.addEventListener("pageshow", (event) => {
     if (event.persisted && mode) showFiles();
   });
 
-  /** Under the text: its size against the limit, red past it. */
   let textSizeTimer = null;
   const showTextSize = () => {
     clearTimeout(textSizeTimer);
@@ -996,7 +907,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     textLimit.title = `${formatBytes(bytes)} of ${formatBytes(config.maxTextBytes)}${paused ? "; too long to color" : ""}`;
     textLimit.classList.toggle("over", bytes > config.maxTextBytes);
   };
-  // Counting and UTF-8 encoding a long text on every key would lag typing.
+  // Counting and encoding a long text on every key would lag typing.
   textInput.addEventListener("input", () => {
     saveTab();
     clearTimeout(textSizeTimer);

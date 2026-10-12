@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Who used a namespace: one row per address, kept as long as the namespace.
 import type { Sql } from "../host";
 import type { AccessEvent, AccessLogEntry } from "../visits";
 
@@ -16,7 +15,6 @@ export const ACCESS_LOG_SCHEMA = `CREATE TABLE IF NOT EXISTS access_log (
 export class AccessLog {
   constructor(private readonly sql: () => Sql) {}
 
-  /** One more visit from an address: its counts and latest details. */
   record(event: AccessEvent): void {
     const now = new Date();
     const [previous] = this.sql().exec<{ data: string }>(
@@ -53,7 +51,6 @@ export class AccessLog {
     }
   }
 
-  /** Every address, the most recent first. */
   entries(): AccessLogEntry[] {
     return this.sql()
       .exec<{ data: string }>("SELECT data FROM access_log ORDER BY last_seen DESC")

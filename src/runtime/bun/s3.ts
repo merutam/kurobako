@@ -9,7 +9,6 @@ const isNotFound = (error: unknown) => {
   return code === "NoSuchKey" || code === "NotFound" || name === "NoSuchKey";
 };
 
-/** Files in any S3-compatible store, such as MinIO. */
 export const s3Store = (client: S3Client): BlobStore => ({
   async put(key, body, size, contentType) {
     const writer = client.file(key).writer({ type: contentType });
@@ -23,7 +22,7 @@ export const s3Store = (client: S3Client): BlobStore => ({
       if (written !== size) throw new Error("The body ended before its Content-Length.");
       await writer.end();
     } catch (error) {
-      // Closing the writer releases it, but keeps what was written: delete that.
+      // Closing the writer keeps what was written: delete that.
       await Promise.resolve(writer.end(error as Error)).catch(() => {});
       await client.delete(key).catch(() => {});
       throw error;

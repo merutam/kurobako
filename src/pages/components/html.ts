@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The server's h (see src/client/shared/dom.js): the markup the browser shares with the
-// server (src/client/shared/), as HTML text JSX can take.
+// src/client/shared/'s h as HTML text: server and browser render the same markup.
 import { raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 

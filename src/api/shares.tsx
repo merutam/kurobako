@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Shared items: /i/<token>. A token stands for one item. Its pages and links
-// never mention the namespace; visits still show in that namespace's access log.
+// /i/<token>: one item, whose pages and links never reveal its namespace.
 import { Hono } from "hono";
 import { readLimitedItem, sharedItem } from "../core/model";
 import { renderPage } from "../pages/components/layout";
@@ -18,15 +17,13 @@ export const shareRoutes = (api: Api, { serveItem }: ReturnType<typeof createCon
   const { later, visit, countVisitor, platform, config, siteView } = api;
   const shares = createShares(api);
 
-  /** The shared item, or null once it is gone (the token is then forgotten). */
   const peekShared = async (c: AppContext, token: string) => {
     const { item, stale } = await shares.peek(token, visit(c));
     if (stale) later(c, shares.forget(token));
     return item;
   };
 
-  // /i/<token> is the page, with the item embedded so it needs no request
-  // for it; /i/<token>.json is the item alone.
+  // The page embeds the item, so it needs no second request.
   app.get("/i/:token/ls", async (c) => {
     c.header("Cache-Control", "no-store");
     const limit = c.req.query("limit");
@@ -44,7 +41,7 @@ export const shareRoutes = (api: Api, { serveItem }: ReturnType<typeof createCon
     const param = c.req.param("token");
     const asJson = param.endsWith(".json");
     const token = asJson ? param.slice(0, -".json".length) : param;
-    // Per request (the item can expire or be read once), so never cached.
+    // The item can expire or be read once.
     c.header("Cache-Control", "no-store");
     const stored = await peekShared(c, token);
     if (asJson) return stored ? c.json(sharedItem(stored)) : jsonError(c, 404, SHARE_GONE);

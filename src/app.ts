@@ -1,24 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 //
-// The app, shared by every platform: the routes in api/, put together. A
-// namespace lives at /<name> (or /e/<id> when encrypted) and everything about
-// it sits under short, fixed suffixes, so it can all be typed by hand:
+// Everything about a namespace sits under short, fixed suffixes so it can be typed by hand:
 //
 //   GET    /<ns>              the page
 //   GET    /<ns>/ls           the queue as JSON
 //   POST   /<ns>/new          sends an item
 //   PUT    /<ns>/<name>       sends a file under that name (`curl -T file /<ns>/`)
-//   GET    /<ns>/<item>       one item's contents (/c too); /d downloads it
-//   GET    /<ns>/<item>.json  its details and a link to share it
-//   GET    /<ns>/<item>/s     a link to share it, as text (POST works too)
-//   POST   /<ns>/<item>/e     replaces a text's contents
+//   GET    /<ns>/<item>       its contents (/c too); /d downloads it
+//   GET    /<ns>/<item>.json  its details and a share link
+//   GET    /<ns>/<item>/s     a share link, as text (POST too)
+//   POST   /<ns>/<item>/e     replaces a text
 //   POST   /<ns>/<item>/n     renames it
 //   DELETE /<ns>/<item>       deletes it
-//   GET    /<ns>/log          who opened the namespace; log.json for JSON
+//   GET    /<ns>/log          who opened it; log.json for JSON
 //   GET    /<ns>/live         a WebSocket with every change
 //
-// <item> is an item's position in the queue (1 is the newest), its ID or its name.
+// Encrypted namespaces live at /e/<id>. <item> is a position (1 is the newest), an ID or a name.
 import { Hono } from "hono";
 import { accessGuard, accessRoutes } from "./api/access";
 import { adminGuard, adminRoutes } from "./api/admin";
@@ -40,7 +38,7 @@ import type { Platform } from "./runtime/platform";
 
 export type { AppEnv };
 
-/** A path no route matches, for requests outside the base path. */
+/** Requests outside the base path match nothing. */
 const OUTSIDE = "/\0";
 
 export const SECURITY_HEADERS: Record<string, string> = {
@@ -49,15 +47,13 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
   "Cross-Origin-Resource-Policy": "same-origin",
-  // A window another site opened, or that opened this one, cannot reach in.
   "Cross-Origin-Opener-Policy": "same-origin",
   "Content-Security-Policy":
     "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 
 export const createApp = (config: AppConfig, assets: WebAssets, platform: Platform) => {
-  // Routes are written from the site's root; under a base path (/k), /k/aa
-  // is /aa. A trailing slash changes nothing: /aa/ is /aa, /aa/ls/ is /aa/ls.
+  // Routes are written from the site's root: base path and trailing slash are stripped here.
   const app = new Hono<AppEnv>({
     getPath: (request) => sitePath(config.basePath, new URL(request.url).pathname) ?? OUTSIDE,
   });
@@ -74,17 +70,11 @@ export const createApp = (config: AppConfig, assets: WebAssets, platform: Platfo
     c.res = response;
   });
 
-  // Each file in api/ gives a group of routes (a Hono app, mounted here with
-  // app.route) or a middleware (registered here with app.use). Routes are
-  // written with their full paths, so all of them mount at "/".
-  //
-  // The order matters: middleware first, then fixed paths, items last, since
-  // an item can have any name.
-  // Before every route: a private instance turns away whoever has no session.
+  // Middleware first, then fixed paths, items last: an item can have any name.
+  // A private instance turns away whoever has no session before anything else.
   if (config.accessKey) app.use(accessGuard(api, config.accessKey));
-  // Then whoever keeps finding nothing reads nothing for a while.
   app.use(missLimit(api));
-  // Everything under /a asks for the admin key, the backups in archives.ts too.
+  // On /a/*, so it guards the admin backups in archives.ts too.
   if (config.adminKey) app.use(`${ADMIN_PATH}/*`, adminGuard(api, config.adminKey));
 
   const contents = createContents(api);

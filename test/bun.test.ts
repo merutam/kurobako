@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The self-hosted server, end to end: a real Bun server on a free port, its
-// SQLite files in a temporary directory and file contents in memory.
+// Bun end to end: a real server on a free port, SQLite in a temporary directory, files in memory.
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { createCipheriv, createHash, hkdfSync, pbkdf2Sync } from "node:crypto";
 import {
@@ -110,7 +109,7 @@ const blobs = memoryStore();
 let running: Awaited<ReturnType<typeof startServer>>;
 let base = "";
 
-/** Request logs, off but for the test about them. */
+/** Off, but for the test about them. */
 let logRequests = false;
 const start = async () => {
   running = await startServer({
@@ -133,10 +132,8 @@ afterAll(async () => {
 const call = (path: string, init?: RequestInit) => fetch(`${base}${path}`, init);
 
 /*
- * Everything that holds on every platform (test/shared.ts), on a server of
- * its own with the default settings. It sits behind a pretend proxy that
- * names the client in cf-connecting-ip, so each call can come from its own
- * address, as on Cloudflare.
+ * Behind a pretend proxy naming the client in cf-connecting-ip, so each call
+ * can come from its own address, as on Cloudflare.
  */
 describe("shared", () => {
   const sharedConfig = loadConfig({ ADMIN_KEY: TEST_ADMIN_KEY });
@@ -203,7 +200,7 @@ const typed = (ns: string, text: string, headers: Record<string, string> = {}) =
     headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
     body: text,
   });
-/** The next ready marker or queue delta (viewer counts in between are skipped). */
+/** Viewer counts in between are skipped. */
 const nextMessage = <T extends "ready" | "change">(socket: WebSocket, type: T) =>
   new Promise<Extract<LiveMessage, { type: T }>>((resolve) => {
     const listener = (event: MessageEvent) => {
@@ -438,7 +435,6 @@ describe("bun server", () => {
     const saveAll = Bun.spawn(["bun", script, "-O", link], { cwd: all, stdout: "pipe" });
     await saveAll.exited;
     // As with curl: -d @file drops line breaks, --data-binary @file keeps them.
-    // (In a namespace of its own: the queue here holds three items.)
     const lines = `${base}/e#${encodeURIComponent(`lines ${crypto.randomUUID()}`)}`;
     writeFileSync(join(workDir, "lines.txt"), "one\ntwo\r\n");
     expect(JSON.parse(await k("-d", "@lines.txt", `${lines}/new`)).text).toBe("onetwo");
@@ -480,8 +476,7 @@ describe("bun server", () => {
     expect(JSON.parse(await k("-X", "DELETE", `${link}/1`))).toEqual({ ok: true });
     expect(JSON.parse(await k(`${link}/ls`))).toHaveLength(1);
 
-    // Plain links pass through as curl would send them; JSON prints as for
-    // an encrypted namespace, and errors go to standard error.
+    // Plain links pass through as curl would send them; errors go to standard error.
     const ns = fresh();
     expect(await k(`${link}/ls`)).toContain('\n  {\n    "id"');
     expect(await k("-d", "plain text", `${base}/${ns}/new`)).toContain('\n  "id": ');
@@ -735,7 +730,6 @@ describe("bun server", () => {
     const script = join(import.meta.dir, "..", "public", "k.mjs");
     const k = (...args: string[]) =>
       Bun.spawn(["bun", script, ...args], { stdout: "pipe", stderr: "pipe" }).exited;
-    /** Follows `link`/live; `next()` waits for its next line. */
     const follow = (link: string) => {
       const child = Bun.spawn(["bun", script, `${link}/live`], { stdout: "pipe", stderr: "pipe" });
       const lines: string[] = [];
@@ -780,8 +774,7 @@ describe("bun server", () => {
         live.child.kill();
       }
 
-      // The same file sent again moves to the top (plain only: encrypted
-      // contents differ every time they are sealed).
+      // Plain only: encrypted contents differ every time they are sealed.
       const link = `${own.server.url.origin}/${fresh()}`;
       const file = join(mkdtempSync(join(tmpdir(), "kurobako-live-file-")), "photo.png");
       writeFileSync(file, png);
@@ -923,8 +916,7 @@ describe("bun server", () => {
         VAPID_PRIVATE_KEY: `VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}`,
       }).push,
     ).toMatchObject({ publicKey: VAPID_PUBLIC_KEY, privateKey: VAPID_PRIVATE_KEY });
-    // Set up wrong, notifications turn off alone, and the log says why: on
-    // Workers a thrown setting is every request failing.
+    // On Workers a thrown setting fails every request: a wrong one only turns push off.
     const logged = spyOn(console, "error").mockImplementation(() => {});
     try {
       for (const vars of [
@@ -976,7 +968,6 @@ describe("bun server", () => {
     });
     const site = own.server.url.origin;
 
-    // The push service: what the server posts to it is kept, answered `answer`.
     const realFetch = globalThis.fetch;
     const pushed: { endpoint: string; headers: Headers; body: Uint8Array<ArrayBuffer> }[] = [];
     let answer = 201;
@@ -994,7 +985,6 @@ describe("bun server", () => {
       return new Response(null, { status: answer });
     }) as typeof fetch);
 
-    /** A browser: its key pair, auth secret and subscription. */
     const device = async (id: string) => {
       const keys = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, [
         "deriveBits",
@@ -1014,7 +1004,6 @@ describe("bun server", () => {
       };
     };
     type Device = Awaited<ReturnType<typeof device>>;
-    /** What the browser reads of a push (RFC 8291), opened with its own keys. */
     const open = async (to: Device, body: Uint8Array<ArrayBuffer>) => {
       type Bytes = Uint8Array<ArrayBuffer>;
       const hkdf = async (salt: Bytes, ikm: Bytes, info: Bytes, length: number) =>
@@ -1059,7 +1048,7 @@ describe("bun server", () => {
       expect(plain.at(-1)).toBe(2);
       return JSON.parse(new TextDecoder().decode(plain.slice(0, -1)));
     };
-    /** Sends arrive after the answer: waits for `count` of them. */
+    /** Sends arrive after the answer. */
     const settled = async (count: number) => {
       for (let tries = 0; pushed.length < count && tries < 100; tries += 1) await Bun.sleep(20);
       await Bun.sleep(50);
@@ -1212,10 +1201,7 @@ describe("bun server", () => {
   });
 });
 
-/**
- * k.mjs is a single file people download, so a few rules live both there and
- * in the server (or the pages). These must agree.
- */
+/** k.mjs is a single file people download, so a few rules live in two places and must agree. */
 test("a self-hosted server leaves its limits to configuration", () => {
   const config = loadConfig({
     MAX_FILE_BYTES: "20000000000",
@@ -1347,8 +1333,6 @@ describe("rules kept in two places", () => {
       readdirSync(join(client, folder))
         .filter((name) => name.endsWith(".js"))
         .map((name) => name.slice(0, -3));
-    // By convention: every script in pages/ and head/, the styles, and the
-    // tokens as written (for /k/theme).
     expect(Object.keys(manifest.files).sort()).toEqual(
       [...scripts("pages"), ...scripts("head"), STYLES, TOKENS].sort(),
     );
@@ -1437,8 +1421,8 @@ describe("rules kept in two places", () => {
       const value = new RegExp(`data-vector="${name}">([^<]*)<`).exec(page)?.[1];
       return defined(value, `the ${name} vector`).replaceAll("&quot;", '"');
     };
-    // Koma never leaves the box: whitespace JavaScript trims (U+3000, U+FEFF)
-    // and keeps (U+0085), a decomposed ば, half-width ﾑｹﾞﾝ, emoji with ZWJ.
+    // Whitespace JavaScript trims (U+3000, U+FEFF) and keeps (U+0085), a
+    // decomposed ば, half-width ﾑｹﾞﾝ and ZWJ emoji must all give the same key.
     const typed = "\u3000\uFEFF Koma never leaves くろは\u3099こ 🐈\u200D⬛📦 ﾑｹﾞﾝ♾\uFE0F\u0085 \t";
     const name = Buffer.from(vector("name"), "hex");
     expect(name.toString("utf8")).toBe(typed.normalize("NFC").trim());
@@ -1477,8 +1461,6 @@ describe("rules kept in two places", () => {
     expect(seal(itemKey, 0x20, "kurobako/v4/metadata", Buffer.from(vector("metadata")))).toBe(
       vector("sealed-metadata"),
     );
-    // The body: segments of 65,536 bytes under the body key, each with a
-    // nonce of its number (11 bytes, big-endian) and 1 when it is the last.
     const sealBody = (key: Buffer, contents: Uint8Array) => {
       const count = Math.ceil(contents.length / 65_536);
       return Buffer.concat(
@@ -1574,8 +1556,7 @@ describe("rules kept in two places", () => {
     const missingBodyId = seal(itemKey, 0x20, "kurobako/v4/metadata", Buffer.from('{"rev":1}'));
     await expect(space.openItem(`${vector("wrapped")}.${missingBodyId}`, 22)).rejects.toThrow();
 
-    // The same key, but a body never opens as metadata, nor metadata as a body:
-    // not even contents that read as metadata, which would otherwise pass.
+    // Not even contents that read as metadata, which would otherwise pass.
     const lookalike = Buffer.from(JSON.stringify({ filename: "x.exe" }));
     const asMetadata = seal(itemKey, 0x40, "kurobako/v4/metadata", lookalike);
     expect((await space.openItem(`${vector("wrapped")}.${asMetadata}`, 48)).metadata).toMatchObject(
@@ -1745,7 +1726,6 @@ describe("rules kept in two places", () => {
   });
 });
 
-/** Two servers behind a router, each with its own data and hub, sharing one S3 store. */
 describe("several servers", () => {
   const sharedBlobs = memoryStore();
   const dirs = [0, 1].map(() => mkdtempSync(join(tmpdir(), "kurobako-node-")));
@@ -1954,7 +1934,6 @@ describe("slots", () => {
   });
 });
 
-/** A site under a path of its domain, as when it shares the domain with another site. */
 describe("under a base path", () => {
   const siteDir = mkdtempSync(join(tmpdir(), "kurobako-base-"));
   const workDir = mkdtempSync(join(tmpdir(), "kurobako-base-cli-"));
@@ -2144,7 +2123,6 @@ describe("under a base path", () => {
   });
 });
 
-/** ACCESS_KEY: only those with the key use the site; share links stay open unless told otherwise. */
 describe("a private instance", () => {
   const KEY = "a private key for tests";
   const dirs = [0, 1].map(() => mkdtempSync(join(tmpdir(), "kurobako-private-")));
@@ -2229,8 +2207,7 @@ describe("a private instance", () => {
     const listed = (await (await at("/notes/ls", { headers: { cookie } })).json()) as Item[];
     expect(listed.map((item) => item.text)).toEqual(["mine"]);
 
-    // The login page is a plain form: it goes on to where the visitor was
-    // going, never to another site.
+    // Never to another site: an open redirect would make the login a phishing tool.
     const page = await (await at("/k/login?next=%2Fnotes%3Fx%3D1")).text();
     expect(page).toContain('name="next" value="/notes?x=1"');
     expect(page).not.toContain('type="module"');
@@ -2287,7 +2264,6 @@ describe("a private instance", () => {
   });
 });
 
-/** Backups: a namespace as zip or tar, the whole instance through the admin, and back. */
 describe("backups", () => {
   const source = { dir: mkdtempSync(join(tmpdir(), "kurobako-backup-a-")), store: memoryStore() };
   const target = { dir: mkdtempSync(join(tmpdir(), "kurobako-backup-b-")), store: memoryStore() };
@@ -2304,7 +2280,6 @@ describe("backups", () => {
     headers: { "content-type": "text/plain", ...headers },
     body,
   });
-  /** Every entry of an archive: the manifest, and each file's bytes by path. */
   const unpack = async (response: Response) => {
     const bytes = new Uint8Array(await response.arrayBuffer());
     let manifest: Manifest | null = null;
@@ -2381,15 +2356,13 @@ describe("backups", () => {
       expect(files.get(`plain/${ns}/photo.png`)).toEqual(png);
     }
 
-    // -O follows the URL and calls this "tar"; -OJ takes the quoted name in
-    // Content-Disposition. Options may follow the URL, as in curl.
+    // -O follows the URL; -OJ takes Content-Disposition. Options may follow the URL, as in curl.
     const archiveName = `${ns}-${new Date().toISOString().slice(0, 10)}.tar`;
     await k(`${servers[0]?.server.url.origin}/${ns}/tar`, "-OJ");
     expect(readdirSync(workDir)).toContain(archiveName);
     expect(existsSync(join(workDir, "tar"))).toBe(false);
 
-    // Once extracted, a plain backup has the same read paths offline. A full
-    // backup with several namespaces requires its plain/<namespace> path.
+    // A full backup with several namespaces needs its plain/<namespace> path.
     const local = "plain-extracted";
     const extracted = join(workDir, local);
     const offline = await unpack(await from(`/${ns}/tar`));
@@ -2567,8 +2540,6 @@ describe("backups", () => {
     // The server never had the name: nothing readable in the backup.
     expect(new TextDecoder().decode(files.get(item?.path ?? ""))).not.toContain("sealed note");
 
-    // Once extracted, k.mjs mirrors the namespace's read paths offline, and
-    // also opens either the whole backup or one .sealed file directly.
     const extracted = join(workDir, "sealed-extracted");
     mkdirSync(extracted);
     writeFileSync(join(extracted, "manifest.json"), JSON.stringify(manifest));
@@ -2888,7 +2859,6 @@ describe("backups", () => {
   });
 });
 
-/** MAX_STORAGE_BYTES: every item together, across namespaces, stays under it. */
 describe("archive sizes", () => {
   const at = new Date("2026-10-12T10:11:12Z");
   const entry = (path: string, size: number) => ({
@@ -2968,7 +2938,6 @@ describe("a storage limit", () => {
   });
 });
 
-/** Limits count clients: an IPv4 address, or an IPv6 /64 network, whatever address in it is used. */
 describe("who a limit counts", () => {
   test("an IPv6 address by its /64, however it is written", () => {
     expect(clientKey("203.0.113.5")).toBe("203.0.113.5");
@@ -3016,7 +2985,6 @@ describe("who a limit counts", () => {
   });
 });
 
-/** AUTOMATED_NETWORKS: hosting, cloud and VPN networks and Tor, told by ASN and country. */
 describe("automated networks", () => {
   test("are told by network, and counted by block", () => {
     expect(isAutomatedNetwork({ asn: 16509, country: "US" })).toBe(true);

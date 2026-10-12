@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// What every page's script shares: finding elements, talking to
-// the server, formatting numbers, sizes and times, the clipboard and the
-// restore of a backup.
-
 import { h } from "../shared/dom.js";
 import { imageAddress, SVG_TYPE } from "./addresses.js";
 
@@ -25,19 +21,13 @@ export const element = (selector) => {
   return found;
 };
 
-/**
- * The site's own path under its domain: "" at the root, or e.g. "/k". Every
- * page says it on its <html data-base>; scripts are bundled under /k/assets/,
- * so their own address cannot tell. (Tests import this module with no page.)
- */
+/** From <html data-base>: scripts live under /k/assets/, so their own address cannot tell. */
 export const SITE = globalThis.document?.documentElement.dataset.base ?? "";
 
-/** Disables (or enables again) every control of a form while it is at work. */
 export const setBusy = (form, busy) => {
   for (const control of form.elements) control.disabled = busy;
 };
 
-/** The home and clone forms share one static namespace field and its mode behavior. */
 export const setupNamespaceField = (field, hint, config, onModeChange = () => {}) => {
   const input = field.querySelector('input[type="text"]');
   const encrypted = field.querySelector('.e2ee-control input[type="checkbox"]');
@@ -72,10 +62,7 @@ export const setupNamespaceField = (field, hint, config, onModeChange = () => {}
   update();
 };
 
-/**
- * localStorage, for preferences only: a browser that refuses it (private
- * windows, blocked storage) just forgets them.
- */
+/** Preferences only: private windows and blocked storage just forget them. */
 export const storage = {
   get(key) {
     try {
@@ -94,18 +81,14 @@ export const storage = {
   remove(key) {
     try {
       localStorage.removeItem(key);
-    } catch {
-      // Nothing was kept, then.
-    }
+    } catch {}
   },
 };
 
-/** The public config the server embeds in each page (no request needed). */
+/** Embedded in each page, so it needs no request. */
 export const readConfig = () => JSON.parse(element("#config").textContent);
 
-/** A failed request: the server's own message, and its status. */
 export class RequestError extends Error {
-  /** `retryAfter`: the seconds to wait before trying again (429), when the server says. */
   constructor(message, status, retryAfter = null) {
     super(message);
     this.status = status;
@@ -113,7 +96,6 @@ export class RequestError extends Error {
   }
 }
 
-/** fetch, failing with the server's {"error"} message (or its status). */
 export const request = async (url, options) => {
   const response = await fetch(url, options);
   if (!response.ok) {
@@ -128,7 +110,6 @@ export const request = async (url, options) => {
   return response;
 };
 
-/** A button with its label and what a click does. */
 export const button = (label, onClick, className) => {
   const control = h("button", { type: "button", class: className }, label);
   control.addEventListener("click", onClick);
@@ -136,9 +117,7 @@ export const button = (label, onClick, className) => {
 };
 
 /**
- * Puts text on the clipboard: through the Clipboard API on HTTPS pages (and
- * localhost), the only places browsers offer it; elsewhere, such as an
- * instance reached by plain http on a home network, the old way.
+ * The Clipboard API exists only on HTTPS and localhost; plain-http home servers need the old way.
  */
 export const copyText = async (text) => {
   if (navigator.clipboard?.writeText) {
@@ -151,15 +130,15 @@ export const copyText = async (text) => {
   fallback.className = "clipboard-fallback";
   document.body.append(fallback);
   fallback.select();
-  // execCommand is deprecated, and still the only copy a page without HTTPS has.
-  // Reached through Reflect so that editors do not flag this deliberate use.
+  // Deprecated, yet the only copy a page without HTTPS has. Through Reflect so
+  // editors do not flag this deliberate use.
   const execCommand = Reflect.get(document, "execCommand");
   const copied = execCommand.call(document, "copy");
   fallback.remove();
   if (!copied) throw new Error("The browser blocked clipboard access.");
 };
 
-/** An image's pixels; an SVG, which createImageBitmap does not take, through an <img>. */
+/** createImageBitmap does not take SVGs, so they go through an <img>. */
 const decoded = async (blob) => {
   if (blob.type !== SVG_TYPE) return createImageBitmap(blob);
   const image = new Image();
@@ -185,7 +164,6 @@ export const asPng = async (blob) => {
   });
 };
 
-/** What a restore did, in one sentence: {restored, skipped, rejected, namespaces}. */
 const restoredMessage = ({ restored, skipped, rejected, namespaces }) => {
   const notes = [skipped ? `${skipped} already there` : "", rejected ? `${rejected} refused` : ""];
   const said = notes.filter(Boolean);
@@ -194,11 +172,6 @@ const restoredMessage = ({ restored, skipped, rejected, namespaces }) => {
   }${said.length ? ` (${said.join(", ")})` : ""}.`;
 };
 
-/**
- * A backup's restore form: the request and what came of it in `status`.
- * `send(file)` posts the
- * backup and returns the server's answer; `done()` follows a successful one.
- */
 export const restoreForm = ({ form, input, status, send, done }) => {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -218,7 +191,7 @@ export const restoreForm = ({ form, input, status, send, done }) => {
   });
 };
 
-/** Files dropped beside a file field must not replace the page with themselves. */
+/** A drop beside the field must not replace the page with the file. */
 export const ignoreStrayDrops = () => {
   for (const type of ["dragover", "drop"]) {
     window.addEventListener(type, (event) => {
@@ -227,11 +200,6 @@ export const ignoreStrayDrops = () => {
   }
 };
 
-/**
- * Wires a choice group (see src/pages/components/choices.tsx): marks `value`
- * chosen, and calls `onPick(value)` when another is clicked. Returns a way
- * to mark one chosen from outside.
- */
 export const choiceGroup = (group, value, onPick) => {
   const buttons = [...group.querySelectorAll("[data-choice]")];
   const mark = (chosen) => {

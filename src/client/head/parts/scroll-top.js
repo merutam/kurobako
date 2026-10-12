@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Shared by every page: offer a way back only when the reader scrolls upward.
-// Run in <head>, it waits for the page's button.
+// Offered only when scrolling up, so it never covers what is being read.
 const startScrollTop = () => {
   const button = document.querySelector("#scroll-top");
   let lastY = window.scrollY;

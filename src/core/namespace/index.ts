@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// One namespace: what it does with its queue (queue.ts) and access log
-// (access-log.ts), its expiry and cleanup timers, its live viewers and what it
-// tells the hub.
 import type { AppConfig } from "../../config";
 import type { BlobStore, LiveSocket, Remote, Sql } from "../host";
 import type { HubApi } from "../hub";
@@ -43,10 +40,9 @@ import { VIEW_SCHEMA, type ViewEntry, Views } from "./views";
 
 export type { ItemRef, Rename, SaveInput };
 
-/** Whether a write has the namespace's capability. */
 export type WriteCheck = "open" | "ok" | "missing" | "wrong";
 
-/** The first 128 bits of SHA-256(base64url(write key)), encoded as a namespace ID. */
+/** So the public ID proves the write key without revealing it. */
 const sealedIdOfVerifier = (verifier: string): string | null => {
   if (!/^[a-f0-9]{64}$/.test(verifier)) return null;
   const first = verifier.slice(0, 32).match(/../g) ?? [];
@@ -56,27 +52,18 @@ const sealedIdOfVerifier = (verifier: string): string | null => {
     .replace(/=+$/, "");
 };
 
-/** What a send did: a new item, or the same contents already there, moved to the top. */
 export type Saved = { item: StoredItem; existing: boolean };
 
-/** An item from a backup: what to store, and the details it had. */
 export type Restored = {
   input: SaveInput;
   id: string;
   createdAt: string;
-  /** Last content or metadata change, when the backup records one. */
   updatedAt?: string;
   expiresAt: string | null;
-  /** A text's name, as it was. */
   name?: string;
 };
 
-/**
- * Live connection settings for the page. Clients send `ping` every
- * `pingSeconds` and get `pong` back, which keeps proxies from closing an idle
- * connection; a tab hidden for `hiddenCloseSeconds` closes its connection and
- * reopens it when shown.
- */
+/** Pings keep proxies from closing idle sockets; hidden tabs close theirs to save both ends. */
 export const LIVE = {
   ping: "ping",
   pong: "pong",
@@ -84,12 +71,7 @@ export const LIVE = {
   hiddenCloseSeconds: 60,
 } as const;
 
-/** What a namespace needs from its platform. */
-/**
- * What requests may ask of a namespace. On Cloudflare these are the Durable
- * Object's RPC methods (src/runtime/cloudflare/objects.ts makes them from
- * this list); on Bun, the core's own.
- */
+/** On Cloudflare these become the Durable Object's RPC methods (runtime/cloudflare/objects.ts). */
 export const NAMESPACE_METHODS = [
   "list",
   "listState",
@@ -114,34 +96,27 @@ export const NAMESPACE_METHODS = [
 export type NamespaceApi = Remote<NamespaceCore, (typeof NAMESPACE_METHODS)[number]>;
 
 export interface NamespaceHost {
-  /** Whether the namespace has any storage, checked without creating it. */
+  /** Checked without creating it, so probes cost no storage. */
   hasStorage(): boolean;
-  /** The namespace's own database, created on first use. */
   sql(): Sql;
-  /** Deletes the database and any scheduled alarm. */
   deleteStorage(): Promise<void>;
-  /** Schedules alarm() (replacing any earlier one), or cancels it with null. */
   setAlarm(time: number | null): Promise<void>;
   sockets(): LiveSocket[];
   blobs: BlobStore;
   hub(): HubApi;
-  /** Runs `work` after the answer, without holding it up (push messages). */
+  /** Push messages must not hold up the answer. */
   later(work: Promise<unknown>): void;
 }
 
-/**
- * One namespace: its item queue, its access log and the live-update sockets
- * of everyone viewing it. It comes into being with its first item and
- * deletes all of its storage once it has been empty for a while.
- */
+/** It exists from its first item and deletes all its storage once empty for a while. */
 export class NamespaceCore {
-  /** Whether the tables exist in this instance; a cleanup drops them. */
+  /** A cleanup drops the tables. */
   private schemaReady = false;
   private readonly queue = new Queue(() => this.sql);
   private readonly log = new AccessLog(() => this.sql);
   private readonly views = new Views(() => this.sql);
 
-  /** A version newer than an item's, even when two changes share a millisecond. */
+  /** Two changes can share a millisecond; versions must still differ. */
   private nextUpdate(item: StoredItem): string {
     const current = Date.parse(item.updatedAt ?? item.createdAt);
     return new Date(Math.max(Date.now(), current + 1)).toISOString();
@@ -172,22 +147,15 @@ export class NamespaceCore {
     return sql;
   }
 
-  // --- Identity ---------------------------------------------------------
-
-  /**
-   * Whether the namespace exists. Opening its page, listing it or watching
-   * it live stores nothing; only sending does.
-   */
+  /** Viewing, listing or watching stores nothing; only sending does. */
   private exists(): boolean {
     return this.existing() !== null;
   }
 
-  /** The namespace if it exists, checked without creating any storage. */
   private existing(): NamespaceRef | null {
     return this.schemaReady || this.host.hasStorage() ? this.ref() : null;
   }
 
-  /** Which namespace this is; set by its first item. */
   private ref(): NamespaceRef | null {
     const rows = this.sql.exec<{ key: string; value: string }>("SELECT key, value FROM meta");
     const meta = Object.fromEntries(rows.map((row) => [row.key, row.value]));
@@ -204,9 +172,7 @@ export class NamespaceCore {
     );
   }
 
-  // --- Write access -----------------------------------------------------
-
-  /** An encrypted write key must match the public namespace ID even before first send. */
+  /** Even before the first send, so nobody can claim an ID without its key. */
   async checkWrite(ref: NamespaceRef, verifier: string | null): Promise<WriteCheck> {
     if (ref.space === "plain") return "open";
     if (verifier === null) return "missing";
@@ -218,8 +184,6 @@ export class NamespaceCore {
     throw new Error("Write access denied.");
   }
 
-  // --- Upkeep -----------------------------------------------------------
-
   private expiryFrom(now: number, expiresInSeconds: number | null = null): string | null {
     const duration = expiresInSeconds === null ? this.config.itemTtlMs : expiresInSeconds * 1000;
     return duration ? new Date(now + duration).toISOString() : null;
@@ -230,23 +194,19 @@ export class NamespaceCore {
     if (keys.length) await this.host.blobs.delete(keys);
   }
 
-  /** Removes expired items and their files; true when anything changed. */
   private async expire(): Promise<boolean> {
     const expired = this.queue.takeExpired(Date.now());
     await this.deleteFiles(expired);
     return expired.length > 0;
   }
 
-  /**
-   * The common start of every operation on an existing namespace. Each takes
-   * the request's visit, so the access log is written in the same call.
-   */
+  /** Takes the request's visit, so the access log is written in the same call. */
   private async enter(visit: AccessEvent | undefined): Promise<void> {
     this.recordVisit(visit);
     if (await this.expire()) await this.changed();
   }
 
-  /** Visits are only logged once the namespace exists, so probes leave no trace. */
+  /** Only once the namespace exists, so probes leave no trace. */
   private recordVisit(visit: AccessEvent | undefined): void {
     if (visit && this.exists()) this.log.record(visit);
   }
@@ -258,7 +218,7 @@ export class NamespaceCore {
     );
   }
 
-  /** After any change: publish only the queue delta, then reschedule expiry and stats. */
+  /** Only the delta is published, so busy queues stay cheap to watch. */
   private async changed(): Promise<void> {
     const ref = this.ref();
     if (!ref) return;
@@ -297,10 +257,7 @@ export class NamespaceCore {
     await this.report(items);
   }
 
-  /**
-   * One alarm per namespace: the next item expiry or, once the namespace is
-   * empty, its cleanup after EMPTY_NAMESPACE_TTL_SECONDS.
-   */
+  /** One alarm: the next expiry or, once empty, the cleanup. */
   private async scheduleAlarm(items: StoredItem[]): Promise<void> {
     if (!items.length) {
       await this.host.setAlarm(Date.now() + this.config.emptyNamespaceTtlMs);
@@ -309,9 +266,9 @@ export class NamespaceCore {
     await this.host.setAlarm(this.queue.nextExpiry());
   }
 
-  /** Sizes for the hub. `closing` may still be listed among the sockets. */
+  /** `closing` may still be listed among the sockets. */
   private async report(known?: StoredItem[], closing?: LiveSocket): Promise<void> {
-    // Namespaces that do not exist are not listed (and must not get tables).
+    // Must not create tables for a namespace that does not exist.
     const ref = this.existing();
     if (!ref) return;
     const items = known ?? this.queue.all();
@@ -323,8 +280,7 @@ export class NamespaceCore {
   }
 
   async alarm(): Promise<void> {
-    // Expired items go now; if that empties the namespace, changed() plans
-    // its cleanup for later.
+    // If that empties the namespace, changed() plans its cleanup for later.
     if (await this.expire()) {
       await this.changed();
       return;
@@ -334,7 +290,7 @@ export class NamespaceCore {
       await this.changed();
       return;
     }
-    // Empty for the whole wait. Someone looking at it keeps it alive.
+    // Someone looking at it keeps it alive.
     if (this.host.sockets().length) {
       await this.host.setAlarm(Date.now() + this.config.emptyNamespaceTtlMs);
       return;
@@ -342,21 +298,19 @@ export class NamespaceCore {
     await this.cleanUp(ref);
   }
 
-  /** Brings timers and stats up to date, as after a restart. */
+  /** As after a restart, which loses timers and stats. */
   async resume(): Promise<void> {
     if (!this.exists()) return;
     await this.expire();
     await this.changed();
   }
 
-  /** Forgets the namespace everywhere and deletes all its storage. */
   private async cleanUp(ref: NamespaceRef): Promise<void> {
     await this.host.hub().forgetNamespace(ref);
     await this.host.deleteStorage();
     this.schemaReady = false;
   }
 
-  /** Asked by the hub's sweep for a namespace it lists as empty for too long. */
   async cleanUpIfEmpty(ref: NamespaceRef): Promise<void> {
     const own = this.existing();
     if (!own) {
@@ -372,20 +326,17 @@ export class NamespaceCore {
     await this.cleanUp(own);
   }
 
-  // --- Items ------------------------------------------------------------
-
   async list(visit?: AccessEvent): Promise<StoredItem[]> {
     return (await this.listState(visit)).items;
   }
 
-  /** Queue and revision are read together for race-free WebSocket bootstrap. */
+  /** Read together, so a WebSocket starts from a consistent state. */
   async listState(visit?: AccessEvent): Promise<{ items: StoredItem[]; revision: number }> {
     if (!this.exists()) return { items: [], revision: 0 };
     await this.enter(visit);
     return { items: this.queue.all(), revision: this.revision() };
   }
 
-  /** A writer's consistent item list, active view and historical view IDs. */
   async viewsStatus(ref: NamespaceRef, verifier: string | null) {
     await this.assertWrite(ref, verifier);
     if (!this.exists()) return { items: [] as StoredItem[], views: [] as ReturnType<Views["all"]> };
@@ -393,7 +344,7 @@ export class NamespaceCore {
     return { items: this.queue.all(), views: this.views.all() };
   }
 
-  /** A new view freezes the old membership. A stale item list never rotates. */
+  /** A stale item list never rotates. */
   async createView(
     ref: NamespaceRef,
     viewId: string,
@@ -402,8 +353,7 @@ export class NamespaceCore {
     verifier: string | null,
   ): Promise<ReturnType<Views["rotate"]>> {
     await this.assertWrite(ref, verifier);
-    // A canonical unpadded base64url encoding of exactly 16 bytes ends in
-    // A, Q, g or w; accepting another spelling would derive a different key.
+    // Another spelling of the same 16 bytes would derive a different key.
     if (!/^[A-Za-z0-9_-]{21}[AQgw]$/.test(viewId)) throw new Error("Invalid view ID.");
     if (this.exists()) await this.enter(undefined);
     const current = this.exists() ? this.queue.all() : [];
@@ -457,7 +407,7 @@ export class NamespaceCore {
     }
   }
 
-  /** Only live members are returned; their names and bytes stay at item shares. */
+  /** Names and bytes stay behind each item's share link. */
   async viewContents(token: string, visit?: AccessEvent) {
     if (!this.exists()) return null;
     await this.enter(visit);
@@ -474,10 +424,8 @@ export class NamespaceCore {
   }
 
   /**
-   * Adds an item under a new ID, unique in this namespace. Contents already
-   * in the queue (same kind and SHA-256, neither burning after reading) are
-   * not stored twice: that item moves to the top with a fresh expiry, and the
-   * caller deletes the file it uploaded, if any.
+   * Contents already here (same kind and SHA-256) are not stored twice: that
+   * item moves to the top, and the caller deletes the file it uploaded.
    */
   async save(
     ref: NamespaceRef,
@@ -505,16 +453,14 @@ export class NamespaceCore {
       }
     }
 
-    // Never the same millisecond as the newest item: an item's time alone
-    // then tells its place in the queue, as backups rely on.
+    // Never the newest item's millisecond: backups order items by time alone.
     const now = Math.max(Date.now(), this.queue.newestTime() + 1);
     const same =
       deduplicate && !burn && reads === null && input.sha256
         ? this.queue.sameContents(input.kind, input.sha256)
         : null;
     if (same) {
-      // Sent again: now the newest, expiring as if just sent, under the new
-      // name if the send gave one.
+      // Sent again: newest, expiring as if just sent.
       const rename =
         input.kind === "text" && same.kind === "text"
           ? input.name
@@ -552,12 +498,7 @@ export class NamespaceCore {
     return { item, existing: false };
   }
 
-  // --- Push notifications -----------------------------------------------
-
-  /**
-   * Tells a device of this namespace's sends, until it asks no more. Only
-   * a namespace that exists: subscribing never creates one (null).
-   */
+  /** Never creates a namespace (null). */
   async subscribePush(
     subscription: unknown,
     visit?: AccessEvent,
@@ -588,11 +529,7 @@ export class NamespaceCore {
     return true;
   }
 
-  /**
-   * Tells every subscribed device of a send but the one it came from
-   * (`skip`, see skipIdOf), after the answer. A plain text shows its start
-   * and a file its name; what is encrypted or read once shows nothing.
-   */
+  /** Encrypted or read-once items show nothing; the sending device is skipped. */
   private notify(ref: NamespaceRef, item: StoredItem, skip: string | null): void {
     const push = this.config.push;
     if (!push) return;
@@ -618,7 +555,7 @@ export class NamespaceCore {
       if (skip_id === skip) continue;
       this.host.later(
         sendPush(target, message, push).then((result) => {
-          // The browser dropped it: nothing will ever arrive there again.
+          // The browser dropped it: nothing will arrive there again.
           if (result === "gone") {
             this.sql.exec("DELETE FROM push_subscriptions WHERE endpoint = ?", target.endpoint);
           }
@@ -628,13 +565,9 @@ export class NamespaceCore {
   }
 
   /**
-   * Puts back items from a backup, oldest first, with their IDs and dates.
-   * An item whose contents are already here is left out. An existing ID takes
-   * a newer name, or newer text contents from an incremental backup; files
-   * remain immutable. Restoring the same backup twice therefore changes
-   * nothing. An item already expired is left out too. Items expire by this
-   * instance's rule at the latest. Returns uploaded file keys that were not
-   * kept, for the caller to delete.
+   * Restoring the same backup twice changes nothing: known contents are left
+   * out, and an existing ID only takes newer names or texts. Returns the
+   * uploaded files not kept, for the caller to delete.
    */
   async restore(
     ref: NamespaceRef,
@@ -664,9 +597,8 @@ export class NamespaceCore {
       if (existing) {
         const currentChange = Date.parse(existing.updatedAt ?? existing.createdAt);
         const incomingChange = updatedAt ? Date.parse(updatedAt) : Number.NEGATIVE_INFINITY;
-        // A sealed body's ciphertext has no stored digest. For a newer backup,
-        // keep its body together with its metadata: changing only the latter
-        // could pair a new revision with the old revision's ciphertext.
+        // A sealed body has no digest: changing only its metadata could pair a new
+        // revision with the old ciphertext.
         const sameContents =
           existing.kind === input.kind &&
           existing.size === input.size &&
@@ -722,8 +654,7 @@ export class NamespaceCore {
       this.queue.push(dated.kind === "text" && name !== undefined ? { ...dated, name } : dated);
       restored += 1;
     }
-    // Restored items keep their dates, so their place is by date too, in
-    // whatever order the parts of a backup come back.
+    // Parts of a backup come back in any order, so place goes by date.
     if (restored) this.queue.sortByDate();
     await this.deleteFiles([...replacedFiles, ...this.queue.trimTo(this.config.maxItems)]);
     if (ref.space === "plain" && active) {
@@ -736,10 +667,7 @@ export class NamespaceCore {
     return { restored, skipped };
   }
 
-  /**
-   * A text item, or null for anything else. A burn-after-reading text is
-   * deleted by this read.
-   */
+  /** A burn-after-reading text is deleted by this read. */
   async readText(ref: ItemRef, visit?: AccessEvent): Promise<InlineTextItem | null> {
     if (!this.exists()) return null;
     await this.enter(visit);
@@ -753,11 +681,7 @@ export class NamespaceCore {
     return item;
   }
 
-  /**
-   * Hands out a file-backed item to be streamed from the blob store. A
-   * burn-after-reading item is removed here, before any await, so no second
-   * reader can claim it; deleting its file is then the caller's job.
-   */
+  /** Removed before any await, so no second reader can claim it; the caller deletes the file. */
   async claimObject(ref: ItemRef, visit?: AccessEvent): Promise<ObjectItem | null> {
     if (!this.exists()) return null;
     await this.enter(visit);
@@ -771,14 +695,12 @@ export class NamespaceCore {
     return item;
   }
 
-  /** One item as it is now, without consuming it. */
   async peek(ref: ItemRef, visit?: AccessEvent): Promise<StoredItem | null> {
     if (!this.exists()) return null;
     await this.enter(visit);
     return this.queue.find(ref);
   }
 
-  /** One item and its position in the queue (1 is the newest), without consuming it. */
   async locate(
     ref: ItemRef,
     visit?: AccessEvent,
@@ -789,7 +711,6 @@ export class NamespaceCore {
     return item ? { item, position: this.queue.position(item.id) } : null;
   }
 
-  /** Renames an item; see renamedItem for what a name means for each kind. */
   async rename(
     ref: ItemRef,
     change: Rename,
@@ -814,12 +735,7 @@ export class NamespaceCore {
     return { item: updated };
   }
 
-  /**
-   * Replaces a text's contents (see replacedItem). `expected` is the version
-   * the client saw (its updatedAt, else createdAt): if the item changed
-   * since, nothing happens and the answer says so. The old contents' file,
-   * if any, is deleted; the new one's is the caller's until this succeeds.
-   */
+  /** `expected` is the version the client saw, so concurrent edits never overwrite each other. */
   async replace(
     ref: ItemRef,
     input: SaveInput,
@@ -868,27 +784,17 @@ export class NamespaceCore {
     return this.log.entries();
   }
 
-  // --- Live updates -----------------------------------------------------
-
   canWatch(): boolean {
     return this.host.sockets().length < this.config.maxLiveConnections;
   }
 
-  /**
-   * A new viewer: a readiness marker, without the queue. Watching stores nothing, so a
-   * device can wait on a namespace that does not exist yet and get its first
-   * item the moment another device sends it.
-   */
+  /** Stores nothing, so a device can wait on a namespace that does not exist yet. */
   async watch(visit?: AccessEvent): Promise<string> {
     const { revision } = await this.listState(visit);
     return JSON.stringify({ type: "ready", revision });
   }
 
-  /**
-   * Call after a socket was added or closed (pass it as `closing`). Every
-   * viewer hears how many pages are open on the namespace now, its own
-   * included: { type: "viewers", count }.
-   */
+  /** `closing` may still be in the list of sockets. */
   async watchersChanged(closing?: LiveSocket): Promise<void> {
     const sockets = this.host.sockets().filter((socket) => socket !== closing);
     const message = JSON.stringify({ type: "viewers", count: sockets.length });

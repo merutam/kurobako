@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Entry point on Cloudflare Workers. Everything in dist/ (built by ops/build.ts:
-// the bundled scripts and styles, the fixed files, the static pages) is served
-// by Workers Static Assets before the Worker runs; the rest comes here.
+// Everything in dist/ is served before the Worker runs; the rest comes here.
 import { createApp } from "../../app";
 import { ASSETS_PATH, isAssetPath, isFixedFile, loadAssets, MANIFEST_FILE } from "../../assets";
 import { loadConfig } from "../../config";
@@ -31,7 +29,7 @@ const buildApp = async (env: Env) => {
   return { app, basePath: config.basePath };
 };
 
-// Built once per isolate: config, assets and bindings only change with a new deployment.
+// Config, assets and bindings only change with a new deployment.
 let app: ReturnType<typeof buildApp> | null = null;
 
 export default {
@@ -41,10 +39,7 @@ export default {
       throw error;
     });
     const { app: built, basePath } = await app;
-    // Static assets live at the root of dist/ and are served before the
-    // Worker runs. Under a base path their URLs (/k/k/assets/…, /k/k.mjs)
-    // find no asset and land here; so does anything that reaches the Worker
-    // directly (the tests).
+    // Under a base path, asset URLs (/k/k/assets/…) find no asset and land here; so do the tests.
     const inside = sitePath(basePath, new URL(request.url).pathname);
     if (inside && (isFixedFile(inside) || isAssetPath(inside))) {
       return env.ASSETS.fetch(new Request(new URL(inside, request.url), request));

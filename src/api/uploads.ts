@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+// The HTTP side of sends and edits; storing is services/items.ts.
+
 import {
   describePlainFile,
   InvalidUtf8Error,
@@ -10,8 +12,6 @@ import {
   type Upload,
   validatedText,
 } from "../core/contents";
-// Receiving items: a send's or an edit's headers and body, and the answer.
-// Keeping the contents is services/items.ts.
 import { SIGNATURE_BYTES, safeFileName } from "../core/media";
 import {
   type NamespaceRef,
@@ -31,9 +31,8 @@ import { type Api, type AppContext, jsonError, readLimited, writeVerifier } from
 const BURN_HEADER_VALUES = new Set(["1", "true", "yes"]);
 const MAX_EXPIRES_IN_SECONDS = 30 * 24 * 60 * 60;
 const MAX_READS = 1_000_000;
-/** Request types stored as text: what the page sends, and what `curl -d` sends. */
+/** What the page and `curl -d` send. */
 const TEXT_TYPES = new Set(["text/plain", "application/x-www-form-urlencoded"]);
-/** The name a send gives, or null when it gives none. */
 export const decodeFilename = (value: string | undefined): string | null => {
   if (!value) return null;
   try {
@@ -43,11 +42,10 @@ export const decodeFilename = (value: string | undefined): string | null => {
   }
 };
 
-/** `Burn: 1` on a send: the item is deleted by its first read. Short to type: `-H burn:1`. */
+/** Short to type: `-H burn:1`. */
 export const burnRequested = (c: AppContext) =>
   BURN_HEADER_VALUES.has((c.req.header("burn") ?? "").trim().toLowerCase());
 
-/** A send's requested lifetime, or a validation response. Null means the instance default. */
 const requestedExpiry = (c: AppContext, itemTtlMs: number): number | null | Response => {
   const raw = c.req.header("expires-in");
   if (raw === undefined) return null;
@@ -90,7 +88,6 @@ const streamedBody = async (c: AppContext, limit: number): Promise<Upload | Resp
   return { body, size, head };
 };
 
-/** Reads a (small) request body, stopping at `limit`. */
 const readBody = async (c: AppContext, limit: number) => {
   const bytes = await readLimited(c, limit);
   if (!bytes) return jsonError(c, 413, `The limit is ${limit} bytes.`);
@@ -98,7 +95,7 @@ const readBody = async (c: AppContext, limit: number) => {
   return bytes;
 };
 
-/** A send's answer: 201 for a new item, 200 for contents already there, now on top. */
+/** 200 when the same contents were already there, now moved to the top. */
 const sentResponse = (c: AppContext, saved: Saved) =>
   saved.existing
     ? c.json({ ...publicItem(saved.item), existing: true }, 200)
@@ -109,7 +106,6 @@ export const createUploads = (api: Api) => {
   const items = createItems(api);
   const defer = (c: AppContext) => (work: Promise<unknown>) => later(c, work);
 
-  /** The send's options, from its headers (see SendOptions). */
   const sendOptions = async (
     c: AppContext,
     expiresInSeconds: number | null,
@@ -126,7 +122,7 @@ export const createUploads = (api: Api) => {
       verifier: await writeVerifier(c),
       view: token ? { token, ...(envelope ? { envelope } : {}) } : undefined,
       deduplicate: c.req.header("no-dedup") !== "1",
-      // The sending device's push subscription (see core/push.ts).
+      // So the sending device is not notified of its own send (core/push.ts).
       pushSkip: /^[A-Za-z0-9_-]{22}$/.test(skip) ? skip : null,
     };
   };
@@ -239,7 +235,7 @@ export const createUploads = (api: Api) => {
     if (!SEALED_METADATA_PATTERN.test(metadata)) {
       return jsonError(c, 400, "Missing or invalid X-Sealed-Metadata header.");
     }
-    // The browser checks that ciphertext (contents plus IV and tag) fits.
+    // The browser already checked that the ciphertext (plus IV and tag) fits.
     const upload = await streamedBody(c, config.maxFileBytes);
     if (upload instanceof Response) return upload;
     const saved = await items.saveObject(
@@ -261,10 +257,7 @@ export const createUploads = (api: Api) => {
     return c.json(publicItem(result.item));
   };
 
-  /**
-   * Replaces one text, using the same inline/blob and UTF-8 rules as a send,
-   * or one bundle, sent as a file is (Content-Type: application/octet-stream).
-   */
+  /** Same inline/blob and UTF-8 rules as a send, so an edit cannot sneak past them. */
   const editText = async (c: AppContext, ref: NamespaceRef, item: ItemRef, expected: string) => {
     if (ref.space === "sealed") {
       const metadata = c.req.header("x-sealed-metadata") ?? "";

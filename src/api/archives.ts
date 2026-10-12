@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Backups: a namespace, or with the admin key the whole instance, as a zip or
-// a tar, and back.
+// Backups (the work is in services/backups.ts):
 //
-//   GET  <ns>/zip, <ns>/tar      the namespace (?since=<date>: items sent or changed since;
-//                                ?max=<bytes>: in parts, see backupResponse)
-//   POST <ns>/import             puts a backup of one namespace back into this one (PUT too)
-//   GET  /a/zip, /a/tar          every namespace (admin)
-//   POST /a/import               puts back every namespace in a backup (admin)
-//
-// What an archive holds, and how it is made and restored: services/backups.ts.
+//   GET  <ns>/zip, <ns>/tar   ?since=<date>, ?max=<bytes>&after=<cursor> for parts
+//   POST <ns>/import          one namespace's backup into this one (PUT too)
+//   GET  /a/zip, /a/tar       every namespace (admin)
+//   POST /a/import            (admin)
 import { Hono } from "hono";
 import type { ArchiveFormat } from "../core/archive";
 import type { NamespaceRef } from "../core/model";
@@ -30,10 +26,6 @@ export const archiveRoutes = (api: Api) => {
   const { config, hub, refuseSend, refuseWrite } = api;
   const backups = createBackups(api);
 
-  /**
-   * A backup of `refs` as a download, or one part of it: with ?max, its
-   * X-Kurobako-Next header is the cursor for the rest (?after).
-   */
   const backupResponse = async (
     c: AppContext,
     refs: NamespaceRef[],
@@ -43,7 +35,7 @@ export const archiveRoutes = (api: Api) => {
   ) => {
     const made = await backups.backup(refs, format, part);
     if (made.empty) c.set("miss", true);
-    // Parts are numbered, so `curl -OJ` never writes one over another.
+    // Numbered, so `curl -OJ` never writes one part over another.
     const name = part.max !== null ? `${filename}-part${made.part}` : filename;
     return new Response(made.archive, {
       headers: {
@@ -55,7 +47,6 @@ export const archiveRoutes = (api: Api) => {
     });
   };
 
-  /** ?max=<bytes>&after=<cursor>: one part of a backup (see backupResponse). */
   const partOf = (c: AppContext) => {
     const rawMax = c.req.query("max");
     const max = rawMax === undefined ? null : Number(rawMax);
@@ -69,7 +60,6 @@ export const archiveRoutes = (api: Api) => {
     return { max, after };
   };
 
-  /** ?since=<date or time>: only items sent or changed since then. */
   const sinceOf = (c: AppContext): number | null | Response => {
     const raw = c.req.query("since");
     if (!raw) return null;
@@ -79,10 +69,6 @@ export const archiveRoutes = (api: Api) => {
       : time;
   };
 
-  /**
-   * Restores what an archive holds. With `into`, the archive must hold one
-   * namespace, restored into that one (see services/backups.ts).
-   */
   const importArchive = async (
     c: AppContext,
     into: NamespaceRef | null,
@@ -97,10 +83,7 @@ export const archiveRoutes = (api: Api) => {
     return "error" in result ? jsonError(c, result.status, result.error) : c.json(result);
   };
 
-  // --- Routes -------------------------------------------------------------
-
-  // The admin's, for the whole instance; /a/* already asks for the admin key.
-  // First, or /:namespace/zip would take /a/zip.
+  // Before /:namespace/zip, which would take /a/zip.
   if (config.adminKey) {
     for (const format of BACKUP_FORMATS) {
       app.get(`${ADMIN_PATH}/${format}`, async (c) => {
@@ -130,8 +113,7 @@ export const archiveRoutes = (api: Api) => {
         }),
       );
     }
-    // POST or PUT: `curl -T backup.zip <ns>/import` puts, and must not send a
-    // file named "import" (registered before the namespace's own routes).
+    // PUT, so `curl -T backup.zip <ns>/import` restores instead of sending a file named import.
     app.on(
       ["POST", "PUT"],
       `${space.prefix}/import`,

@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// HTML in the text stays text, so andocument cannot run
-// or load anything. Links go to http(s), mailto, or a
-// file beside the text in its bundle; images come only
-//  from that bundle (resolve).
+// HTML in the text stays text, so a document cannot run or load anything.
+// Links go only to http(s), mailto or the bundle; images only to the bundle.
 
 import { h } from "../shared/dom.js";
 import { isShownImage } from "./addresses.js";
@@ -18,7 +16,6 @@ const LIST = /^( {0,3})([-*+]|\d{1,9}[.)])( +|$)/;
 const TABLE_DIVIDER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const PUNCTUATION = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
 
-/** Whether `line` starts a block other than a paragraph (which it ends). */
 const startsBlock = (line, next) =>
   FENCE.test(line) ||
   HEADING.test(line) ||
@@ -44,11 +41,7 @@ const cells = (line) => {
   return out;
 };
 
-/**
- * Renders `source` into a <div class="markdown-body">. `resolve(path)` gives a
- * file of the bundle as { url, type, name }, or null.
- */
-/** A link's path as a bundle names its files; a malformed % escape names none. */
+/** A malformed % escape names no file. */
 const decodedPath = (href) => {
   try {
     return decodeURIComponent(href.replace(/^\.\//, ""));
@@ -58,7 +51,7 @@ const decodedPath = (href) => {
 };
 
 export const renderMarkdown = (source, { resolve = () => null } = {}) => {
-  /** A link's target, or null when it may not be one. */
+  /** Null when it may not be one: no javascript: or other schemes. */
   const target = (href) => {
     const trimmed = href.trim();
     if (/^(https?:|mailto:)/i.test(trimmed)) return { href: trimmed, external: true };
@@ -76,7 +69,6 @@ export const renderMarkdown = (source, { resolve = () => null } = {}) => {
       if (plain) out.push(plain);
       plain = "";
     };
-    /** The index of the `]` that closes the `[` at `open`, or -1. */
     const closeBracket = (open) => {
       let depth = 0;
       for (let index = open; index < text.length; index += 1) {
@@ -89,7 +81,6 @@ export const renderMarkdown = (source, { resolve = () => null } = {}) => {
       }
       return -1;
     };
-    /** `(destination "title")` right after `close`: [destination, end], or null. */
     const destination = (close) => {
       if (text[close + 1] !== "(") return null;
       let depth = 0;
@@ -100,7 +91,6 @@ export const renderMarkdown = (source, { resolve = () => null } = {}) => {
           depth -= 1;
           if (depth > 0) continue;
           const inside = text.slice(close + 2, index).trim();
-          // <a destination> or a plain one, with an optional "title".
           const match =
             /^<([^>]*)>(?:\s+["'(].*["')])?$/.exec(inside) ??
             /^(\S*)(?:\s+["'(].*["')])?$/.exec(inside);
@@ -369,7 +359,6 @@ export const renderMarkdown = (source, { resolve = () => null } = {}) => {
               const task = /^\[([ xX])\] /.exec(content[0]);
               if (task) content[0] = content[0].slice(task[0].length);
               const body = blocks(content);
-              // A tight list's items are their text, without paragraphs.
               const children = loose
                 ? body
                 : body.flatMap((node) => (node.tagName === "P" ? [...node.childNodes] : [node]));
@@ -465,5 +454,4 @@ export const renderMarkdown = (source, { resolve = () => null } = {}) => {
   );
 };
 
-/** Whether a text by this name is Markdown. */
 export const isMarkdown = (name) => /\.(?:md|markdown)$/i.test(name ?? "");

@@ -1,18 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The page's own dialogs, in place of the browser's confirm(): they look like
-// the rest of the page, and say what the action does on its button.
+// Instead of confirm(), so the button can say what the action does.
 
 import { h } from "../shared/dom.js";
 
 let dialogs = 0;
 
-/**
- * Asks before an action. Resolves true for its button only; Cancel, Escape
- * or a click outside the dialog resolve false. A destructive action's button
- * is red, and Cancel has the focus, so Enter alone never deletes.
- */
+/** Cancel has the focus on destructive actions, so Enter alone never deletes. */
 export const confirmAction = ({
   title,
   message = "",
@@ -55,7 +50,7 @@ export const confirmAction = ({
       dialog.remove();
       resolve(dialog.returnValue === "confirm");
     });
-    // The focus goes back where it was, as after the browser's own dialog.
+    // As after the browser's own dialog.
     const before = document.activeElement;
     dialog.addEventListener("close", () => before?.focus?.({ preventScroll: true }));
     document.body.append(dialog);

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// One item of a namespace: <ns>/<item>, where <item> is its position (digits,
-// 1 being the newest), its ID or its name, resolved in that order. Mounted
-// after the namespace's fixed paths (ls, new, log, live), which always win.
+// <item> is a position (1 is the newest), an ID or a name, tried in that
+// order. Mounted after the namespace's fixed paths (ls, new, log, live) so they always win.
 import { Hono } from "hono";
 import { nameOf, publicItem, type StoredItem } from "../core/model";
 import type { ItemRef } from "../core/namespace";
@@ -19,7 +18,7 @@ import {
 import { namespaceOf, SPACES } from "./namespaces";
 import type { createUploads } from "./uploads";
 
-/** Longest body a rename takes; names themselves are cut much shorter. */
+/** Names are cut much shorter; this only bounds what is read. */
 const MAX_NAME_BYTES = 1_000;
 
 const ITEM = ":item";
@@ -39,16 +38,11 @@ export const itemRoutes = (
     const { prefix } = space;
     const { inNamespace } = namespaceOf(space);
 
-    /**
-     * One item as JSON: what the queue shows for it, its position, and a link
-     * to share it. Reads nothing that would consume it. The share link is
-     * made here if the item has none yet (one per item, so it never changes).
-     * Registered before the contents, which would take any name.
-     */
+    /** Before the contents route, which would take any name. Consumes nothing. */
     app.get(
       `${prefix}/:item{.+\\.json}`,
       inNamespace(async (c, ref, next) => {
-        // An item named exactly so (data.json) is read as itself.
+        // An item really named data.json is itself, not data's details.
         const raw = c.req.param("item") ?? "";
         const same = (await namespace(ref).peek(raw, visit(c))) as StoredItem | null;
         if (same && (same.id === raw || nameOf(same) === raw)) {
@@ -61,7 +55,7 @@ export const itemRoutes = (
           position: number;
         } | null;
         if (!found) return jsonError(c, 404, "Item not found.");
-        // Making a share link is writing: the namespace's writer can do it.
+        // Making a share link is writing.
         const check = await namespace(ref).checkWrite(ref, await writeVerifier(c));
         if (check === "missing" || check === "wrong") {
           return c.json({ ...publicItem(found.item), position: found.position });
@@ -75,8 +69,7 @@ export const itemRoutes = (
       }, "Item not found."),
     );
 
-    // Reading contents consumes burn-after-reading items. /c is the same as
-    // the bare item, as on a share link (/i/<token>/c), whose bare path is a page.
+    // /c mirrors share links (/i/<token>/c), whose bare path is a page.
     for (const [suffix, inline] of [
       ["", true],
       ["/c", true],
@@ -91,16 +84,11 @@ export const itemRoutes = (
       );
     }
 
-    /**
-     * A link to this one item that does not reveal the namespace, as plain
-     * text so `curl <ns>/1/s` prints just the link. GET or POST: the link is
-     * the same every time.
-     */
+    /** Plain text, so `curl <ns>/1/s` prints just the link. */
     app.on(
       ["GET", "POST"],
       `${prefix}/${ITEM}/s`,
       inNamespace(async (c, ref) => {
-        // A share link is made once and kept by the namespace's writer.
         const refused = await refuseWrite(c, ref);
         if (refused) return refused;
         const item = (await namespace(ref).peek(itemRef(c), visit(c))) as StoredItem | null;
@@ -110,7 +98,7 @@ export const itemRoutes = (
       }, "Item not found."),
     );
 
-    /** Replaces a text only at the version named by its strong If-Match tag. */
+    /** Strong If-Match, so two editors never overwrite each other. */
     app.post(
       `${prefix}/${ITEM}/e`,
       inNamespace(async (c, ref) => {
@@ -128,11 +116,7 @@ export const itemRoutes = (
       }, "Item not found."),
     );
 
-    /**
-     * Renames an item: the new name is the body (`curl -d 'name' <ns>/1/n`);
-     * an empty one gives a text back its default. An encrypted item sends its
-     * metadata sealed again instead, in X-Sealed-Metadata.
-     */
+    /** An encrypted item's name is in its sealed metadata, so it sends that instead. */
     app.post(
       `${prefix}/${ITEM}/n`,
       inNamespace(async (c, ref) => {

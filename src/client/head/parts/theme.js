@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Loaded as a classic script in <head> so the saved theme applies before the
-// first paint. "auto" follows the browser's prefers-color-scheme; the
-// header's button goes auto → light → dark and saves the choice. Being no
-// module, it cannot import common.js, so it guards localStorage itself.
+// Classic, in <head>, so the saved theme applies before the first paint. No
+// module, so it guards localStorage itself instead of importing common.js.
 (() => {
   const storageKey = "kurobako-theme";
   const themes = ["auto", "light", "dark"];

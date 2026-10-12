@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Entry point for a self-hosted server: `bun src/runtime/bun/server.ts`. Settings
-// come from environment variables, with the same names and defaults as the
-// Worker's vars (see README.md), plus the ones below.
+// Same settings and defaults as the Worker's vars (see README.md), plus the ones below.
 
 import { join } from "node:path";
 import { S3Client, type Server } from "bun";
@@ -18,7 +16,6 @@ import { logRequestLine, printJsonLines } from "./log";
 import { type BunEnv, createBunPlatform } from "./platform";
 import { s3Store } from "./s3";
 
-/** The files served as they are (see FIXED_FILES). */
 const PUBLIC_DIR = join(import.meta.dir, "../../../public");
 const MAINTENANCE_MS = 30_000;
 const CONTENT_TYPES: Record<string, string> = {
@@ -29,7 +26,7 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 const ONE_DAY_SECONDS = 86_400;
 
-/** The browser's code, bundled once per process (every server in it shares it). */
+/** Once per process: every server in it shares it. */
 let bundled: Promise<Bundle> | null = null;
 
 export type ServerOptions = {
@@ -42,11 +39,11 @@ export type ServerOptions = {
   publicUrl?: string | null;
   maxOpenDatabases?: number;
   databaseIdleMs?: number;
-  /** One log line per request; on unless turned off (tests do). */
+  /** Tests turn it off. */
   logRequests?: boolean;
 };
 
-/** Starts the server; returns it once timers are restored. */
+/** Returns once timers are restored, so nothing is due unnoticed. */
 export const startServer = async (options: ServerOptions) => {
   const { platform, websocket, resume, prune, close } = createBunPlatform({
     config: options.config,
@@ -63,10 +60,7 @@ export const startServer = async (options: ServerOptions) => {
   const assets = await loadAssets(async () => JSON.stringify(manifest));
   const app = createApp(options.config, assets, platform);
 
-  /**
-   * One JSON line per request (static files aside), as Workers Logs records
-   * on Cloudflare: method, path, status, duration and the client's address.
-   */
+  /** As Workers Logs records on Cloudflare, so both read alike. */
   const clientIp = (request: Request, server: Server<unknown>) => {
     const header = options.clientIpHeader;
     return header ? firstValue(request.headers.get(header)) : server.requestIP(request)?.address;
@@ -88,11 +82,7 @@ export const startServer = async (options: ServerOptions) => {
     });
   };
 
-  /**
-   * The bundle's files are named by their contents, so they are cached for
-   * good. Icons are requested at fixed URLs, so they are cached for a day;
-   * sw.js and k.mjs, also at fixed URLs, are checked each time.
-   */
+  /** Bundles are named by contents (cached for good); fixed URLs are revalidated. */
   const staticFile = (url: URL) => {
     const inside = sitePath(options.config.basePath, url.pathname);
     if (!inside) return null;
@@ -126,9 +116,7 @@ export const startServer = async (options: ServerOptions) => {
   const server = Bun.serve({
     port: options.port,
     hostname: options.hostname,
-    // No limit here: each route holds its body to its own (a file to
-    // MAX_FILE_BYTES, a rename to a short name), reading as it arrives, and a
-    // backup of the whole instance may be larger than any of them.
+    // No limit here: each route bounds its own body, and a whole-instance backup may be larger.
     maxRequestBodySize: Number.MAX_SAFE_INTEGER,
     async fetch(request, server) {
       const url = new URL(request.url);
@@ -175,8 +163,6 @@ const positiveInteger = (name: string, fallback: number) => {
 };
 
 if (import.meta.main) {
-  // In a terminal, Bun's own output, in color; anywhere else, lines a log
-  // collector can read.
   if (!process.stdout.isTTY) printJsonLines();
   const env = process.env;
   const blobs = s3Store(

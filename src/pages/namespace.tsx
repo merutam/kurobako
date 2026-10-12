@@ -15,13 +15,7 @@ import { firstMediaId, ItemsSection, type ListedItem, namespaceRows } from "./co
 import { Layout, type SiteView } from "./components/layout";
 import { MediaFeed } from "./components/media-feed";
 
-/**
- * A namespace's page. A plain one (`name`) comes with its queue: rendered,
- * and as data (`queue-data`) for the page's script, with the revision the
- * live updates continue from. An encrypted one is opened in the browser.
- * The instance's limits are written here, so the page's script only checks
- * against them.
- */
+/** The limits are written in, so the page's script only checks against them. */
 export const NamespacePage = ({
   site,
   name,
@@ -52,9 +46,7 @@ export const NamespacePage = ({
       decrypting={plain ? undefined : "Decrypting namespace…"}
     >
       <h1 id="page-title">{plain ? `/${name}` : "Namespace"}</h1>
-      {/* What the namespace is (an encrypted one says so) and its links; the
-            styles put the " · " between the parts there are. Expiry is each
-            item's, so it shows on the items, not here. */}
+      {/* Expiry is per item, so it shows on the items, not here. */}
       <p class="intro namespace-intro">
         <span id="mode-label" />
         <span id="page-links">
@@ -66,7 +58,6 @@ export const NamespacePage = ({
             </>
           ) : null}
         </span>
-        {/* Off until asked, per device (lib/push.js); shown when the server sends any. */}
         <button id="notify-toggle" type="button" class="row-action" aria-pressed="false" hidden>
           notify: off
         </button>
@@ -76,7 +67,6 @@ export const NamespacePage = ({
       <section id="send-section" class="stack" aria-labelledby="send-title">
         <div class="section-heading">
           <h2 id="send-title">Send</h2>
-          {/* How sends go: closed, it says what differs from the defaults (forms.js). */}
           <details id="send-settings" class="send-settings">
             <summary>
               settings
@@ -97,9 +87,8 @@ export const NamespacePage = ({
             </div>
           </details>
         </div>
-        {/* One composer: text tabs and files, sent as a text, as files, or
-              together as one bundle (forms.js decides, by what it holds). */}
-        {/* No native validation: a send may be texts, files or both (forms.js). */}
+        {/* forms.js decides how a send goes, by what it holds. */}
+        {/* A send may be texts, files or both, which native validation cannot express. */}
         <form id="send-form" novalidate>
           <fieldset>
             <div class="tabs composer-tabs" role="tablist" aria-label="What to send">
@@ -145,7 +134,6 @@ export const NamespacePage = ({
               />
               <div id="markdown-preview" class="markdown-preview" hidden />
               <div class="editor-toolbar">
-                {/* Markdown by default; forms.js adds every language. */}
                 <select id="text-language" aria-label="Syntax highlighting">
                   <option value="">Plain text</option>
                   <option value="md" selected>
@@ -168,7 +156,6 @@ export const NamespacePage = ({
                 labelledBy="files-tab"
                 describedBy="file-limit"
               />
-              {/* What is picked, one per line with its size (forms.js). */}
               <ul id="file-list" class="file-list" aria-label="Files to send" hidden />
               <p id="file-limit" class="hint">
                 {fileLimitText(maxFilesAtOnce(config), fileLimit)}
@@ -176,7 +163,6 @@ export const NamespacePage = ({
             </div>
             <div class="form-footer">
               <p id="send-summary" class="hint" aria-live="polite" />
-              {/* Editing an item, Send saves it instead (forms.js). */}
               <button id="cancel-edit" type="button" hidden>
                 Cancel
               </button>
@@ -205,7 +191,7 @@ export const NamespacePage = ({
           </button>
         </div>
         <p>
-          {/* A plain address writes; an encrypted page knows only once opened. */}
+          {/* An encrypted page knows whether it can write only once opened. */}
           <button id="create-view" type="button" hidden={!plain}>
             Create shared view
           </button>

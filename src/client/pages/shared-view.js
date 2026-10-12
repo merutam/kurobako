@@ -99,8 +99,7 @@ const show = async (current) => {
   if (!current) throw new Error("This shared view is no longer available.");
   if (view && current.viewId !== view.viewId) throw new Error("The shared view changed.");
   view = current;
-  // Share responses hide namespace item IDs. Their opaque URL tokens identify
-  // rows locally without revealing those IDs to readers of the view.
+  // Opaque URL tokens name rows locally without revealing the namespace's item IDs.
   const entries = current.entries.map((entry) => ({
     ...entry,
     item: { ...entry.item, id: entry.url.split("/").pop() },
@@ -122,7 +121,6 @@ itemList = createItemList({
   loadItems: refresh,
 });
 itemList.setMode(mode);
-// An encrypted view shows only once decrypted, as a namespace does.
 show(view)
   .then(finishUnlocking)
   .catch((error) => {
@@ -131,7 +129,7 @@ show(view)
   });
 setInterval(itemList.updateExpiries, 30_000);
 
-/** Each item is checked again before copying: a live view is not an atomic snapshot. */
+/** A live view is not an atomic snapshot. */
 const clone = async (event) => {
   event.preventDefault();
   const form = element("#clone-form");
@@ -155,7 +153,7 @@ const clone = async (event) => {
     if (existing.items.length || existing.views.length) {
       throw new Error("Choose a new, empty destination namespace.");
     }
-    // Capture membership when cloning starts, not when this page was opened.
+    // When cloning starts, not when this page was opened.
     const current = await (
       await request(`${window.location.pathname}.json`, { cache: "no-store" })
     ).json();

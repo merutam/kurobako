@@ -2,8 +2,6 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { normalizeSecretName, secretNameProblem } from "../../../public/k.mjs";
-// The share page (src/pages/share.tsx): shows what was shared, asks where it
-// goes, and opens that namespace with ?share=<id>, whose composer takes it.
 import { element, formatBytes, readConfig, SITE, setupNamespaceField } from "../lib/common.js";
 import { forgetNamespace, recentNamespaces } from "../lib/recent.js";
 import { dropShare, readShare } from "../lib/shares.js";
@@ -18,16 +16,11 @@ const recentList = element("#recent");
 const params = new URLSearchParams(window.location.search);
 const id = params.get("id");
 
-/** Opens a namespace's page (a URL of this site) with the share waiting for it. */
 const open = (url) => {
   url.search = new URLSearchParams({ share: id }).toString();
   window.location.assign(url.href);
 };
 
-/**
- * The namespace a typed answer names: a name in the selected mode, an
- * explicit /name or e#name, or a link on this site.
- */
 const destination = (typed, config) => {
   const value = typed.trim();
   if (!value) throw new Error("Type a namespace, or pick one above.");
@@ -74,7 +67,6 @@ const showRecent = () => {
   );
 };
 
-/** What was shared: its text (with its link, unless the text holds it) and its files. */
 const showShared = ({ title, text, url, files }) => {
   const body = url && !text.includes(url) ? [text, url].filter(Boolean).join("\n\n") : text;
   const shown = element("#shared-text");

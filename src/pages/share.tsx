@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Where Android's Share menu leads, once the site is installed as an app:
-// what was shared waits on the device (public/sw.js) while this page asks
-// which namespace it goes to, then opens that one with it in the composer.
+// Android's Share menu leads here; what was shared waits on the device (public/sw.js).
 import { Layout, type SiteView } from "./components/layout";
 
 export const SharePage = ({ site }: { site: SiteView }) => (

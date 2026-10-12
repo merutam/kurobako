@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Shared views: /v/<token>, a read-only list of some items of a namespace,
-// each with its own share link, that the namespace's writer can rotate.
+// /v/<token>: a read-only list the writer can rotate; each item has its own share link.
 import { SHARE_TOKEN_PATTERN, type StoredItem, sharedItem } from "../core/model";
 import type { ViewEntry } from "../core/namespace/views";
 import type { AccessEvent } from "../core/visits";
 import type { Deps } from "./deps";
 
-/** What a writer sends to create a view (POST <ns>/views). */
 export type ViewRequest = { viewId: string; entries: ViewEntry[]; previousToken: string | null };
 
-/** A view request from its parsed JSON, or null when it is not one. */
 export const parseViewRequest = (body: unknown): ViewRequest | null => {
   if (
     !body ||
@@ -45,11 +42,6 @@ export const createViews = ({
   namespace,
   config,
 }: Pick<Deps, "hub" | "namespace" | "config">) => {
-  /**
-   * The view a token opens, each item with a share link of its own; null
-   * when the token is malformed or the view is gone. With `limit`, only its
-   * first items; with `summary`, long texts as previews.
-   */
   const describe = async (
     token: string,
     visitor: AccessEvent,

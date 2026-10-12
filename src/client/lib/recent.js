@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The namespaces this device sent to lately, newest first, for the share
-// page to offer: { url, title }, an encrypted one's url with its secret name
-// after the #, as the browser's history keeps it too. Kept here only, and
-// each can be forgotten.
+// For the share page to offer. Kept on this device only, and each can be forgotten.
 
 import { storage } from "./common.js";
 
@@ -22,7 +19,6 @@ export const recentNamespaces = () => {
   }
 };
 
-/** Puts a namespace first. */
 export const rememberNamespace = ({ url, title }) =>
   storage.set(
     RECENT_KEY,

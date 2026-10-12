@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Networks where automation lives: hosting providers and clouds (where
-// commercial VPNs run too) and Tor. Someone on their own VPS is welcome; a
-// script spread over a provider's addresses is what AUTOMATED_NETWORKS is
-// for (see config.ts). Told by the client's network (its ASN) and country.
+// Someone on their own VPS is welcome; a script spread over a provider's
+// addresses is what AUTOMATED_NETWORKS is for.
 
-/**
- * Hosting, cloud and VPN networks, by ASN. Not every one there is, but the
- * ones most scripts run from; a home or a phone is never in them.
- */
+/** Where most scripts run from; a home or a phone is never in them. */
 const HOSTING_NETWORKS: [provider: string, asns: number[]][] = [
   ["Amazon Web Services", [16509, 14618]],
   ["Google Cloud", [15169, 396982]],
@@ -37,15 +32,10 @@ const HOSTING_ASNS = new Set(HOSTING_NETWORKS.flatMap(([, asns]) => asns));
 /** Cloudflare's country for Tor exit nodes. */
 const TOR_COUNTRY = "T1";
 
-/** Whether a client comes from a network where automation lives. */
 export const isAutomatedNetwork = (client: { asn: number | null; country: string | null }) =>
   client.country === TOR_COUNTRY || (client.asn !== null && HOSTING_ASNS.has(client.asn));
 
-/**
- * The block a client of an automated network is counted with: its IPv4 /24
- * or its IPv6 /48, which a script changing addresses rarely leaves, while
- * different customers of one provider rarely share it.
- */
+/** A script changing addresses rarely leaves its /24 or /48; other customers rarely share it. */
 export const networkKey = (ip: string): string => {
   const address = ip.trim().toLowerCase();
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/.exec(address);

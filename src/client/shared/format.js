@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Numbers, sizes, times and titles as the pages write them. Nothing here
-// touches a page, so the server renders with the same functions.
+// Nothing here touches a page, so the server renders with the same functions.
 
 export const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "short",
   timeStyle: "short",
 });
 const relativeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
-/** Counts as the visitor's language writes them (1,234). */
 export const numberFormatter = new Intl.NumberFormat();
 
-/** Decimal units, like the limits they show (100 MB, 64 kB). */
+/** Decimal, like the limits they show. */
 export const formatBytes = (bytes) => {
   if (bytes < 1000) return `${bytes} B`;
   const units = ["kB", "MB", "GB"];
@@ -37,7 +35,6 @@ export const formatDuration = (seconds) => {
   return `${value} ${unit}${value === 1 ? "" : "s"}`;
 };
 
-/** How long ago, in a few characters: "now", "5 min", "3 h", "2 d". */
 export const formatAge = (date) => {
   const minutes = Math.floor((Date.now() - Date.parse(date)) / 60_000);
   if (minutes < 1) return "now";
@@ -61,5 +58,5 @@ export const formatExpiry = (expiresAt) => {
 
 export const compactText = (text) => text.replace(/\s+/g, " ").trim() || "(blank)";
 
-/** Burn-after-reading texts never show a preview: that would be a read. */
+/** A preview would be a read. */
 export const HIDDEN_TITLE = "Hidden until opened";

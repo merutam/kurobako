@@ -3,7 +3,6 @@
 
 import { Choices } from "./choices";
 
-/** The browser fills this feed near the viewport; both page types share it. */
 export const MediaFeed = () => (
   <section id="media-feed" class="media-feed" aria-labelledby="media-feed-title" hidden>
     <p>

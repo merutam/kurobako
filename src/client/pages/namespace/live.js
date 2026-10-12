@@ -3,11 +3,7 @@
 
 import { element, numberFormatter, request } from "../../lib/common.js";
 
-/**
- * `initial` is the queue the page came with ({ items, revision }), when the
- * server could read it (a plain namespace): it is shown at once, and fetched
- * again only if it changed before the live connection was up.
- */
+/** Fetched again only if it changed before the live connection was up. */
 export const createLive = ({ status, renderItems, isItemsShown, onReady, onError, initial }) => {
   const liveStatus = element("#live-status");
   const viewersLabel = element("#viewers");
@@ -15,7 +11,6 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
   let config = null;
   let queue = initial?.items ?? [];
   let revision = -1;
-  /** The revision `queue` had when the page was made, until the first live connection. */
   let pageRevision = initial?.revision ?? null;
   let pending = [];
   let rendering = Promise.resolve();
@@ -23,14 +18,10 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
     rendering = rendering.then(work).catch((error) => status.error(error.message));
     return rendering;
   };
-  /**
-   * After a mutation, live deltas update every open page; only without a live
-   * connection is the queue fetched again.
-   */
+  /** Live deltas update every open page; only without a connection is the queue fetched. */
   const isLive = () => socket?.readyState === WebSocket.OPEN;
   const refreshUnlessLive = () => (isLive() ? Promise.resolve() : loadItems());
 
-  /** The queue as of `nextRevision`, then the changes that came meanwhile, in order. */
   const settle = async (items, nextRevision) => {
     if (nextRevision < revision) return;
     queue = items;
@@ -74,12 +65,9 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
     await renderItems(queue);
   };
 
-  // The server sends a ready marker and then queue deltas over
-  // a WebSocket that the namespace keeps open while it sleeps. Pings stop
-  // proxies from closing an idle connection (they are answered without waking
-  // the server); a dropped connection is retried with a growing delay. A tab
-  // hidden for a while closes its connection, since every connection and ping
-  // costs requests, and reconnects with a fresh /ls when shown.
+  // Pings keep proxies from closing the socket (answered without waking the
+  // server). Hidden tabs close theirs, since every connection and ping costs
+  // requests, and reconnect with a fresh /ls when shown.
   const RECONNECT_FIRST_MS = 1_000;
   const RECONNECT_MAX_MS = 30_000;
   let socket = null;
@@ -89,7 +77,7 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
   let hiddenTimer = null;
   let pausedWhileHidden = false;
 
-  /** Others with the namespace open: shown only when there is someone besides this page. */
+  /** Shown only when someone besides this page is there. */
   const showViewers = (count) => {
     if (count <= 1) {
       viewersLabel.replaceChildren();
@@ -128,7 +116,6 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
       if (event.data === config.live.pong) return;
       const message = JSON.parse(event.data);
       if (message.type === "ready") {
-        // The page's queue is still current: nothing to fetch.
         const unchanged = message.revision === pageRevision;
         pageRevision = null;
         if (unchanged) void serialize(() => settle(queue, message.revision));
@@ -144,9 +131,8 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
       if (socket !== current) return;
       clearInterval(pingTimer);
       setLive(false);
-      // A failed connection still loads the queue. A later reconnect reconciles.
+      // A failed connection still loads the queue; a later reconnect reconciles.
       if (!isItemsShown()) void loadItems();
-      // Hidden tabs reconnect when they come back instead.
       if (document.visibilityState !== "visible") return;
       reconnectTimer = setTimeout(connectLive, reconnectDelay);
       reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
@@ -161,12 +147,10 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
       return;
     }
     clearTimeout(hiddenTimer);
-    // Closed (or still closing) while hidden or after a drop: start over.
     if (!socket || socket.readyState >= WebSocket.CLOSING) connectLive();
   });
 
   return {
-    /** Shows the page's own queue, before any connection. */
     showInitial: () => (initial ? renderItems(initial.items) : Promise.resolve()),
     setMode(value) {
       mode = value;

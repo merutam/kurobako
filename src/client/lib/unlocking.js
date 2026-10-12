@@ -3,17 +3,12 @@
 
 import { h } from "../shared/dom.js";
 
-/** Reveal the namespace after its name has been unlocked and its first list is ready. */
 export const finishUnlocking = () => {
   document.querySelector("main[data-loading]")?.removeAttribute("data-loading");
   document.querySelector("#page-loading")?.remove();
 };
 
-/**
- * Keep the unlocking shell, but turn it into a readable error: retryable,
- * or, when trying again cannot help (a missing or invalid name), with the
- * way to the home page, where a name is typed.
- */
+/** A missing or invalid name links home: trying again cannot help. */
 export const failUnlocking = (message, { retry = true } = {}) => {
   const loading = document.querySelector("#page-loading");
   if (!loading) return;

@@ -22,7 +22,7 @@ import { defined, type FileItem, type Item, type LiveMessage } from "./support";
 const ORIGIN = "https://kurobako.test";
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-/** Byte length of a test body, which browsers and curl send as Content-Length. */
+/** Browsers and curl send it as Content-Length. */
 const bodyLength = (body: RequestInit["body"]) =>
   typeof body === "string"
     ? new TextEncoder().encode(body).byteLength
@@ -30,14 +30,13 @@ const bodyLength = (body: RequestInit["body"]) =>
       ? body.byteLength
       : null;
 
-/** Calls the Worker and waits for its background work (stats, logs) to finish. */
+/** Waits for background work (stats, logs), so assertions see it done. */
 const call = async (path: string, init?: RequestInit) => {
   const headers = new Headers(init?.headers);
   const length = bodyLength(init?.body);
   if (length !== null && !headers.has("content-length"))
     headers.set("content-length", String(length));
-  // A different address per call unless the test picks one, so the per-IP
-  // send limit only applies where a test means it to.
+  // So the per-IP send limit only applies where a test means it to.
   if (!headers.has("cf-connecting-ip")) {
     const [a, b] = crypto.getRandomValues(new Uint8Array(2));
     headers.set("cf-connecting-ip", `198.18.${a}.${b}`);
@@ -49,8 +48,7 @@ const call = async (path: string, init?: RequestInit) => {
     env,
     ctx,
   );
-  // Read the body first, as a browser would: some background work (deleting
-  // a burn-after-reading file) waits for the response to be streamed out.
+  // As a browser would: some background work waits for the response to be streamed out.
   if (response.webSocket) {
     await waitOnExecutionContext(ctx);
     return response;
@@ -72,9 +70,8 @@ type PublicConfig = { namespace: { pattern: string; reserved: string[] } };
 
 /** Storage is shared within this file, so every test uses fresh namespaces. */
 const fresh = (prefix = "t") => `${prefix}${crypto.randomUUID().slice(0, 8)}`;
-/** The hub's numbers, read directly: /stats.json caches them for a while. */
+/** Read directly: /stats.json caches them. */
 const stats = () => env.HUB.getByName(HUB_NAME).stats();
-/** A namespace that exists (it had an item) and is empty again. */
 const emptied = async (namespace: string) => {
   const item = await (await sendText(namespace, "gone soon")).json<Item>();
   await call(`/${namespace}/${item.id}`, { method: "DELETE" });
@@ -89,9 +86,8 @@ sharedTests({
   storedFiles: async (prefix) =>
     (await env.BUCKET.list({ prefix })).objects.map((object) => object.key),
   config: loadConfig(env, CLOUDFLARE_LIMITS),
-  // Cloudflare's limiter counts in windows that turn with the clock, for
-  // every key at once: a limit spent across the turn is never reached. So a
-  // test that spends one starts with ten seconds of its window left, at least.
+  // Cloudflare's limiter windows turn with the clock for every key at once:
+  // a limit spent across the turn is never reached, so tests start with time to spare.
   limitWindow: async () => {
     const left = 60_000 - (Date.now() % 60_000);
     if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 250));
@@ -99,9 +95,6 @@ sharedTests({
   origin: ORIGIN,
   adminKey: TEST_ADMIN_KEY,
 });
-
-// What only a Worker does: Durable Object alarms and storage, R2 metadata,
-// Workers Static Assets, hibernating WebSockets and its own configuration.
 
 describe("plain namespaces", () => {
   test("rejects bodies over the limit and files without a length", async () => {
@@ -286,7 +279,6 @@ describe("hub housekeeping", () => {
 });
 
 describe("live updates", () => {
-  /** A live connection: readiness, queue deltas and viewer counts. */
   const watch = async (ns: string) => {
     const response = await call(`/${ns}/live`, { headers: { upgrade: "websocket" } });
     expect(response.status).toBe(101);
@@ -356,8 +348,7 @@ describe("live updates", () => {
 
 describe("site", () => {
   test("leaves scripts and styles to Workers Static Assets", async () => {
-    // dist/ (ops/build.ts) has every file the manifest names, and the fixed
-    // ones; in production they never reach the Worker.
+    // In production these never reach the Worker.
     const manifest = (await (
       await env.ASSETS.fetch(`https://assets.invalid${ASSETS_PATH}/${MANIFEST_FILE}`)
     ).json()) as Manifest;

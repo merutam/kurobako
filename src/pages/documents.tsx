@@ -1,20 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The protocol and the licenses: the same for every request and every
-// instance, so on Cloudflare they are built ahead into dist/ (ops/build.ts)
-// and served as static assets, without the Worker.
+// The same everywhere, so on Cloudflare ops/build.ts serves them as static assets.
 import { raw } from "hono/html";
 import type { StaticPage } from "../assets";
 import { Layout, renderPage, type SiteView } from "./components/layout";
 import licensesHtml from "./documents/licenses.html" with { type: "text" };
 import protocolHtml from "./documents/protocol.html" with { type: "text" };
 
-// Bun's HTMLBundle type describes its default HTML loader. The explicit text
-// import above instead yields strings, as it does in Wrangler.
+// Bun's types describe its HTML loader; the explicit text import yields strings, as in Wrangler.
 const text = (value: unknown) => value as string;
 
-/** A document's body: its leading comments out, its links under the base path. */
+/** Links rewritten, so the documents work under a base path. */
 const body = (site: SiteView, html: string) =>
   raw(
     html
@@ -33,13 +30,7 @@ const DocumentPage = ({
   mainClass: string;
   html: string;
 }) => (
-  <Layout
-    site={site}
-    title={`${title} · Kurobako`}
-    // No script but the layout's: links to other sites are marked by the styles.
-    scripts={[]}
-    mainClass={mainClass}
-  >
+  <Layout site={site} title={`${title} · Kurobako`} scripts={[]} mainClass={mainClass}>
     {body(site, html)}
   </Layout>
 );
@@ -57,7 +48,6 @@ export const LicensesPage = ({ site }: { site: SiteView }) => (
   />
 );
 
-/** The pages ops/build.ts renders ahead, by their path (see STATIC_PAGES). */
 export const STATIC_PAGE_RENDERERS: Record<StaticPage, (site: SiteView) => string> = {
   "k/protocol": (site) => renderPage(<ProtocolPage site={site} />),
   "k/licenses": (site) => renderPage(<LicensesPage site={site} />),

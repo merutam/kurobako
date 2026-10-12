@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
+// Plain at /<name>, encrypted at /e/<id>, with the same short suffixes so both can be typed.
+
 import type { Next } from "hono";
-// A namespace: its page, queue, sends, access log and live updates. A plain
-// namespace lives at /<name>, an encrypted one at /e/<id>, under the same
-// short, fixed suffixes, so everything can be typed by hand.
 import { Hono } from "hono";
 import {
   type NamespaceRef,
@@ -22,7 +21,6 @@ import { LogPage } from "../pages/log";
 import { NamespacePage } from "../pages/namespace";
 import { type Api, type AppContext, type AppEnv, jsonError, readLimited } from "./context";
 
-/** A browser's push subscription is a few hundred bytes. */
 const MAX_PUSH_BODY_BYTES = 4_000;
 
 import { type createUploads, decodeFilename } from "./uploads";
@@ -33,7 +31,7 @@ export type Space = {
   validName: (raw: string) => string | null;
 };
 
-/** Encrypted routes go first: their literal /e prefix must win over /:namespace. */
+/** Encrypted first: the literal /e prefix must win over /:namespace. */
 export const SPACES: Space[] = [
   { kind: "sealed", prefix: "/e/:namespace", validName: sealedName },
   { kind: "plain", prefix: "/:namespace", validName: plainName },
@@ -45,16 +43,12 @@ type NamespaceHandler = (
   next: Next,
 ) => Response | Promise<Response | undefined>;
 
-/** Finding the namespace a request names, in one space. */
 export const namespaceOf = (space: Space) => {
   const resolve = (c: AppContext): NamespaceRef | null => {
     const name = space.validName(c.req.param("namespace") ?? "");
     return name ? { space: space.kind, name } : null;
   };
-  /**
-   * A namespace route's common start: the namespace, or 404 when the name is
-   * invalid, and a response that is never cached.
-   */
+  /** Namespace answers change with every send, so none is cached. */
   const inNamespace =
     (handler: NamespaceHandler, notFound = "Invalid namespace.") =>
     async (c: AppContext, next: Next) => {
@@ -83,7 +77,7 @@ export const namespaceRoutes = (
     config,
     siteView,
   } = api;
-  /** A send's size, as it declares it (a text sent without one is small). */
+  /** Checked before reading, so a full instance refuses without taking the body. */
   const declaredSize = (c: AppContext) => Number(c.req.header("content-length")) || 0;
 
   for (const space of SPACES) {
@@ -115,11 +109,9 @@ export const namespaceRoutes = (
       inNamespace(async (c, ref) => {
         const { items, revision } = await namespace(ref).listState(visit(c));
         c.header("X-Queue-Revision", String(revision));
-        // Nothing here is what a name that does not exist answers too.
+        // A missing namespace answers the same, so this counts as a miss.
         if (!items.length) c.set("miss", true);
-        // ?summary is what the page uses: long texts as previews.
         const shape = c.req.query("summary") === undefined ? publicItem : summaryItem;
-        // ?limit=n: only the n newest, for a client that wants just the top.
         const limit = c.req.query("limit");
         if (limit !== undefined && !/^[1-9]\d{0,5}$/.test(limit)) {
           return jsonError(c, 400, "limit must be a positive whole number.");
@@ -140,11 +132,7 @@ export const namespaceRoutes = (
       }),
     );
 
-    /**
-     * Push notifications of this namespace's sends, for one device: the body
-     * is its browser's PushSubscription (as JSON); with ?off, { endpoint }
-     * stops them. Only POST: GET and DELETE on /push are an item named so.
-     */
+    /** POST only: GET and DELETE on /push are an item named so. */
     app.post(
       `${prefix}/push`,
       inNamespace(async (c, ref) => {
@@ -163,7 +151,7 @@ export const namespaceRoutes = (
           await namespace(ref).unsubscribePush(endpoint);
           return c.json({ ok: true });
         }
-        // Subscribing costs the server a message per send: it counts as one.
+        // Each send then costs a push message, so subscribing counts as a send.
         const refused = await refuseSend(c);
         if (refused) return refused;
         const result = (await namespace(ref).subscribePush(body, visit(c))) as
@@ -182,13 +170,12 @@ export const namespaceRoutes = (
       }),
     );
 
-    // Keep the retired route explicit so older clients get a clear answer.
+    // Kept so older clients get a clear answer instead of an item named lock.
     app.post(
       `${prefix}/lock`,
       inNamespace((c) => jsonError(c, 503, "Namespace locks are not part of this protocol.")),
     );
 
-    /** The old lock lifecycle is not part of the current protocol. */
     app.delete(
       `${prefix}/lock`,
       inNamespace((c) => jsonError(c, 503, "Namespace locks are not part of this protocol.")),
@@ -203,8 +190,7 @@ export const namespaceRoutes = (
             <LogPage
               site={siteView}
               title={space.kind === "sealed" ? "encrypted namespace" : `/${ref.name}`}
-              // The way back to an encrypted page needs the secret name; the
-              // browser's history has it.
+              // Only the browser's history knows an encrypted page's secret name.
               backHref={space.kind === "sealed" ? null : namespacePath(config.basePath, ref)}
               jsonHref={`${namespacePath(config.basePath, ref)}/log.json`}
               entries={await namespace(ref).accessLog(visit(c))}
@@ -219,22 +205,20 @@ export const namespaceRoutes = (
       inNamespace(async (c, ref) => c.json(await namespace(ref).accessLog(visit(c)))),
     );
 
-    // A WebSocket upgrade answer cannot carry headers, so this one starts by hand.
+    // A WebSocket upgrade answer cannot carry headers, so no inNamespace.
     app.get(`${prefix}/live`, async (c) => {
       const ref = resolve(c);
       if (!ref) return jsonError(c, 404, "Invalid namespace.");
       if (c.req.header("upgrade")?.toLowerCase() !== "websocket") {
         return jsonError(c, 426, "Expected a WebSocket upgrade.");
       }
-      // An empty namespace still counts as a miss; live itself has no snapshot.
+      // Live has no snapshot to be empty, so an empty namespace is flagged here.
       if (!((await namespace(ref).list()) as StoredItem[]).length) c.set("miss", true);
       return platform.live(c, ref, visit(c));
     });
   }
 
-  // `curl -T photo.jpg https://site/<ns>/` uploads to /<ns>/photo.jpg.
-  // `curl -T photo.jpg https://site/<ns>` (no trailing slash) leaves the name
-  // out: it comes from X-Filename then, or is just "file".
+  // `curl -T photo.jpg <ns>/` names it photo.jpg; without the slash, curl sends no name.
   app.put("/:namespace/:filename?", async (c) => {
     const name = plainName(c.req.param("namespace"));
     if (!name) return jsonError(c, 404, "Invalid namespace.");

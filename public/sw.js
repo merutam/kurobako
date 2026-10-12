@@ -1,38 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Encrypted contents in parts, and what is shared to the installed app (see
-// SHARE_PATH below). A page hands this worker an item's body key
-// (a CryptoKey, never its bytes) and gets back an address, <site>/k/stream/
-// <token>, to give a <video> or a download link. Each request for it fetches
-// only the sealed segments it needs (with Range), opens them as they arrive
-// and answers with the contents: a video plays from where it is sought and
-// a large file downloads without ever being whole in memory.
-//
-// Keys stay in this worker's memory. A browser may stop an idle worker; the
-// page that asked is then asked again. The body format is the protocol's
-// (see /k/protocol): segments of 65,536 bytes, each with a 16-byte AES-GCM
-// tag and a nonce of its number, 1 marking the last.
+// Encrypted contents in parts: a page hands over a body key (a CryptoKey,
+// never its bytes) and gets an address for a <video> or a download. Each
+// request fetches only the segments it needs, so videos seek and large files
+// never sit whole in memory. Keys live only in this worker's memory; a
+// restarted worker asks the page again.
 
 const SEGMENT_BYTES = 65_536;
 const TAG_BYTES = 16;
 const SEALED_SEGMENT_BYTES = SEGMENT_BYTES + TAG_BYTES;
 const STREAM_PATH = "k/stream/";
-/**
- * The installed app's share target (see manifest.webmanifest): what is shared
- * waits in this cache, on the device, until a page takes it. Each share is
- * <scope>k/share/<id> (its text, as JSON) and <id>/<n> (its files), read by
- * src/client/lib/shares.js, which names the same cache.
- */
+/** Kept on the device until a page takes it, so a share never reaches the server. */
 const SHARE_PATH = "k/share";
 const SHARE_CACHE = "kurobako-shares";
-/** A share no page took within a day is gone. */
 const SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 
-/**
- * What each token reads: { url, key, sealedSize, size, mime, filename }, url
- * being the sealed contents on the server.
- */
 const streams = new Map();
 
 self.addEventListener("install", () => self.skipWaiting());
@@ -47,7 +30,6 @@ self.addEventListener("message", (event) => {
   if (type === "forget" && token) streams.delete(token);
 });
 
-/** The segment's nonce: its number in 11 big-endian bytes, then 1 if it is the last. */
 const nonceOf = (index, last) => {
   const nonce = new Uint8Array(12);
   let rest = index;
@@ -59,7 +41,7 @@ const nonceOf = (index, last) => {
   return nonce;
 };
 
-/** The stream a token names, asking the page that made it if this worker restarted since. */
+/** A browser may stop an idle worker; the page that made the token is asked again. */
 const streamOf = async (token, clientId) => {
   const known = streams.get(token);
   if (known) return known;
@@ -81,10 +63,6 @@ const streamOf = async (token, clientId) => {
   return null;
 };
 
-/**
- * The contents' bytes [start, end] asked by a Range header, or the whole of
- * them; null when the range lies outside.
- */
 const rangeOf = (header, size) => {
   const match = /^bytes=(\d*)-(\d*)$/.exec(header?.trim() ?? "");
   if (!match || (!match[1] && !match[2])) return { start: 0, end: size - 1, partial: false };
@@ -97,11 +75,7 @@ const rangeOf = (header, size) => {
   return start < size && start <= end ? { start, end, partial: true } : null;
 };
 
-/**
- * The contents [start, end], as a stream: the segments holding them are
- * fetched with one Range request, opened one by one as they arrive, and cut
- * to the bytes asked.
- */
+/** One Range request, opened segment by segment as it arrives. */
 const openedStream = (stream, start, end) => {
   const count = Math.ceil(stream.sealedSize / SEALED_SEGMENT_BYTES);
   const first = Math.floor(start / SEGMENT_BYTES);
@@ -175,7 +149,7 @@ const openedStream = (stream, start, end) => {
   });
 };
 
-/** A download's Content-Disposition, as the server writes them (RFC 6266). */
+/** As the server writes them (RFC 6266). */
 const attachment = (filename) => {
   const ascii = filename.normalize("NFKD").replace(/[^\x20-\x7e]|["\\]/g, "_");
   const encoded = encodeURIComponent(filename).replace(
@@ -196,8 +170,7 @@ const answer = async (request, clientId, token, download) => {
     });
   }
   const headers = {
-    // The type comes from the item's metadata, which whoever sent it chose:
-    // as the server does for contents, nothing in them may run here.
+    // The sender chose the type: as on the server, nothing in it may run here.
     "Content-Type": stream.mime || "application/octet-stream",
     "Content-Security-Policy": "default-src 'none'; sandbox",
     "X-Content-Type-Options": "nosniff",
@@ -213,7 +186,6 @@ const answer = async (request, clientId, token, download) => {
   });
 };
 
-/** Forgets the shares older than SHARE_TTL_MS, files included. */
 const forgetOldShares = async (cache) => {
   const requests = await cache.keys();
   const stale = [];
@@ -230,7 +202,6 @@ const forgetOldShares = async (cache) => {
   );
 };
 
-/** Keeps a share, then sends the app to the page that asks where it goes. */
 const keepShare = async (request, scope) => {
   const form = await request.formData();
   const field = (name) => {
@@ -294,11 +265,6 @@ self.addEventListener("fetch", (event) => {
 });
 
 // --- Push notifications (src/core/push.ts) ---------------------------------
-//
-// A push names a namespace ({ space, name }), the item and, for plain texts
-// and files, a glimpse of it. The namespaces this device follows are in
-// PUSH_CACHE (src/client/lib/push.js writes them): their titles, and the
-// page a tap opens, which for an encrypted one holds its name after the #.
 
 const PUSH_CACHE = "kurobako-push";
 
@@ -310,11 +276,10 @@ const notify = async (message) => {
         ?.json()
         .catch(() => null)
     : null;
-  // A push must show something (browsers insist), even for a namespace
-  // this device stopped following meanwhile.
+  // Browsers insist a push shows something, even for a namespace no longer followed.
   await self.registration.showNotification(followed?.title ?? "Kurobako", {
     body: message?.preview ?? (message?.kind === "file" ? "New file" : "New item"),
-    // One notification per namespace: a newer send replaces it, and says so.
+    // One per namespace: a newer send replaces it.
     tag: key || "kurobako",
     renotify: true,
     icon: `${scope}icon-192.png`,
@@ -330,7 +295,6 @@ self.addEventListener("push", (event) => {
   event.waitUntil(notify(message));
 });
 
-// A tap opens the namespace, asking it to copy the item (?copy=<id>).
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const { url, id } = event.notification.data ?? {};
@@ -339,7 +303,7 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      // The namespace already open: there, rather than another copy of it.
+      // Rather than another copy of the page.
       const open = windows.find((client) => {
         const shown = new URL(client.url);
         return shown.pathname === target.pathname && shown.hash === target.hash;

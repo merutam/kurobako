@@ -1,20 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Zip and tar, written and read as streams, with nothing kept in memory but
-// the current entry's header. Only what backups need: regular files, stored
-// without compression (most contents are images, archives or ciphertext,
-// which do not compress), zip64 and pax for the largest files.
-//
-// The reader takes the archives this file writes, whose first entry is a
-// manifest giving every other entry's size; it reads zip entries in order
-// instead of through the central directory, so it never needs to seek.
+// Streamed zip and tar, holding only one header in memory. No compression:
+// most contents are images, archives or ciphertext, which do not compress.
+// The reader only takes archives written here (manifest first, with every
+// entry's size), so it reads zips in order and never needs to seek.
 
 export type ArchiveEntry = {
   path: string;
   size: number;
   modified: Date;
-  /** The entry's bytes, exactly `size` of them; asked for when the entry is written. */
+  /** Called only when the entry is written, so nothing is opened ahead. */
   open: () => Promise<ReadableStream<Uint8Array>>;
 };
 
@@ -22,8 +18,6 @@ export type ArchiveFormat = "zip" | "tar";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-
-// --- CRC-32 (zip) -------------------------------------------------------------
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -37,9 +31,6 @@ const crc32 = (crc: number, bytes: Uint8Array) => {
   return ~c >>> 0;
 };
 
-// --- Byte layout --------------------------------------------------------------
-
-/** Little-endian fields, as zip lays them out. */
 class Fields {
   private readonly parts: number[] = [];
   u16(value: number) {
@@ -66,16 +57,14 @@ class Fields {
 const MAX_U32 = 0xffffffff;
 const MAX_U16 = 0xffff;
 
-/** MS-DOS date and time, as zip stores them (local time, 2-second steps). */
+/** Zip's own format: local time, 2-second steps. */
 const dosTime = (date: Date) => ({
   time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
   date:
     (Math.max(0, date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
 });
 
-// --- Writing ------------------------------------------------------------------
-
-/** Pipes an entry's stream through `each`, checking it has exactly `size` bytes. */
+/** A wrong size would corrupt every entry after it. */
 async function* entryBytes(entry: ArchiveEntry, each?: (chunk: Uint8Array) => void) {
   const reader = (await entry.open()).getReader();
   let total = 0;
@@ -258,7 +247,7 @@ async function* zipChunks(entries: ArchiveEntry[]): AsyncGenerator<Uint8Array> {
 }
 
 const TAR_BLOCK = 512;
-/** The largest size a ustar header can hold: 11 octal digits. */
+/** 11 octal digits; larger sizes need pax. */
 const TAR_MAX_SIZE = 8 ** 11 - 1;
 
 const octal = (value: number, width: number) => `${value.toString(8).padStart(width - 1, "0")}\0`;
@@ -282,7 +271,7 @@ const tarHeader = (name: string, size: number, modified: Date, type: string) => 
   return header;
 };
 
-/** A pax record: "<length> <key>=<value>\n", the length counting itself. */
+/** The length counts its own digits, hence the loop. */
 const paxRecord = (key: string, value: string) => {
   const body = ` ${key}=${value}\n`;
   const bodyLength = encoder.encode(body).byteLength;
@@ -323,8 +312,6 @@ async function* tarChunks(entries: ArchiveEntry[]): AsyncGenerator<Uint8Array> {
   yield new Uint8Array(TAR_END);
 }
 
-// --- Sizes --------------------------------------------------------------------
-
 export type SizedEntry = { path: string; size: number };
 
 const byteLength = (chunks: Uint8Array[]) =>
@@ -358,7 +345,7 @@ export const archiveSize = (format: ArchiveFormat, entries: readonly SizedEntry[
   return offset + central + byteLength(zipEnd(sized.length, offset, central));
 };
 
-/** archiveSize one entry at a time, for parts with thousands of items; exact under 4 GiB. */
+/** One entry at a time, for parts with thousands of items; exact under 4 GiB. */
 export const entrySize = (format: ArchiveFormat, entry: SizedEntry) => {
   const sized = { ...entry, modified: ANY_TIME };
   if (format === "tar") {
@@ -373,7 +360,6 @@ export const entrySize = (format: ArchiveFormat, entry: SizedEntry) => {
   );
 };
 
-/** An archive of `entries`, generated as it is read. */
 export const writeArchive = (format: ArchiveFormat, entries: ArchiveEntry[]) => {
   const chunks = format === "zip" ? zipChunks(entries) : tarChunks(entries);
   return new ReadableStream<Uint8Array>({
@@ -401,9 +387,6 @@ export const writeArchive = (format: ArchiveFormat, entries: ArchiveEntry[]) => 
   });
 };
 
-// --- Reading ------------------------------------------------------------------
-
-/** Reads a stream in exact amounts. */
 class ByteReader {
   private chunks: Uint8Array[] = [];
   private buffered = 0;
@@ -415,7 +398,6 @@ class ByteReader {
     this.reader = stream.getReader();
   }
 
-  /** Whether at least `n` bytes are left (reading ahead as needed). */
   async has(n: number) {
     while (this.buffered < n && !this.finished) {
       const { done, value } = await this.reader.read();
@@ -428,7 +410,6 @@ class ByteReader {
     return this.buffered >= n;
   }
 
-  /** Up to `n` bytes from what is buffered or next in the stream. */
   private async take(n: number) {
     if (!(await this.has(1))) throw new Error("The archive ends too early.");
     const first = this.chunks[0] as Uint8Array;
@@ -451,7 +432,6 @@ class ByteReader {
     return out;
   }
 
-  /** The first `n` bytes (fewer at the end), left in place. */
   async peek(n: number) {
     await this.has(n);
     const out = new Uint8Array(Math.min(n, this.buffered));
@@ -470,10 +450,7 @@ class ByteReader {
     while (left > 0) left -= (await this.take(left)).byteLength;
   }
 
-  /**
-   * The next `n` bytes as a stream, and `finish`, which skips whatever of them
-   * was left unread (an entry passed over), so the next entry starts right.
-   */
+  /** `finish` skips what the caller left unread, so the next entry starts right. */
   slice(n: number) {
     let left = n;
     const stream = new ReadableStream<Uint8Array>({
@@ -498,7 +475,7 @@ class ByteReader {
 export type ReadEntry = {
   path: string;
   size: number;
-  /** Read it, in part or whole, before asking for the next entry; what is left is skipped. */
+  /** Read it before asking for the next entry: the archive is one stream. */
   body: ReadableStream<Uint8Array>;
 };
 
@@ -507,17 +484,13 @@ const u16 = (bytes: Uint8Array, at: number) =>
 const u32 = (bytes: Uint8Array, at: number) =>
   (u16(bytes, at) + u16(bytes, at + 2) * 2 ** 16) >>> 0;
 
-/** Which format a stream's first bytes say it is. */
 const formatOf = (head: Uint8Array): ArchiveFormat | null => {
   if (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) return "zip";
   if (decoder.decode(head.subarray(257, 262)) === "ustar") return "tar";
   return null;
 };
 
-/**
- * The entries of a zip or tar this file wrote, in order. `sizeOf` gives the
- * size of a zip entry that carries it after its data, from the manifest.
- */
+/** `sizeOf`: streamed zip entries state their size only after their data. */
 export async function* readArchive(
   stream: ReadableStream<Uint8Array>,
   sizeOf: (path: string) => number | undefined,
@@ -543,7 +516,7 @@ async function* readZip(
     const extraLength = u16(header, 24);
     const path = decoder.decode(await input.read(nameLength));
     const extra = await input.read(extraLength);
-    // A zip64 field in the local header: sizes (and descriptor) are 64-bit.
+    // zip64 in the local header: the descriptor's sizes are 64-bit too.
     let zip64 = false;
     for (let at = 0; at + 4 <= extra.byteLength; ) {
       const id = u16(extra, at);
@@ -585,7 +558,7 @@ async function* readTar(input: ByteReader): AsyncGenerator<ReadEntry> {
     const path = pax.path ?? (prefix ? `${prefix}/${field(0, 100)}` : field(0, 100));
     pax = {};
     if (type !== "0") {
-      // Directories and the like: nothing a backup restores.
+      // Nothing a backup restores.
       await input.skip(size + padding(size).byteLength);
       continue;
     }

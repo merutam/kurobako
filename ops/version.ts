@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Copies the version in package.json into public/k.mjs. `bun pm version` runs
-// it (the "version" script) before committing, so both change together.
+// Run by `bun pm version`, so package.json and public/k.mjs never disagree.
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");

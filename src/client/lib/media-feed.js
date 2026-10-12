@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// A scrollable media page. Media loads near the viewport and stays loaded while
-// the page is open, so scrolling back never spends another read/rate-limit hit.
-// Music keeps playing out of view; videos pause. A namespace's live changes
-// keep the cards they do not touch, so what plays goes on playing.
+// Loaded media stays loaded, so scrolling back never costs another read.
+// Live changes keep untouched cards, so what plays goes on playing.
 import { h } from "../shared/dom.js";
 import { choiceGroup, element, storage } from "./common.js";
 import { audioPlayer, itemSummary, videoPlayer } from "./items.js";
@@ -115,7 +113,7 @@ export const createMediaFeed = (sourceOf) => {
     }
   };
 
-  /** What a card shows: when it changes, the card is made again. */
+  /** When it changes, the card is made again. */
   const signature = (entry) => JSON.stringify([entry.item, entry.info]);
 
   const makeCard = (entry) => {
@@ -153,10 +151,7 @@ export const createMediaFeed = (sourceOf) => {
     release(card);
   };
 
-  /**
-   * The cards for the entries, in order: unchanged ones are kept as they are,
-   * loaded and playing, and only what moved is moved (moving a player pauses it).
-   */
+  /** Unchanged cards are kept, loaded and playing; moving a player pauses it. */
   const render = () => {
     observer ??= new IntersectionObserver(
       (changes) => {
@@ -204,7 +199,6 @@ export const createMediaFeed = (sourceOf) => {
     applyFilter();
   };
 
-  /** Opening the page: the selected medium (or the first) in view and loading. */
   const show = () => {
     render();
     const selected = new URL(window.location.href).searchParams.get("media");
@@ -213,7 +207,7 @@ export const createMediaFeed = (sourceOf) => {
     if (first) void load(first);
   };
 
-  // One medium plays at a time: starting one pauses the others.
+  // One medium plays at a time.
   list.addEventListener(
     "play",
     (event) => {

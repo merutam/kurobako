@@ -1,31 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// A bundle: texts and files sent together as one item, so a Markdown text
-// can show the images beside it. It is a plain tar (ustar), which any tool
-// opens, whose first entry is kurobako.json, the manifest:
+// Texts and files sent as one item, so a Markdown text can show its images.
+// A plain ustar any tool opens; its first entry is the manifest, kurobako.json:
 //
 //   {"kurobako": "bundle", "version": 1, "main": "notes.md",
 //    "entries": [{"path": "notes.md", "type": "text/markdown", "text": true},
 //                {"path": "assets/photo.png", "type": "image/png"}]}
 //
-// The entries follow in that order: texts at the root, as the tabs a page
-// shows, `main` first; files under assets/, where the texts refer to them
-// (![](assets/photo.png)), as any Markdown viewer reads them once extracted. The server and k.mjs tell a bundle by its first bytes, the manifest's
-// name (see isBundle), and type it BUNDLE_MIME. Nothing here touches a page.
+// Files go under assets/, where texts refer to them, so any Markdown viewer
+// reads them once extracted.
 
 export const BUNDLE_MIME = "application/vnd.kurobako.bundle+tar";
-/** Where a bundle keeps its files, apart from its texts. */
 export const ASSETS = "assets/";
 const MANIFEST_NAME = "kurobako.json";
 const BLOCK = 512;
-/** ustar names hold 100 bytes; bundle paths stay within them. */
+/** ustar names hold 100 bytes. */
 const MAX_PATH_BYTES = 100;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** Whether these first bytes start a bundle: a tar whose first entry is the manifest. */
 export const isBundle = (bytes) => {
   const signature = encoder.encode(`${MANIFEST_NAME}\0`);
   return (
@@ -56,11 +51,6 @@ const header = (path, size, mtime) => {
   return block;
 };
 
-/**
- * The bundle's bytes, from its texts and files: `entries` are
- * { path, type, bytes, text? } in the order a page shows them; `main` names
- * the text shown first. Every entry is dated `mtime` (seconds), the send's.
- */
 export const writeBundle = ({ main, entries, mtime = Math.floor(Date.now() / 1000) }) => {
   const manifest = encoder.encode(
     JSON.stringify({
@@ -95,10 +85,6 @@ const field = (block, offset, length) => {
   return decoder.decode(end === -1 ? bytes : bytes.subarray(0, end));
 };
 
-/**
- * A bundle's manifest and entries ({ path, type, text, bytes }, in the
- * manifest's order), from its bytes. Throws if it is not one.
- */
 export const readBundle = (bytes) => {
   const files = new Map();
   for (let offset = 0; offset + BLOCK <= bytes.length; ) {
@@ -137,10 +123,6 @@ export const readBundle = (bytes) => {
   return { version: manifest.version, main, entries };
 };
 
-/**
- * Names unique within a bundle: a second "photo.png" becomes "photo-2.png".
- * Takes a list of wanted names, returns the names to use, in order.
- */
 export const uniqueNames = (names) => {
   const taken = new Set([MANIFEST_NAME]);
   return names.map((wanted) => {

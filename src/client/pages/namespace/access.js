@@ -3,7 +3,6 @@
 
 import { element } from "../../lib/common.js";
 
-/** A plain address writes; an encrypted name derives a separate write key. */
 export const createAccess = () => {
   const sendSection = element("#send-section");
   const restore = element("#restore-form");

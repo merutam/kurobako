@@ -9,7 +9,7 @@ type ViewPageData = {
   entries: ReadonlyArray<{ url: string; item: ListedItem }>;
 };
 
-/** A view link that leads nowhere: deleted with its namespace, or never made. */
+/** Deleted with its namespace, or never made. */
 export const GoneViewPage = ({ site }: { site: SiteView }) => (
   <Layout site={site} title="Shared view · Kurobako" scripts={[]} noIndex>
     <h1>Shared view</h1>

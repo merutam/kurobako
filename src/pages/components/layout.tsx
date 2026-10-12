@@ -7,30 +7,23 @@ import { Icon } from "./icons";
 
 export type SiteView = {
   basePath: string;
-  /** The bundle's files (see src/assets.ts). */
   manifest: Manifest;
   appVersion: string;
   publicConfig: unknown;
 };
 
-/** Script data is raw HTML text, so escape < to prevent a closing script tag. */
+/** Script data is raw HTML text: an unescaped < could close the script tag. */
 export const safeJson = (value: unknown) => JSON.stringify(value).replaceAll("<", "\\u003c");
 
-/** A bundled file's URL: named by its contents, so cached for good. */
 const assetUrl = (site: SiteView, file: string) => `${site.basePath}${ASSETS_PATH}/${file}`;
 
-/** A script or the styles, by name in the bundle's manifest ("home", "styles"). */
 const entryOf = (site: SiteView, entry: string) => {
   const found = site.manifest.files[entry];
   if (!found) throw new Error(`The bundle has no ${entry}.`);
   return found;
 };
 
-/**
- * A page's scripts, by name (src/client/pages/<name>.js, head/<name>.js): classic ones run as they
- * come, in <head>; modules come with every chunk they import, preloaded, so
- * the browser fetches them all at once rather than one import after another.
- */
+/** Every chunk a module imports is preloaded, so the browser fetches them at once. */
 const Scripts = ({ site, entries }: { site: SiteView; entries: readonly string[] }) => {
   const chunks = new Set(entries.flatMap((entry) => entryOf(site, entry).preload));
   return (
@@ -50,13 +43,9 @@ const Scripts = ({ site, entries }: { site: SiteView; entries: readonly string[]
   );
 };
 
-/**
- * A page as the HTML text to send: `renderPage(<HomePage site={site} />)`.
- * Text, so a page the same for every request can be rendered once and kept.
- */
+/** Text, so a page the same for every request can be rendered once and kept. */
 export const renderPage = (page: Child) => `<!doctype html>\n${String(page)}`;
 
-/** Every page's frame: <head>, the site's header and footer, and the page in <main>. */
 export const Layout = ({
   site,
   title,
@@ -70,15 +59,11 @@ export const Layout = ({
 }: {
   site: SiteView;
   title: string;
-  /** The page's scripts, by name in the manifest ("namespace", "share"). */
   scripts: readonly string[];
   config?: boolean;
   data?: { id: string; value: unknown };
   noIndex?: boolean;
-  /**
-   * What the page waits on before it shows ("Decrypting item…"): until its
-   * script calls finishUnlocking (src/client/lib/unlocking.js), only this.
-   */
+  /** Shown alone until the script calls finishUnlocking, so nothing flashes undecrypted. */
   decrypting?: string;
   mainClass?: string;
   children: Child;
@@ -91,7 +76,7 @@ export const Layout = ({
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="stylesheet" href={assetUrl(site, entryOf(site, STYLES).file)} />
-        {/* The theme, before the first paint, and every page's small parts (head/site.js). */}
+        {/* Before the first paint, so the theme never flashes. */}
         <script src={assetUrl(site, entryOf(site, "site").file)} />
         <link rel="icon" href={`${basePath}/favicon.ico`} sizes="any" />
         <link rel="apple-touch-icon" href={`${basePath}/apple-touch-icon.png`} />
@@ -119,12 +104,12 @@ export const Layout = ({
           <header class="site-header">
             <p class="site-name">
               <a href={`${basePath}/`}>
-                {/* logo.png as a mask, painted in the theme's accent (styles.css). */}
+                {/* A mask, so it takes the theme's accent. */}
                 <span class="site-logo" aria-hidden="true" />
                 kurobako
               </a>
             </p>
-            {/* theme.js shows it: without a script, the browser's theme applies. */}
+            {/* Hidden without a script: the browser's theme applies then. */}
             <button
               id="theme-toggle"
               class="theme-toggle"

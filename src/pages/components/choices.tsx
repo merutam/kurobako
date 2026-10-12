@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-/**
- * A choice among a few options, as a line of words: "open: one [several]
- * [all]". The current one reads as plain text, the others as bracketed
- * actions (docs/design.md); choiceGroup (lib/common.js) keeps them so.
- * `choices` are [value, label]; `current` is the value shown chosen until
- * the page's script says otherwise.
- */
+/** Plain text for the current choice, brackets for the others (docs/design.md). */
 export const Choices = ({
   id,
   label,
@@ -16,9 +10,8 @@ export const Choices = ({
   current,
 }: {
   id: string;
-  /** The word before the options ("open"), shown. */
   label: string;
-  /** What the group chooses, for screen readers ("Open items"). */
+  /** For screen readers. */
   name: string;
   choices: ReadonlyArray<readonly [string, string]>;
   current: string;

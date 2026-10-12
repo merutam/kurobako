@@ -3,11 +3,8 @@
 
 import { h } from "../shared/dom.js";
 
-// A page's messages. The page's own status floats over the page, out of its
-// flow, so it can go away by itself without moving anything: a success
-// leaves after a few seconds (not while pointed at or focused), progress
-// stays until the next message, and an error until dismissed, so it is
-// never missed.
+// Floats over the page, so it can go away without moving anything. Errors stay
+// until dismissed, so they are never missed.
 const SUCCESS_SECONDS = 4;
 
 export const createStatus = (element) => {

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The namespace and hub cores as Durable Objects: SQLite storage, alarms and
-// hibernatable WebSockets come from the object, files from R2.
 import { DurableObject } from "cloudflare:workers";
 import { loadConfig } from "../../config";
 import type { Sql, SqlValue } from "../../core/host";
@@ -14,7 +12,6 @@ import type { AccessEvent } from "../../core/visits";
 import { CLOUDFLARE_LIMITS } from "./limits";
 import { r2Store } from "./r2";
 
-/** There is exactly one hub. */
 export const HUB_NAME = "hub";
 /** A live upgrade's visit travels to the object in this header. */
 export const VISIT_HEADER = "x-kurobako-visit";
@@ -53,10 +50,7 @@ export class NamespaceObject extends DurableObject<Env> {
     return this.core.alarm();
   }
 
-  /**
-   * A WebSocket upgrade, forwarded with the namespace in the query string.
-   * Sockets hibernate between changes, so idle viewers cost nothing.
-   */
+  /** Sockets hibernate between changes, so idle viewers cost nothing. */
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("upgrade") !== "websocket") {
       return new Response("Expected a WebSocket upgrade.", { status: 426 });
@@ -82,12 +76,10 @@ export class NamespaceObject extends DurableObject<Env> {
   }
 
   async webSocketClose(socket: WebSocket, code: number, reason: string): Promise<void> {
-    // 1005 ("no status") and 1006 ("abnormal") describe a close; they cannot be sent.
+    // 1005 and 1006 describe a close; they cannot be sent.
     try {
       socket.close(code === 1005 || code === 1006 ? 1000 : code, reason);
-    } catch {
-      // Already closed on our side.
-    }
+    } catch {}
     await this.core.watchersChanged(socket);
   }
 }
@@ -113,10 +105,7 @@ export class HubObject extends DurableObject<Env> {
   }
 }
 
-/**
- * Each method a core offers to requests (NAMESPACE_METHODS, HUB_METHODS), on
- * its Durable Object, which RPC exposes: a call runs on the object's core.
- */
+/** Only the listed methods are exposed over RPC. */
 const expose = (object: { prototype: object }, methods: readonly string[]) => {
   for (const method of methods) {
     Object.defineProperty(object.prototype, method, {
@@ -131,6 +120,6 @@ const expose = (object: { prototype: object }, methods: readonly string[]) => {
 expose(NamespaceObject, NAMESPACE_METHODS);
 expose(HubObject, HUB_METHODS);
 
-// What expose() adds, for the types of the objects' RPC stubs.
+// For the types of the objects' RPC stubs.
 export interface NamespaceObject extends Pick<NamespaceCore, (typeof NAMESPACE_METHODS)[number]> {}
 export interface HubObject extends Pick<HubCore, (typeof HUB_METHODS)[number]> {}

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The namespace and hub cores on a single Bun process: one SQLite file per
-// namespace (like one Durable Object each), one for the hub, files in any
-// S3-compatible store and live updates over Bun's own WebSockets.
+// One SQLite file per namespace, as one Durable Object each on Cloudflare.
 import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -23,22 +21,15 @@ import { Alarm, openDatabase, sqlOf } from "./sqlite";
 
 export type BunOptions = {
   config: AppConfig;
-  /** Where the SQLite files live. */
   dataDir: string;
   blobs: BlobStore;
-  /**
-   * Set only behind a reverse proxy: the header holding the client's address
-   * (e.g. "x-forwarded-for"). Location headers (cf-ipcountry, cf-region,
-   * cf-ipcity) are then trusted as well.
-   */
+  /** Only behind a reverse proxy: otherwise clients could fake their address and location. */
   clientIpHeader: string | null;
-  /** Sends allowed per address per minute. */
   sendsPerMinute: number;
-  /** The site's public address (e.g. https://box.example); unset, it comes from each request. */
+  /** Unset, it comes from each request. */
   publicUrl: string | null;
-  /** Namespace databases kept open at once. The least recently used is closed first. */
+  /** Bounded, so thousands of namespaces never exhaust file handles. */
   maxOpenDatabases?: number;
-  /** Close an unused namespace database on the next prune after this many milliseconds. */
   databaseIdleMs?: number;
 };
 
@@ -47,11 +38,9 @@ export type BunEnv = { server: Server<SocketData> };
 
 const MINUTE_MS = 60_000;
 const HUB_START_DELAY_MS = MINUTE_MS;
-/** One folder of SQLite files for each kind of namespace. */
 const SPACES: SpaceKind[] = ["plain", "sealed"];
 
 const header = (c: Context, name: string) => c.req.header(name) || null;
-/** An ASN as a header gives it, or null. */
 const asnOf = (value: string | null) => {
   const asn = Number(value);
   return value && Number.isSafeInteger(asn) && asn > 0 ? asn : null;
@@ -63,7 +52,6 @@ export const createBunPlatform = (options: BunOptions) => {
   const databaseIdleMs = Math.max(0, options.databaseIdleMs ?? 60_000);
   for (const space of SPACES) mkdirSync(join(dataDir, "namespaces", space), { recursive: true });
 
-  // --- Hub ----------------------------------------------------------------
   const hubAlarm = new Alarm(() => hub.alarm());
   const hubDatabase = openDatabase(join(dataDir, "hub.sqlite"));
   const hub: HubCore = new HubCore(config, {
@@ -75,8 +63,7 @@ export const createBunPlatform = (options: BunOptions) => {
     cleanUpNamespace: (ref) => namespaceOf(ref).core.cleanUpIfEmpty(ref),
   });
 
-  // Every namespace's next alarm, so a restart restores timers without opening
-  // each namespace's database. Kept next to the hub's tables, apart from them.
+  // So a restart restores timers without opening every namespace's database.
   hubDatabase.run(`CREATE TABLE IF NOT EXISTS namespace_alarms (
     space TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -95,7 +82,6 @@ export const createBunPlatform = (options: BunOptions) => {
     }
   };
 
-  // --- Namespaces ---------------------------------------------------------
   type Entry = {
     core: NamespaceCore;
     sockets: Set<ServerWebSocket<SocketData>>;
@@ -160,7 +146,6 @@ export const createBunPlatform = (options: BunOptions) => {
     return entry;
   };
 
-  /** Forgets namespaces that hold nothing in memory or on disk. */
   const prune = () => {
     const idleBefore = Date.now() - databaseIdleMs;
     for (const open of [...openDatabases.values()]) {
@@ -172,10 +157,7 @@ export const createBunPlatform = (options: BunOptions) => {
     }
   };
 
-  /**
-   * Timers do not survive a restart: rebuild them from the alarm index. Those
-   * already due run right away. No one is connected anymore.
-   */
+  /** Timers do not survive a restart; those already due run right away. */
   const resume = async () => {
     const alarms = hubDatabase
       .query("SELECT space, name, at FROM namespace_alarms")
@@ -185,7 +167,6 @@ export const createBunPlatform = (options: BunOptions) => {
     hubAlarm.set(Date.now() + HUB_START_DELAY_MS);
   };
 
-  // --- Sends per client (see clientKey) --------------------------------------
   const sends = new Map<string, { count: number; resetAt: number }>();
   const allowSend = (key: string) => {
     const now = Date.now();
@@ -201,7 +182,6 @@ export const createBunPlatform = (options: BunOptions) => {
     return window.count <= options.sendsPerMinute;
   };
 
-  // --- Misses per client (see src/api/misses.ts) ------------------------------
   const misses = new Map<string, { count: number; resetAt: number }>();
   const recordMiss = (key: string) => {
     const now = Date.now();
@@ -247,8 +227,7 @@ export const createBunPlatform = (options: BunOptions) => {
           country: header(c, "cf-ipcountry"),
           region: header(c, "cf-region"),
           city: header(c, "cf-ipcity"),
-          // Set by the proxy in front, as Cloudflare does with a Transform
-          // Rule (ip.src.asnum); trusted with the address, never otherwise.
+          // Trusted only with the address, from the proxy in front (a Cloudflare Transform Rule).
           asn: asnOf(header(c, "cf-asn")),
         };
       }
@@ -263,7 +242,6 @@ export const createBunPlatform = (options: BunOptions) => {
     origin(c) {
       if (options.publicUrl) return options.publicUrl;
       const url = new URL(c.req.url);
-      // Behind a trusted proxy, the address visitors used is in its headers.
       if (options.clientIpHeader) {
         const proto = firstValue(header(c, "x-forwarded-proto"));
         const host = firstValue(header(c, "x-forwarded-host")) ?? header(c, "host");

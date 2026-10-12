@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// A bundle (see shared/bundle.js), shown: a tab for each of its texts, the
-// main one first, and one for its files. A Markdown text shows rendered,
-// with the bundle's images in place, and its source a click away.
-
 import { readBundle } from "../shared/bundle.js";
 import { h } from "../shared/dom.js";
 import { formatBytes } from "../shared/format.js";
@@ -14,10 +10,7 @@ import { isMarkdown, renderMarkdown } from "./markdown.js";
 
 const decoder = new TextDecoder();
 
-/**
- * Tabs over panels: `tabs` are [label, () => panel]; each panel is made on
- * first showing. One tab shows no tab bar at all.
- */
+/** Panels are made on first showing, so unseen tabs cost nothing. */
 const tabbed = (tabs, { label }) => {
   const panels = new Map();
   const panel = h("div", { class: "tab-panel", role: tabs.length > 1 ? "tabpanel" : undefined });
@@ -34,7 +27,6 @@ const tabbed = (tabs, { label }) => {
   };
   for (const [index, button] of buttons.entries()) {
     button.addEventListener("click", () => show(index));
-    // Arrow keys move between tabs, as in any tab list.
     button.addEventListener("keydown", (event) => {
       const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
       if (!step) return;
@@ -54,7 +46,6 @@ const tabbed = (tabs, { label }) => {
   );
 };
 
-/** A Markdown text, rendered, with a switch to its source. */
 const markdownPanel = (text, path, resolve) => {
   const rendered = renderMarkdown(text, { resolve });
   let source = null;
@@ -73,10 +64,7 @@ const markdownPanel = (text, path, resolve) => {
   return h("div", { class: "bundle-text" }, h("p", { class: "bundle-tools" }, toggle), holder);
 };
 
-/**
- * The view of a bundle's bytes. `objectUrl(blob)` makes the address of one
- * of its files (the caller frees them along with its own).
- */
+/** The caller frees the file addresses along with its own. */
 export const bundleView = (bytes, { objectUrl = objectAddress } = {}) => {
   const { main, entries } = readBundle(bytes);
   const urls = new Map();
@@ -92,8 +80,7 @@ export const bundleView = (bytes, { objectUrl = objectAddress } = {}) => {
     return urls.get(entry.path);
   };
   const byPath = new Map(entries.map((entry) => [entry.path, entry]));
-  // A text names a file by its path (assets/photo.png), and only so: what
-  // shows here is what any Markdown viewer shows once the tar is extracted.
+  // Only by path, so this shows what any Markdown viewer shows once the tar is extracted.
   const resolve = (path) => {
     const entry = byPath.get(path);
     return entry ? { url: urlOf(entry), type: entry.type, name: entry.path } : null;
@@ -125,7 +112,6 @@ export const bundleView = (bytes, { objectUrl = objectAddress } = {}) => {
               {},
               h(
                 "a",
-                // Saved under its own name, without the folder.
                 { class: "file-name", href: urlOf(entry), download: entry.path.split("/").pop() },
                 entry.path,
               ),

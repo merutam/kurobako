@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Push notifications of a namespace's sends (src/core/push.ts), off unless
-// turned on, per namespace and device. The browser keeps one subscription
-// for the whole site; the namespaces it follows are each told of it, and
-// listed here, in a cache public/sw.js reads to name a notification and to
-// know where a tap on it leads ({ url, title }, by "<space>:<name>").
+// Off unless turned on, per namespace and device. One subscription serves the
+// whole site; the cache lists followed namespaces so sw.js can name a
+// notification and know where a tap leads.
 
 import { request, SITE } from "./common.js";
 
@@ -22,7 +20,6 @@ const toBase64Url = (bytes) =>
     .replaceAll("/", "_")
     .replace(/=+$/, "");
 
-/** Whether this browser and server can do it at all. */
 export const pushAvailable = (config) =>
   Boolean(
     config.push &&
@@ -33,13 +30,11 @@ export const pushAvailable = (config) =>
       globalThis.caches,
   );
 
-/** The Service Worker's registration (head/parts/service-worker.js registers it too). */
 const registration = () => navigator.serviceWorker.register(`${SITE}/sw.js`, { scope: `${SITE}/` });
 
-/** This device's subscription, if any. */
 const subscription = async () => (await registration()).pushManager.getSubscription();
 
-/** As the server computes it (skipIdOf): which device a send comes from. */
+/** As the server computes it (skipIdOf). */
 const skipIdOf = async (endpoint) =>
   toBase64Url(
     new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint))).slice(
@@ -50,13 +45,9 @@ const skipIdOf = async (endpoint) =>
 
 let skipId = null;
 
-/**
- * Sends from this device carry its subscription's ID, so it is not told of
- * what it sent itself (see modes.js).
- */
+/** So this device is not told of its own sends. */
 export const pushSkipHeaders = () => (skipId ? { "Push-Skip": skipId } : {});
 
-/** Whether this device is told of `key`'s sends. Learns the device's ID on the way. */
 export const following = async (key) => {
   const current = await subscription().catch(() => null);
   skipId = current ? await skipIdOf(current.endpoint) : null;
@@ -64,7 +55,6 @@ export const following = async (key) => {
   return Boolean(await (await caches.open(PUSH_CACHE)).match(recordAddress(key)));
 };
 
-/** Asks the browser (it shows its own prompt), then the namespace's server. */
 export const follow = async ({ key, basePath, url, title, publicKey }) => {
   if ((await Notification.requestPermission()) !== "granted") {
     throw new Error(
@@ -74,7 +64,7 @@ export const follow = async ({ key, basePath, url, title, publicKey }) => {
   const pushManager = (await registration()).pushManager;
   const serverKey = fromBase64Url(publicKey);
   let current = await pushManager.getSubscription();
-  // Made for another server key (the server's changed): made again.
+  // Made for another server key: made again.
   const madeFor = current?.options.applicationServerKey;
   if (madeFor && toBase64Url(new Uint8Array(madeFor)) !== publicKey) {
     await current.unsubscribe();
@@ -93,7 +83,7 @@ export const follow = async ({ key, basePath, url, title, publicKey }) => {
   skipId = await skipIdOf(current.endpoint);
 };
 
-/** Stops `key`'s notifications; following nothing, the subscription goes too. */
+/** Following nothing, the subscription goes too. */
 export const unfollow = async ({ key, basePath }) => {
   const current = await subscription();
   if (current) {

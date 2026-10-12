@@ -5,8 +5,7 @@ import type { BlobStore } from "../../core/host";
 
 export const r2Store = (bucket: R2Bucket): BlobStore => ({
   async put(key, body, size, contentType) {
-    // R2 needs the length up front; FixedLengthStream also fails the upload
-    // if the body does not match it.
+    // R2 needs the length up front; FixedLengthStream also fails a mismatched body.
     await bucket.put(key, body.pipeThrough(new FixedLengthStream(size)), {
       httpMetadata: { contentType },
     });

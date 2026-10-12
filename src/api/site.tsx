@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The site's own pages and documents: home, encryption spec, health, the
-// well-known description, stats.
 import { Hono } from "hono";
 import { LICENSES_PATH, PROTOCOL_PATH, WELL_KNOWN_PATH } from "../core/routing";
 import { renderPage } from "../pages/components/layout";
@@ -17,8 +15,7 @@ import type { Api, AppEnv } from "./context";
 export const siteRoutes = (api: Api) => {
   const app = new Hono<AppEnv>();
   const { page, pageView, publicConfig, siteView, config } = api;
-  // The same for every request: rendered once. On Cloudflare, the protocol and
-  // the licenses are usually answered by static assets instead (ops/build.ts).
+  // Rendered once. On Cloudflare, ops/build.ts usually serves protocol and licenses as assets.
   const pages = {
     home: renderPage(<HomePage site={siteView} config={config} />),
     protocol: renderPage(<ProtocolPage site={siteView} />),
@@ -39,17 +36,14 @@ export const siteRoutes = (api: Api) => {
   app.get("/", (c) => pageView(c, pages.home));
   app.get(PROTOCOL_PATH, (c) => page(c, pages.protocol));
   app.get(LICENSES_PATH, (c) => page(c, pages.licenses));
-  // The secret name lives in the URL fragment, which never reaches the server.
+  // The secret name lives in the fragment, which never reaches the server.
   app.get("/e", (c) => pageView(c, pages.encrypted));
 
   app.get("/k/healthz", (c) => c.json({ ok: true }));
-  // The installed app's share target. sw.js takes what is shared before it
-  // gets here; without it (not set up yet), the body is never read.
+  // sw.js takes the shared data first; this only runs when it is not installed yet.
   app.post("/k/share", (c) => c.redirect(`${config.basePath}/k/share?lost`, 303));
   app.get("/k/share", (c) => page(c, pages.share));
-  // One's own theme, kept on the device (pages/theme.tsx).
   app.get("/k/theme", (c) => page(c, pages.theme));
-  // What makes the site an installable app; its addresses follow the base path.
   app.get("/manifest.webmanifest", (c) => {
     const base = config.basePath;
     const icon = (name: string, size: number, purpose = "any") => ({
@@ -76,8 +70,7 @@ export const siteRoutes = (api: Api) => {
           icon("icon-512.png", 512),
           icon("icon-maskable.png", 512, "maskable"),
         ],
-        // In Android's Share menu once installed. sw.js takes the POST and
-        // keeps what it brings on the device: it never reaches the server.
+        // sw.js answers this POST, so what is shared stays on the device.
         share_target: {
           action: `${base}/k/share`,
           method: "POST",
@@ -92,8 +85,7 @@ export const siteRoutes = (api: Api) => {
       }),
     );
   });
-  // What any client needs to talk to this server: its base path, version and
-  // rules. Served at the domain's root and under the base path alike.
+  // At the domain's root too, so clients find it without knowing the base path.
   app.get(WELL_KNOWN_PATH, (c) => {
     c.header("Cache-Control", "no-store");
     c.header("Access-Control-Allow-Origin", "*");

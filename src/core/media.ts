@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-/**
- * A file the browser can show or play: image, video or audio. Anything
- * else is a plain download.
- */
+/** Anything else is a plain download. */
 export type AcceptedMedia = {
   kind: "image" | "video" | "audio";
   extension:
@@ -30,16 +27,12 @@ export type AcceptedMedia = {
 const ascii = (bytes: Uint8Array, start: number, length: number): string =>
   String.fromCharCode(...bytes.subarray(start, start + length));
 
-/**
- * detectMedia never looks past this many bytes: binary formats say what they
- * are in a few, an SVG may first have a declaration, comments and a doctype.
- */
+/** An SVG may start with a declaration, comments and a doctype before <svg. */
 export const SIGNATURE_BYTES = 1024;
 
-/** How far into a Matroska header its DocType is looked for. */
 const EBML_SCAN_BYTES = 64;
 
-/** MP4 brands (an ISO media file's first "ftyp") that hold video. */
+/** Only these hold video; other ISO media files are downloads. */
 const MP4_BRANDS = [
   "isom",
   "iso2",
@@ -54,10 +47,6 @@ const MP4_BRANDS = [
   "dash",
 ];
 
-/**
- * A Matroska file's DocType ("webm" or "matroska"), from its EBML header at
- * the start: the element 0x4282, a one-byte size, then the name.
- */
 const ebmlDocType = (bytes: Uint8Array): string | null => {
   if (bytes.length < 4 || bytes[0] !== 0x1a || bytes[1] !== 0x45 || bytes[2] !== 0xdf) return null;
   if (bytes[3] !== 0xa3) return null;
@@ -71,13 +60,10 @@ const ebmlDocType = (bytes: Uint8Array): string | null => {
 };
 
 /**
- * Whether a file is an SVG: text whose root element is <svg, after an optional
- * BOM, XML declaration, comments and doctype. A doctype with an internal
- * subset ([) declares entities, which no image needs: such a file is not one.
- * An SVG can hold scripts: it is served, like everything, in a sandbox.
+ * A doctype with an internal subset declares entities, which no image needs.
+ * SVGs can hold scripts: like everything, they are served in a sandbox.
  */
 const isSvg = (bytes: Uint8Array): boolean => {
-  // The decoder drops a UTF-8 BOM.
   let text = new TextDecoder().decode(bytes.subarray(0, SIGNATURE_BYTES));
   for (;;) {
     text = text.trimStart();
@@ -115,7 +101,7 @@ const audio = (extension: AcceptedMedia["extension"], mime: string): AcceptedMed
   mime,
 });
 
-/** What a file is, from its first SIGNATURE_BYTES bytes; never from its name. */
+/** Never from the name, which the client controls. */
 export const detectMedia = (bytes: Uint8Array): AcceptedMedia | null => {
   if (
     bytes.length >= 8 &&
@@ -192,13 +178,10 @@ const cleanName = (value: string): string =>
     .replace(/^\.+|\.+$/g, "")
     .trim();
 
-/** Names Windows refuses for a file, whatever the extension. */
+/** Windows refuses these, whatever the extension. */
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
-/**
- * A file name's base, safe on every system: no reserved name, and no leading
- * "-" that a shell command would read as an option.
- */
+/** No leading "-", which a shell command would read as an option. */
 const safeBase = (value: string, fallback: string): string => {
   const base = cleanName(value).slice(0, 100);
   if (!base) return fallback;
@@ -210,11 +193,10 @@ const safeBaseName = (value: string, fallback: string): string => {
   return safeBase(lastSegment.replace(/\.[^.]+$/, ""), fallback);
 };
 
-/** An image's or video's name, always with the extension of what it is. */
+/** Always the extension of what it is, so it opens with the right app. */
 export const safeMediaName = (value: string, extension: string, fallback = "image"): string =>
   `${safeBaseName(value, fallback)}.${extension}`;
 
-/** Keeps the original extension when it is short and alphanumeric. */
 export const safeFileName = (value: string): string => {
   const lastSegment = value.split(/[\\/]/).at(-1) || "file";
   const extension = /\.([\p{L}\p{N}]{1,10})$/u.exec(lastSegment)?.[1];
@@ -222,7 +204,7 @@ export const safeFileName = (value: string): string => {
   return extension ? `${base}.${extension}` : base;
 };
 
-/** A text's named download/backup keeps its extension; old extensionless names get .txt. */
+/** Old names without an extension get .txt. */
 export const safeTextFileName = (name: string): string => {
   const safe = safeFileName(name);
   return /\.[\p{L}\p{N}]{1,10}$/u.test(safe) ? safe : `${safe}.txt`;

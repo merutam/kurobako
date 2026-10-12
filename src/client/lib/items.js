@@ -2,8 +2,6 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { BUNDLE_MIME } from "../shared/bundle.js";
-// Items as the namespace page and the shared-item page show them: what to
-// call one, the line under its title, and copying or saving its contents.
 import { h } from "../shared/dom.js";
 import { describePlain, itemSummary, limitedItem } from "../shared/item-row.js";
 import { isShownImage, objectAddress } from "./addresses.js";
@@ -14,15 +12,10 @@ export { describePlain, itemSummary, limitedItem };
 
 export const extensionOf = (title) => /\.([A-Za-z0-9_+-]+)$/.exec(title)?.[1]?.toLowerCase() ?? "";
 
-/** Longer texts show plain: coloring them would hold up the page. */
+/** Coloring them would hold up the page. */
 export const MAX_HIGHLIGHT_CHARACTERS = 100_000;
 
-/**
- * Highlighted source code. A known extension picks its grammar; without one
- * the text stays plain, as text: a guess colors ordinary words ("from", "a")
- * as code. Very long texts stay plain too. The code shows plain until
- * highlight.js is here (see highlight.js), then takes its colors.
- */
+/** Without a known extension, no guessing: it colors ordinary words as code. */
 export const highlightedCode = (text, title) => {
   const code = h("code", { class: "hljs" }, text);
   if (text.length > MAX_HIGHLIGHT_CHARACTERS || !extensionOf(title)) return code;
@@ -35,7 +28,7 @@ export const highlightedCode = (text, title) => {
   };
   const hljs = highlighter();
   if (hljs) color(hljs);
-  // Only if still shown by then: an editor makes a new one on every key.
+  // An editor makes a new one on every key.
   else
     loadHighlighter().then(
       (loaded) => code.isConnected && color(loaded),
@@ -44,14 +37,13 @@ export const highlightedCode = (text, title) => {
   return code;
 };
 
-/** One number per source line, including the empty line after a final newline. */
+/** Including the empty line after a final newline. */
 export const lineNumbers = (text) => {
   let count = 1;
   for (const character of text) if (character === "\n") count += 1;
   return Array.from({ length: count }, (_, index) => index + 1).join("\n");
 };
 
-/** Text as a complete source block, numbered in the namespace and share pages. */
 export const highlightedText = (text, title) =>
   h(
     "div",
@@ -60,24 +52,17 @@ export const highlightedText = (text, title) =>
     h("pre", {}, highlightedCode(text, title)),
   );
 
-/** An encrypted item, from its opened metadata, in the same shape. */
 export const describeOpened = (metadata) => ({
   ...metadata,
   title: metadata.title || HIDDEN_TITLE,
-  // The type is the sender's word: only what the server would show as an
-  // image is shown as one.
+  // The type is the sender's word: only what the server would show as an image is one.
   isImage: isShownImage(metadata.mime),
   isVideo: metadata.mime?.startsWith("video/") ?? false,
   isAudio: metadata.mime?.startsWith("audio/") ?? false,
   isBundle: metadata.mime === BUNDLE_MIME,
 });
 
-/**
- * A player for a video at `src`: the browser's own, as it is, which every
- * browser plays and controls the same way. Whether a browser plays a format
- * (MKV, MOV) only shows once it tries: if it cannot, the player gives way to
- * a note, and the download stays.
- */
+/** Whether a browser plays a format only shows when it tries; if not, a note replaces it. */
 export const videoPlayer = (src) => {
   const video = h("video", { src: src, controls: true, preload: "metadata", playsinline: true });
   video.addEventListener("error", () => {
@@ -86,11 +71,7 @@ export const videoPlayer = (src) => {
   return video;
 };
 
-/** Native audio controls keep seeking, downloads and accessibility in the browser. */
-/**
- * The browser's own audio player, with the file's cover picture above it when
- * it has one (read from its tag by cover.js, which loads only for audio).
- */
+/** Native controls keep seeking, downloads and accessibility in the browser. */
 export const audioPlayer = (src) => {
   const cover = h("img", { class: "audio-cover", alt: "", hidden: true });
   const audio = h("audio", { src, controls: true, preload: "metadata", playsinline: true });
@@ -109,18 +90,16 @@ export const audioPlayer = (src) => {
   return h("div", { class: "audio-player" }, cover, audio);
 };
 
-/** Whether this browser can put an image on the clipboard. */
 export const canCopyImages = () =>
   Boolean(navigator.clipboard?.write) && typeof ClipboardItem !== "undefined";
 
-/** Puts an image on the clipboard, as PNG: the one type every browser takes. */
+/** PNG: the one type every browser takes. */
 export const copyImage = async (blob) => {
   if (!canCopyImages()) throw new Error("This browser can't copy images. Use Save.");
   const png = await asPng(blob);
   await navigator.clipboard.write([new ClipboardItem({ [png.type]: png })]);
 };
 
-/** Saves contents already in the page under `filename`. */
 export const downloadBlob = (blob, filename) => {
   const url = objectAddress(blob);
   h("a", { href: url, download: filename || "file" }).click();
@@ -129,15 +108,12 @@ export const downloadBlob = (blob, filename) => {
 };
 
 /*
- * Encrypted contents in parts, through the Service Worker (sw.js): it is
- * handed an item's body key and gives an address that plays or downloads
- * the item as it arrives. Without one (some private windows, no HTTPS), the
- * pages open contents whole, as a Blob.
+ * Through the Service Worker, encrypted contents play and download as they
+ * arrive. Without one (some private windows, no HTTPS), pages open them whole.
  */
 const streams = new Map();
 let streaming = null;
 
-/** Whether a Service Worker reads encrypted contents in parts here; started once. */
 const startStreaming = () => {
   if (streaming) return streaming;
   const workers = globalThis.navigator?.serviceWorker;
@@ -145,7 +121,7 @@ const startStreaming = () => {
     streaming = Promise.resolve(false);
     return streaming;
   }
-  // A worker started again asks for the keys it lost.
+  // A restarted worker has lost its keys.
   workers.addEventListener("message", (event) => {
     if (event.data?.type === "stream-needed") {
       event.ports[0]?.postMessage({ stream: streams.get(event.data.token) ?? null });
@@ -170,11 +146,7 @@ const startStreaming = () => {
   return streaming;
 };
 
-/**
- * An address that reads encrypted contents in parts, as they arrive; add
- * ?download to save them. `stream` is { url (of the sealed contents), key
- * (the body key), sealedSize, size, mime, filename }. Null without a worker.
- */
+/** Null without a worker. */
 export const streamAddress = async (stream) => {
   if (!(await startStreaming())) return null;
   const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>

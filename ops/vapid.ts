@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Makes a VAPID key pair for push notifications (see src/core/push.ts):
-//   bun ops/vapid.ts >> .env           (Bun server, compose)
+// A VAPID key pair for push notifications:
+//   bun ops/vapid.ts >> .env                     (Bun server, compose)
 //   bunx wrangler secret put VAPID_PRIVATE_KEY   (Cloudflare; the public key can be a var)
 // Keep the pair: a new one makes every browser subscribe again.
 export {};

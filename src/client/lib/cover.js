@@ -1,23 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// An audio file's cover picture, from its ID3v2 tag (MP3, and some others):
-// the APIC frame (PIC in ID3v2.2), preferring the front cover. Only the tag is
-// read, from the start of the file; the stream is dropped once it is in.
-// Loaded on demand by audioPlayer (items.js).
+// Only the tag is read: the stream is dropped once it is in. Loaded only for audio.
 
-/** A tag larger than this is not read: covers are much smaller. */
+/** Covers are much smaller. */
 const MAX_TAG_BYTES = 16_000_000;
 const FRONT_COVER = 3;
 
-/** ID3's 28-bit sizes: seven bits in each of four bytes. */
 const syncsafe = (bytes, at) =>
   (bytes[at] << 21) | (bytes[at + 1] << 14) | (bytes[at + 2] << 7) | bytes[at + 3];
 
 const isTag = (bytes) =>
   bytes.length >= 10 && bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33;
 
-/** Undoes ID3's unsynchronisation: every 0xFF 0x00 was written for a 0xFF. */
+/** ID3 writes 0xFF 0x00 for every 0xFF. */
 const resync = (bytes) => {
   const out = [];
   for (let index = 0; index < bytes.length; index += 1) {
@@ -27,7 +23,6 @@ const resync = (bytes) => {
   return Uint8Array.from(out);
 };
 
-/** Where a frame's picture starts, after its text fields; -1 if malformed. */
 const pictureStart = (frame, version) => {
   const encoding = frame[0];
   let at = 1;
@@ -38,7 +33,7 @@ const pictureStart = (frame, version) => {
     at += 1;
   }
   at += 1; // Picture type.
-  // The description, ended by one zero byte, or two (aligned) in UTF-16.
+  // Ended by one zero byte, or two (aligned) in UTF-16.
   const wide = encoding === 1 || encoding === 2;
   while (at < frame.length) {
     if (!wide && frame[at] === 0) return at + 1;
@@ -57,7 +52,6 @@ const imageType = (bytes) =>
         ? "image/gif"
         : "image/webp";
 
-/** The cover picture in an ID3v2 tag at the start of `bytes`, or null. */
 export const coverFromTag = (bytes) => {
   if (!isTag(bytes)) return null;
   const version = bytes[3];
@@ -66,7 +60,7 @@ export const coverFromTag = (bytes) => {
   if (version < 4 && flags & 0x80) tag = resync(tag);
   let at = 0;
   if (flags & 0x40) {
-    // An extended header: its size counts itself in v2.4, not in v2.3.
+    // Its size counts itself in v2.4, not in v2.3.
     at =
       version === 4 ? syncsafe(tag, 0) : 4 + new DataView(tag.buffer, tag.byteOffset).getUint32(0);
   }
@@ -99,14 +93,12 @@ export const coverFromTag = (bytes) => {
   return found && new Blob([found], { type: imageType(found) });
 };
 
-/** The cover of the audio at `src`, as a Blob, or null. */
 export const coverOf = async (src) => {
   const response = await fetch(src);
   if (!response.ok || !response.body) return null;
   const reader = response.body.getReader();
   const chunks = [];
   let total = 0;
-  /** Reads on until `size` bytes are in, or the file ends. */
   const fill = async (size) => {
     while (total < size) {
       const { done, value } = await reader.read();
@@ -132,7 +124,7 @@ export const coverOf = async (src) => {
     if (size > MAX_TAG_BYTES) return null;
     await fill(size);
   } finally {
-    // The rest of the file is the music, which the player fetches itself.
+    // The player fetches the music itself.
     void reader.cancel().catch(() => {});
   }
   return coverFromTag(bytes());

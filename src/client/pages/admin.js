@@ -13,9 +13,6 @@ import {
   storage,
 } from "../lib/common.js";
 import { createStatus } from "../lib/status.js";
-// The admin dashboard: storage and activity numbers, the namespace list, a
-// link to the request logs where the platform keeps them, and backups of the
-// whole instance.
 import { h } from "../shared/dom.js";
 
 const status = createStatus(element("#status"));
@@ -38,28 +35,23 @@ const INTERVAL_STORAGE_KEY = "kurobako-admin-refresh";
 const row = (...cells) => h("tr", {}, ...cells.map((cell) => h("td", {}, cell)));
 const statRow = (label, value) => h("tr", {}, h("th", { scope: "row" }, label), h("td", {}, value));
 
-/** The session is gone: the page, loaded again, is the login. */
+/** Loaded again, the page is the login. */
 class Unauthorized extends Error {
   constructor() {
     super("Log in again.");
   }
 }
 
-/**
- * Behind a router for several servers, the dashboard shows one at a time,
- * kept in the page's ?server=; the router says how many there are.
- */
+/** Behind a router, one server at a time; ?server= keeps which. */
 let server = new URLSearchParams(location.search).get("server") ?? "";
 let servers = 0;
 
-/** An admin URL, for the server the dashboard is looking at. */
 const adminUrl = (path) => {
   const url = new URL(`${SITE}/k/a/${path}`, location.origin);
   if (server) url.searchParams.set("server", server);
   return url;
 };
 
-/** An admin request; its JSON answer, or Unauthorized once the session is gone. */
 const api = async (path, options) => {
   let response;
   try {
@@ -94,13 +86,11 @@ const ago = (time) => `${formatDuration(Math.max(0, (Date.now() - Date.parse(tim
 const renderOverview = (overview) => {
   const where = servers > 1 ? ` · server ${server} of ${servers}` : "";
   summary.textContent = `${overview.version} · ${overview.deployedAt ? `deployed ${ago(overview.deployedAt)}` : "local"}${where}`;
-  // A logs page to open, or else where to read them (a self-hosted server
-  // writes them to standard output).
+  // A self-hosted server writes them to standard output.
   logsSection.hidden = !overview.logsUrl && !overview.logsHint;
   logsLink.replaceChildren(
     ...(overview.logsUrl
       ? [
-          // Another site (the host's dashboard): a link, in a new tab.
           h(
             "a",
             { class: "external-link", href: overview.logsUrl, target: "_blank", rel: "noopener" },
@@ -154,7 +144,6 @@ const renderNamespaces = (namespaces) => {
   );
 };
 
-/** The list is paged on the server; the page size comes back with each page. */
 let offset = 0;
 const renderPager = (page) => {
   if (page.total <= page.limit && page.offset === 0) {
@@ -249,7 +238,6 @@ serverSelect.addEventListener("change", () => {
   void load();
 });
 refreshInterval.addEventListener("change", schedule);
-// A new filter starts again from the first page.
 let searchTimer = null;
 namespaceSearch.addEventListener("input", () => {
   clearTimeout(searchTimer);
@@ -264,6 +252,6 @@ if ([...refreshInterval.options].some((option) => option.value === savedInterval
   refreshInterval.value = savedInterval;
 }
 schedule();
-// The page comes with the first answers (it loads this script only when logged in).
+// Embedded by the server, so no first request.
 const { overview, namespaces } = JSON.parse(element("#admin-data").textContent);
 show(overview, namespaces);

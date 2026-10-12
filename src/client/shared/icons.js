@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The site's few icons: line drawings on a 16×16 grid, drawn here so the
-// pages need no icon font or library. Controls are known by their words
-// (docs/design.md); icons only mark the theme button's choice and the
-// editor's resize handle. They take the text's color and are hidden from
-// screen readers: the control around one carries its label.
+// Drawn here, so pages need no icon font. Controls are known by their words
+// (docs/design.md); icons are hidden from screen readers.
 
 import { h } from "./dom.js";
 
-/** Each icon as the SVG elements it is made of: [tag, attributes]. */
 const ICONS = {
   resize: [["path", { d: "M13 5L5 13M13 9l-4 4M13 12l-1 1" }]],
   sun: [
@@ -28,7 +24,6 @@ const ICONS = {
   ],
 };
 
-/** The icon `name`, `size` pixels wide and high, as `h` makes it (see dom.js). */
 export const iconTree = (h, name, size = 16) =>
   h(
     "svg",
@@ -47,5 +42,4 @@ export const iconTree = (h, name, size = 16) =>
     ICONS[name].map(([tag, attributes]) => h(tag, attributes)),
   );
 
-/** A new <svg> of the icon `name`, `size` pixels wide and high. */
 export const icon = (name, size = 16) => iconTree(h, name, size);

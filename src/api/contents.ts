@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import type { ByteRange } from "../core/host";
-// Serving an item's contents, for namespace routes and share links alike.
 import { safeTextFileName } from "../core/media";
 import {
   lastRead,
@@ -14,11 +13,7 @@ import {
 import type { ItemRef } from "../core/namespace";
 import type { Api, AppContext } from "./context";
 
-/**
- * Both forms of the file name (RFC 6266): `filename*` keeps any character,
- * and the plain `filename` (ASCII only) is for clients that ignore the
- * other one, such as `curl -J`.
- */
+/** RFC 6266: `filename*` for any name, plain `filename` for clients like `curl -J`. */
 const attachment = (filename: string) => {
   const ascii = filename
     .normalize("NFKD")
@@ -32,11 +27,7 @@ const attachment = (filename: string) => {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 };
 
-/**
- * The bytes a Range header asks for (RFC 9110): one range, "bytes=a-b",
- * "bytes=a-" or "bytes=-n". Null serves the whole object (no header, or
- * several ranges); "unsatisfiable" is a range outside it.
- */
+/** One range only (RFC 9110): several fall back to the whole object. */
 export const requestedRange = (
   header: string | undefined,
   size: number,
@@ -78,7 +69,7 @@ const objectResponse = (
               : `text-${unnamed(item.id)}.txt`
             : item.filename,
       );
-  // A burn-after-reading item is read whole, once: it takes no ranges.
+  // Read whole and once: a range would consume it partway.
   return new Response(body, {
     status: range ? 206 : 200,
     headers: {
@@ -102,10 +93,6 @@ export const createContents = (api: Api) => {
     if (lastRead(item)) record(c, "openedOnce");
   };
 
-  /**
-   * Serves a file-backed item straight from the blob store. The namespace
-   * only hands out (and, for burn-after-reading, removes) the item.
-   */
   const serveObject = async (
     c: AppContext,
     ref: NamespaceRef,
@@ -117,8 +104,7 @@ export const createContents = (api: Api) => {
     const item = (await ns.claimObject(selector, visit(c))) as ObjectItem | null;
     if (!item) return null;
     const { blobs } = platform;
-    // Players ask for parts of a video (to start and to seek): any item but
-    // a burn-after-reading one may be read in parts.
+    // Players ask for ranges to start and to seek.
     const range = readLimitedItem(item) ? null : requestedRange(c.req.header("range"), item.size);
     if (range === "unsatisfiable") {
       return new Response(null, {
@@ -133,16 +119,13 @@ export const createContents = (api: Api) => {
     }
     noteRead(c, item);
     if (lastRead(item)) {
-      // The only read: once the file has been streamed out, or the client
-      // gave up halfway, delete it.
+      // Deleted once streamed, or once the client gives up: the read happened either way.
       const { readable, writable } = new TransformStream();
       later(
         c,
         object.body
           .pipeTo(writable)
-          .catch(() => {
-            // The client went away; the item is consumed all the same.
-          })
+          .catch(() => {})
           .finally(() => blobs.delete([item.object])),
       );
       return objectResponse(item, readable, object.size, inline, unnamed);
@@ -150,12 +133,7 @@ export const createContents = (api: Api) => {
     return objectResponse(item, object.body, object.size, inline, unnamed, range);
   };
 
-  /**
-   * Any item's contents: texts as text, files from the blob store. As a
-   * download, an item goes by its name, so `curl -OJ` saves it sensibly; one
-   * without (a text never named, an encrypted item) by `unnamed(id)`:
-   * text-<it>.txt or <it>.sealed.
-   */
+  /** Named downloads, so `curl -OJ` saves them sensibly. */
   const serveItem = async (
     c: AppContext,
     ref: NamespaceRef,
@@ -169,7 +147,6 @@ export const createContents = (api: Api) => {
       return c.body(text.text, 200, {
         "Content-Type": text.mime,
         "Cache-Control": "no-store",
-        // As for files (objectResponse): nothing sent runs here.
         "Content-Security-Policy": "default-src 'none'; sandbox",
         ...(inline
           ? {}

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 //
-// Tests that hold on every platform: they only speak HTTP to the server, and
-// reach its storage through the harness. The Worker and the Bun server each
-// run them with their own harness, next to their platform-specific tests.
+// Only HTTP to the server, storage through the harness, so the Worker and the
+// Bun server both run them.
 
 import type { expect as vitestExpect } from "vitest";
 import { newViewId, openSealedSpace, openSharedItem, openViewEntry } from "../public/k.mjs";
@@ -17,30 +16,24 @@ export type Harness = {
   describe: (name: string, body: () => void) => void;
   test: (name: string, body: () => Promise<void>, timeoutMs?: number) => void;
   expect: typeof vitestExpect;
-  /** Calls the server: a different client address each time unless cf-connecting-ip is set. */
+  /** A different client address each time unless cf-connecting-ip is set. */
   call: (path: string, init?: RequestInit) => Promise<Response>;
-  /** The keys of the stored files under a prefix. */
   storedFiles: (prefix: string) => Promise<string[]>;
   config: AppConfig;
-  /**
-   * Waits, if need be, until a whole per-minute limit can be spent in one
-   * window of the platform's limiter: called before a test that spends one.
-   */
+  /** So a test that spends a whole per-minute limit never straddles two windows. */
   limitWindow: () => Promise<void>;
-  /** The site's address, as absolute links show it. */
   origin: string;
   adminKey: string;
 };
 
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-/** For tests that spend a whole per-minute limit, one request at a time. */
 const LIMIT_TEST_MS = 60_000;
 const parse = async <T = unknown>(response: Response | Promise<Response>) =>
   (await response).json() as Promise<T>;
 type PublicConfig = { namespace: { pattern: string; reserved: string[] } };
 
 export const sharedTests = (harness: Harness) => {
-  // The origin is read when a test runs: a server may only start before the tests.
+  // A server may only start before the tests.
   const { describe, test, expect, call, storedFiles, config, adminKey, limitWindow } = harness;
   const json = async <T = unknown>(path: string, init?: RequestInit) =>
     parse<T>(await call(path, init));
@@ -50,7 +43,6 @@ export const sharedTests = (harness: Harness) => {
       headers: { "content-type": "text/plain; charset=utf-8", ...headers },
       body: text,
     });
-  /** A share link, as the path to request it here: GET <ns>/<item>/s answers it as text. */
   const shareLink = async (path: string, init?: RequestInit) =>
     new URL((await (await call(path, init)).text()).trim()).pathname;
   /** Storage is shared between tests, so every test uses fresh namespaces. */
@@ -374,13 +366,11 @@ export const sharedTests = (harness: Harness) => {
       expect(page).toContain("<main>");
       expect(page).not.toContain('id="page-loading"');
       expect(page).toContain(">visible on first paint</span>");
-      // The browser keeps the server's row only if it would make the same one:
-      // the hash of what it makes it from, out of /ls?summary, must match.
+      // The browser keeps the server's row only if the hash of what it would make matches.
       const [item] = await json<Item[]>(`/${ns}/ls?summary`);
       const made = rowHash(rowState(item, describePlain(item), false, true));
       expect(page).toContain(`data-id="${defined(item, "the item").id}" data-made="${made}"`);
-      // And the queue itself, as /ls?summary gives it, with the revision live
-      // updates continue from, so the page fetches nothing to start.
+      // So the page fetches nothing to start.
       const listed = await call(`/${ns}/ls?summary`);
       const embedded = /<script type="application\/json" id="queue-data">(.*?)<\/script>/s.exec(
         page,
@@ -1000,8 +990,7 @@ export const sharedTests = (harness: Harness) => {
                 : "/i/AAAAAAAAAAAAAA";
           expect((await call(path, { headers: scanner })).status).not.toBe(429);
         }
-        // Now even what exists answers 429: otherwise the answers would tell
-        // a script which names exist.
+        // Even what exists answers 429, or a script would learn which names exist.
         const blocked = await call(`/${ns}/1`, { headers: scanner });
         expect(blocked.status).toBe(429);
         expect(blocked.headers.get("retry-after")).toBe("60");
@@ -1585,7 +1574,6 @@ export const sharedTests = (harness: Harness) => {
     });
   });
 
-  /** The item a share page carries in its #item-data script. */
   const embeddedItem = (page: string) =>
     JSON.parse(
       defined(
@@ -1798,8 +1786,7 @@ export const sharedTests = (harness: Harness) => {
   describe("site", () => {
     test("assembles pages: bundled scripts, footer and the embedded config", async () => {
       const html = await (await call(`/${fresh()}`)).text();
-      // The page's script, named by its contents: one file, with everything
-      // it imports at once, so nothing to preload and no import left in it.
+      // One file with everything it imports, so nothing to preload and no import left.
       const script = html.match(
         /<script type="module" src="(\/k\/assets\/namespace-[0-9a-z]+\.js)"/,
       )?.[1];
@@ -1942,8 +1929,7 @@ export const sharedTests = (harness: Harness) => {
       expect(home).toContain('href="/k/theme">Theme</a>');
       expect(home).not.toContain('id="theme-presets"');
       expect(home).not.toContain("Palette: amber-terminal");
-      // The tokens it starts from: as written, comments and indentation kept,
-      // unlike the minified styles.
+      // As written, unlike the minified styles.
       const tokens = defined(/data-tokens="([^"]+)"/.exec(page)?.[1], "the tokens' address");
       const response = await call(tokens);
       expect(response.headers.get("content-type")).toContain("text/css");

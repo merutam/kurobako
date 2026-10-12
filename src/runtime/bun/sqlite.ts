@@ -8,8 +8,7 @@ import { logError } from "../../core/log";
 export const openDatabase = (path: string) => {
   const db = new Database(path, { create: true, strict: true });
   db.run("PRAGMA journal_mode = WAL");
-  // With WAL, a commit waits for no fsync: a power cut can lose the last
-  // writes, never the database. Worth it for short-lived items.
+  // WAL without fsync: a power cut loses the last writes, never the database. Fine here.
   db.run("PRAGMA synchronous = NORMAL");
   return db;
 };
@@ -21,7 +20,7 @@ export const sqlOf = (db: Database): Sql => ({
 /** setTimeout cannot wait longer than this. */
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
-/** One pending call at a time, like a Durable Object alarm (but not kept across restarts). */
+/** Like a Durable Object alarm, but not kept across restarts. */
 export class Alarm {
   private timer: ReturnType<typeof setTimeout> | null = null;
   at: number | null = null;

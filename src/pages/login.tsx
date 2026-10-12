@@ -3,18 +3,13 @@
 
 import { Layout, type SiteView } from "./components/layout";
 
-/**
- * A private instance's login, /k/login: a plain form, no script. The server
- * sends a right key on to `next` (where the visitor was going), and a wrong
- * one back here with `error`.
- */
+/** A plain form, no script, so it works everywhere. */
 export const LoginPage = ({
   site,
   next = "/",
   error = "",
 }: {
   site: SiteView;
-  /** Where to go once logged in. */
   next?: string;
   error?: string;
 }) => (

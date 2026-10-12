@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Hide write forms before the first paint for an encrypted read-only link.
+// Before the first paint, so a read-only link never flashes write forms.
 (() => {
   if (window.location.hash.startsWith("#/")) document.documentElement.dataset.readLink = "";
 })();

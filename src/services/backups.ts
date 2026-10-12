@@ -56,7 +56,7 @@ type ManifestItem = {
   name?: string;
   filename?: string;
   mime?: string;
-  /** An encrypted item's X-Sealed-Metadata. */
+  /** X-Sealed-Metadata, so restoring needs no key. */
   metadata?: string;
 };
 type ManifestNamespace = NamespaceRef & { items: ManifestItem[] };
@@ -69,8 +69,6 @@ export type Manifest = {
 };
 
 const encoder = new TextEncoder();
-
-// --- Cursor -------------------------------------------------------------------
 
 /** Where a part ended, so the next one starts there even if that item is gone. */
 export type Cursor = NamespaceRef & { createdAt: string; id: string; part: number };
@@ -96,8 +94,6 @@ export const decodeCursor = (text: string): Cursor | null => {
     return null;
   }
 };
-
-// --- Export -------------------------------------------------------------------
 
 /**
  * `max` bounds the whole archive, headers and manifest included: a part must
@@ -216,7 +212,7 @@ const manifestBytes = (manifest: Manifest) =>
 /** Room for an empty array opening up once it holds something. */
 const SLACK = 16;
 
-/** Pretty-printed JSON nested `depth` levels deep, plus a separator: never less than it takes. */
+/** An upper bound, so the estimate errs high. */
 const jsonBound = (value: unknown, depth: number) => {
   const json = JSON.stringify(value, null, 2);
   const lines = json.split("\n").length;
@@ -244,8 +240,8 @@ export const createBackups = ({
   }
 
   /**
-   * Greedy, with the manifest's share estimated high; `trim` then checks the
-   * real size. At least one item, however large, or a backup would never end.
+   * At least one item, however large, or a backup would never end. The manifest's share is
+   * estimated high; backup() checks the real size.
    */
   const choose = async (
     refs: NamespaceRef[],
@@ -328,8 +324,6 @@ export const createBackups = ({
     const empty = alone !== null && chosen.length === 0 && !part.after;
     return { archive, part: partNumber, next, empty };
   };
-
-  // --- Import -----------------------------------------------------------------
 
   type Owner = { ref: NamespaceRef; item: ManifestItem };
   type Stored = { object: string; sha256?: string };
@@ -477,7 +471,6 @@ export const createBackups = ({
     return { batches: [...batches.values()], rejected };
   };
 
-  /** With `into`, one namespace's backup goes into that one, with its write key. */
   const restore = async (
     body: ReadableStream<Uint8Array>,
     into: NamespaceRef | null,
@@ -506,8 +499,6 @@ export const createBackups = ({
 
   return { backup, restore };
 };
-
-// --- Import helpers -----------------------------------------------------------
 
 export type RestoreResult =
   | { restored: number; skipped: number; rejected: number; namespaces: number }

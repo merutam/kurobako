@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Who uses a namespace, as its access log keeps them, and who a limit counts.
-
 export type AccessEvent = {
   ip: string;
   lastMethod: string;
@@ -25,19 +23,12 @@ export type AccessLogEntry = Omit<AccessEvent, "region" | "city"> & {
 export const locationOf = (entry: Pick<AccessEvent, "city" | "region" | "country">) =>
   [entry.city, entry.region, entry.country].filter(Boolean).join(", ");
 
-/**
- * The first of a header's comma-separated values, or undefined: proxies add
- * theirs after the original one (X-Forwarded-For: client, proxy, …).
- */
+/** Proxies add theirs after the original (X-Forwarded-For: client, proxy, …). */
 export const firstValue = (value: string | null | undefined) =>
   value?.split(",")[0]?.trim() || undefined;
 
 /**
- * Who a limit counts, from a client's address. An IPv4 address is one
- * client; an IPv6 one is counted by its /64 network, which a single home or
- * server is given whole, so changing addresses within it changes nothing.
- * IPv4 written as IPv6 (::ffff:1.2.3.4, as dual-stack servers report it) is
- * IPv4. Anything else (such as "unknown") is taken as it is.
+ * IPv6 counts by /64, which one home or server gets whole, so rotating within it changes nothing.
  */
 export const clientKey = (ip: string): string => {
   const address = ip.trim().toLowerCase().replace(/%.*$/, "");

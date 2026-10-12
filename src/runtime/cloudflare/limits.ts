@@ -3,10 +3,8 @@
 import type { PlatformLimits } from "../../config";
 
 /**
- * Cloudflare's own limits: a request body of 100 MB on the Free and Pro plans
- * (more on Business and Enterprise), and 2 MB per value in a Durable Object's
- * SQLite. Larger texts live in object storage, so only the inline threshold
- * needs to stay below the SQLite value limit.
+ * Request bodies cap at 100 MB on Free and Pro; Durable Object SQLite values at
+ * 2 MB, so only the inline text threshold must stay below it.
  */
 export const CLOUDFLARE_LIMITS: PlatformLimits = {
   maxFileBytes: 100_000_000,

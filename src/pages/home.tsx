@@ -7,10 +7,9 @@ import { Layout, type SiteView } from "./components/layout";
 
 const number = new Intl.NumberFormat("en-US");
 
-/** An item lifetime as the stats show it: "1 day", or "Never" without one. */
 const lifetime = (seconds: number) => (seconds ? formatDuration(seconds) : "Never");
 
-/** The home page has no per-request state: the server renders it once, at start. */
+/** No per-request state, so the server renders it once. */
 export const HomePage = ({ site, config }: { site: SiteView; config: AppConfig }) => {
   const limits = [
     ["max-items", "Items per namespace", number.format(config.maxItems)],

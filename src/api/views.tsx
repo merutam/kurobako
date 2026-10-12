@@ -11,7 +11,6 @@ import { namespaceOf, SPACES } from "./namespaces";
 
 const MAX_VIEW_BODY = 100_000;
 
-/** Writer-side rotation and the opaque, read-only view index. */
 export const viewRoutes = (api: Api) => {
   const app = new Hono<AppEnv>();
   const { namespace, refuseWrite, config, visit, siteView, pageView } = api;
@@ -60,7 +59,7 @@ export const viewRoutes = (api: Api) => {
     );
   }
 
-  // The same array shape as a namespace's /ls, with public share tokens as IDs.
+  // Same shape as /ls, so clients read both alike.
   app.get("/v/:token/ls", async (c) => {
     c.header("Cache-Control", "no-store");
     const limit = c.req.query("limit");
@@ -90,7 +89,7 @@ export const viewRoutes = (api: Api) => {
   app.get("/v/:token", async (c) => {
     c.header("Cache-Control", "no-store");
     const view = await views.describe(c.req.param("token"), visit(c));
-    // A browser gets a page saying so, as a gone share link does; .json stays JSON.
+    // A browser gets a page, as a gone share link does.
     if (!view) return c.html(renderPage(<GoneViewPage site={siteView} />), 404);
     return pageView(
       c,

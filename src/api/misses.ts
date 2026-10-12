@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Looking for things that are not there. A person rarely opens a namespace,
-// item or share link that does not exist; a script guessing names does so
-// all the time. Past MISSES_PER_MINUTE of those, a client reads nothing at
-// all for the rest of the minute: refusing only the misses would tell it
-// which names exist, at full speed.
+// A person rarely opens names that do not exist; a script guessing them does
+// all the time. Past MISSES_PER_MINUTE, the client reads nothing for the rest
+// of the minute: refusing only the misses would tell it which names exist.
 //
-// A miss is a 404 on a namespace or share path, or an empty queue where a
-// route says so (c.set("miss", true)): /ls, the live queue and backups,
-// which answer an empty list for a namespace that does not exist.
+// Routes that answer an empty list for a missing namespace (ls, live,
+// backups) flag it with c.set("miss", true).
 import { createMiddleware } from "hono/factory";
 import { routeOf } from "../core/routing";
 import { type Api, type AppEnv, jsonError } from "./context";
@@ -17,7 +14,6 @@ import { type Api, type AppEnv, jsonError } from "./context";
 export const missLimit = (api: Api) => {
   const { platform, limitKey } = api;
   return createMiddleware<AppEnv>(async (c, next) => {
-    // Only paths that lead to a namespace or a share link.
     if (routeOf(c.req.path) === null) return next();
     const key = limitKey(c);
     if (platform.missesExceeded(c, key)) {

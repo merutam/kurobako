@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Lists of items, as the namespace and shared-view pages show them: the
-// section, and its rows made as the browser makes them.
-
 import { raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { formatBytes } from "../../client/shared/format.js";
@@ -32,15 +29,11 @@ export type ListedItem = {
   readsLeft?: number;
 };
 
-/** What an item goes by: its name, a text's start, or "file". */
 export const titleOf = (item: ListedItem) => describePlain(item).title ?? "file";
 
 type Row = { item: ListedItem & { id: string }; info: object; downloadUrl: string | null };
 
-/**
- * Rows as the browser makes them (src/client/shared/item-row.js), each with the hash of
- * what it was made from, so the browser keeps them instead of making them again.
- */
+/** Hashed, so the browser keeps the server's rows instead of rebuilding them. */
 const itemRows = (rows: readonly Row[], canWrite: boolean) =>
   raw(
     rows
@@ -59,7 +52,7 @@ const itemRows = (rows: readonly Row[], canWrite: boolean) =>
       .join(""),
   );
 
-/** A plain namespace's rows, at `path` (/<name>): its address writes. */
+/** A plain address writes, so its rows get write actions. */
 export const namespaceRows = (path: string, items: ReadonlyArray<ListedItem & { id: string }>) =>
   itemRows(
     items.map((item) => ({
@@ -70,10 +63,7 @@ export const namespaceRows = (path: string, items: ReadonlyArray<ListedItem & { 
     true,
   );
 
-/**
- * A plain shared view's rows. Its items carry no IDs; the browser names them
- * by their link's token (see view.js), and so does this.
- */
+/** Its items carry no IDs; the browser names them by their link's token, and so does this. */
 export const viewRows = (entries: ReadonlyArray<{ url: string; item: ListedItem }>) =>
   itemRows(
     entries.map(({ url, item }) => ({
@@ -84,14 +74,13 @@ export const viewRows = (entries: ReadonlyArray<{ url: string; item: ListedItem 
     false,
   );
 
-/** The newest item the media feed shows, which its link opens at: its ID. */
+/** The media feed's link opens at this item. */
 export const firstMediaId = (entries: ReadonlyArray<{ id: string; item: ListedItem }>) =>
   entries.find(({ item }) => {
     const info = describePlain(item);
     return (info.isImage || info.isVideo || info.isAudio) && !limitedItem(item);
   })?.id;
 
-/** The items' section: `rows` from namespaceRows or viewRows, `size` how many. */
 export const ItemsSection = ({
   rows,
   size,
@@ -103,7 +92,6 @@ export const ItemsSection = ({
   rows: HtmlEscapedString | null;
   size: number;
   count: string;
-  /** The first item of the media feed, if any (firstMediaId). */
   mediaId?: string;
   live?: boolean;
   known?: boolean;

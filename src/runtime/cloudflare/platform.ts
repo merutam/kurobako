@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The platform on Cloudflare Workers: namespaces and the hub are Durable
-// Objects (objects.ts), files are in R2, sends and misses are counted by
-// Workers rate limiters. Built once per isolate, from the Worker's bindings.
+// Built once per isolate, from the Worker's bindings.
 import { logError } from "../../core/log";
 import { objectName } from "../../core/model";
 import type { NamespaceApi } from "../../core/namespace";
@@ -11,7 +9,6 @@ import type { Platform } from "../platform";
 import { hubOf, VISIT_HEADER } from "./objects";
 import { r2Store } from "./r2";
 
-/** Workers Logs for the signed-in account (the dashboard fills in ":account"). */
 const LOGS_URL = "https://dash.cloudflare.com/?to=/:account/workers/observability";
 
 const text = (value: unknown): string | null => (typeof value === "string" && value ? value : null);
@@ -19,11 +16,7 @@ const text = (value: unknown): string | null => (typeof value === "string" && va
 export const createCloudflarePlatform = (env: Env): Platform => {
   const namespaceOf = (ref: Parameters<Platform["namespace"]>[0]) =>
     env.NAMESPACES.getByName(objectName(ref));
-  /**
-   * Clients past their misses (see src/api/misses.ts), until when. MISS_LIMITER
-   * counts the misses; it can only be asked by counting one more, so its answer
-   * is kept here, for this isolate: approximate, as the limiter is by design.
-   */
+  /** The limiter can only be asked by counting one more, so its answer is kept per isolate. */
   const missBlocked = new Map<string, number>();
 
   return {
@@ -53,15 +46,14 @@ export const createCloudflarePlatform = (env: Env): Platform => {
         work.catch((error: unknown) => logError("Background work failed", error)),
       ),
     client(c) {
-      // `request.cf` has the location; the headers are the fallback (tests send them).
+      // Headers are the fallback: tests send them.
       const cf = (c.req.raw as { cf?: Record<string, unknown> }).cf ?? {};
       return {
         ip: c.req.header("cf-connecting-ip") || "unknown",
         country: text(cf.country) ?? text(c.req.header("cf-ipcountry")),
         region: text(cf.region) ?? text(c.req.header("cf-region")),
         city: text(cf.city) ?? text(c.req.header("cf-ipcity")),
-        // Cloudflare's own, which a client cannot fake; the header only where
-        // there is no request.cf at all (tests).
+        // Cloudflare's own, which a client cannot fake; the header only without request.cf (tests).
         asn:
           typeof cf.asn === "number"
             ? cf.asn

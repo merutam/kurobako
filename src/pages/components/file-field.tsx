@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-/**
- * A file field: the browser's own file input, shown as a drop zone. It takes
- * files dropped on it and says which were picked, with no script.
- */
+/** The browser's own input: drag and drop work without a script. */
 export const FileField = ({
   id,
   name,

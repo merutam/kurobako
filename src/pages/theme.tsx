@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// One's own theme, on this device: the site's tokens.css to edit, seen on
-// the page as it is typed, then kept in the browser (src/client/pages/theme.js)
-// and laid over every other page before it shows (head/parts/custom-theme.js).
+// Kept in the browser and laid over every page before it shows (head/parts/custom-theme.js).
 import { ASSETS_PATH, TOKENS } from "../assets";
 import { Layout, type SiteView } from "./components/layout";
 

@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// An item's contents as they arrive, before anything keeps them: what kind
-// of item the bytes make (the type comes from the bytes, never from what the
-// client claims), whether a text is UTF-8, and their SHA-256, worked out as
-// they stream through.
+// What arriving bytes are, before anything keeps them. The type always comes
+// from the bytes, never from what the client claims.
 import { createHash } from "node:crypto";
 import { BUNDLE_MIME, isBundle } from "../client/shared/bundle.js";
 import { detectMedia, safeFileName, safeMediaName } from "./media";
 import { type NamespaceRef, TEXT_PREVIEW_CHARS } from "./model";
 import type { SaveInput } from "./namespace";
 
-/** A file-backed item before its bytes are in the blob store. */
 export type ObjectInput = DistributiveOmit<
   Extract<SaveInput, { object: string }>,
   "object" | "size"
@@ -22,19 +19,16 @@ export const TEXT_MIME = "text/plain; charset=utf-8";
 
 export class InvalidUtf8Error extends Error {}
 
-/** A decoder that refuses anything but UTF-8, as texts must be (a new one each time: it keeps state). */
+/** A new one each time: the decoder keeps state between chunks. */
 export const strictUtf8 = () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
-/** Where an item's contents go in the blob store: never shown, never reused. */
+/** Random, so a key is never reused or guessed from the item. */
 export const objectKey = (ref: NamespaceRef) => `${ref.space}/${ref.name}/${crypto.randomUUID()}`;
 
-/** SHA-256 of bytes, as the server keeps it to spot the same contents sent again. */
+/** Kept to spot the same contents sent again. */
 export const sha256Of = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
-/**
- * The stream as it is, its SHA-256 worked out on the way through: `digest()`
- * once it has been read whole.
- */
+/** Hashed on the way through, so large files are never held in memory. */
 export const hashing = (stream: ReadableStream<Uint8Array>) => {
   const hash = createHash("sha256");
   return {
@@ -50,18 +44,15 @@ export const hashing = (stream: ReadableStream<Uint8Array>) => {
   };
 };
 
-/**
- * A file upload, streamed to the blob store without holding it in memory.
- * The store needs the length up front and fails if the body does not match.
- */
+/** Blob stores need the length up front and fail when the body does not match it. */
 export type Upload = {
   body: ReadableStream;
   size: number;
-  /** The first bytes, enough to recognize an image, read before uploading. */
+  /** Enough to recognize the type before uploading. */
   head: Uint8Array;
 };
 
-/** Reads the first `length` bytes and returns a stream that still yields everything. */
+/** The returned stream still yields the peeked bytes. */
 export const peek = async (body: ReadableStream<Uint8Array>, length: number) => {
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
@@ -96,7 +87,7 @@ export const peek = async (body: ReadableStream<Uint8Array>, length: number) => 
   return { head: head.subarray(0, length), body: rest };
 };
 
-/** Validates streamed UTF-8 while retaining just enough text for list previews. */
+/** Only a preview is kept, so a large text is never held in memory. */
 export const validatedText = (upload: Upload) => {
   const decoder = strictUtf8();
   const input: ObjectInput = { kind: "text", preview: "" };
@@ -113,8 +104,7 @@ export const validatedText = (upload: Upload) => {
           try {
             appendPreview(decoder.decode(chunk, { stream: true }));
           } catch {
-            // Keep the fixed-length upload flowing; it is deleted below before
-            // any namespace row can point at it.
+            // The store expects the full length; the blob is deleted before any item points at it.
             invalid = true;
           }
         }
@@ -140,13 +130,11 @@ export const validatedText = (upload: Upload) => {
   };
 };
 
-/** The type comes from the bytes themselves, never from what the client claims. */
 export const describePlainFile = (upload: Upload, filename: string | null): ObjectInput => {
   const detected = detectMedia(upload.head);
-  // A send without a name gets a default one, which never renames an item.
+  // A default name never renames an item when it is sent again.
   const named = filename !== null;
-  // Recognized images are shown inline; video and audio keep their type so pages
-  // can play them (still a "file" in the queue); anything else is a download.
+  // Video and audio keep their type so pages can play them; anything unknown is a download.
   if (detected) {
     return {
       kind: detected.kind === "image" ? "image" : "file",
@@ -155,8 +143,7 @@ export const describePlainFile = (upload: Upload, filename: string | null): Obje
       named,
     };
   }
-  // A bundle (texts and files sent as one tar) keeps its type, so pages can
-  // show what it holds; it is downloaded as the tar it is.
+  // Bundles keep their type so pages can show what they hold.
   if (isBundle(upload.head)) {
     const name = safeFileName(filename ?? "bundle");
     return {

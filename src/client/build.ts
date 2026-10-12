@@ -1,21 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Bundles the browser's code. By convention, nothing to register:
+// Convention, nothing to register:
 //
-//   pages/<name>.js   a page's script, a module (src/pages/<name>.tsx loads it)
+//   pages/<name>.js   a page's module (src/pages/<name>.tsx loads it)
 //   head/<name>.js    a classic script, run in <head> before the first paint
-//                     (head/parts/ holds what they bundle)
-//   styles/           site.css: tokens.css then styles.css, as one minified file
+//   styles/           site.css: tokens.css then styles.css, one minified file
 //
-// Each is named in the manifest by <name> ("namespace", "site", "styles").
-// Files are minified, named by their contents and come with source maps. Each
-// page is bundled on its own: everything it imports comes in its one file,
-// and only what it loads later (highlight.js, the QR code) apart. Shared
-// chunks would save a little when going from page to page, at the price of a
-// request for each set of pages sharing a module, some of a few hundred bytes.
-// The Bun server bundles in memory when it starts (it takes milliseconds);
-// for Cloudflare, ops/build.ts writes the result into dist/.
+// Each page is bundled whole, with only lazy imports apart (highlight.js, QR):
+// shared chunks would cost a request per set of pages sharing a module.
 import { createHash } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -26,7 +19,6 @@ const CLIENT_DIR = import.meta.dir;
 export type BuiltFile = { body: Uint8Array; type: string };
 export type Bundle = {
   manifest: Manifest;
-  /** By name in ASSETS_PATH. */
   files: Map<string, BuiltFile>;
 };
 
@@ -45,7 +37,7 @@ export const bundle = async (): Promise<Bundle> => {
 
   for (const [folder, kind, format, splitting] of [
     ["pages", "module", "esm", true],
-    // Classic scripts stand alone: no imports, no chunks.
+    // Classic scripts cannot import.
     ["head", "classic", "iife", false],
   ] as const) {
     const entrypoints = scripts(folder);
@@ -55,14 +47,13 @@ export const bundle = async (): Promise<Bundle> => {
         root: CLIENT_DIR,
         target: "browser",
         format,
-        // Only for what a page imports later: it imports nothing else apart.
         splitting,
         minify: true,
         sourcemap: "linked",
         metafile: true,
         // k.mjs's command line imports Node's modules, which no page runs.
         external: ["node:*"],
-        // No page runs k.mjs's command line: this leaves it out (see its last lines).
+        // Leaves out k.mjs's command line (see its last lines).
         define: { KUROBAKO_PAGE: "true" },
         naming: { entry: "[name]-[hash].[ext]", chunk: "chunk-[hash].[ext]" },
       });
@@ -76,7 +67,7 @@ export const bundle = async (): Promise<Bundle> => {
       }
 
       const outputs = result.metafile?.outputs ?? {};
-      /** What a file imports, all the way down; dynamic imports load later, if ever. */
+      /** Dynamic imports are left out: they load later, if ever. */
       const imported = (file: string, seen = new Set<string>()) => {
         for (const { path, kind } of outputs[file]?.imports ?? []) {
           if (kind !== "import-statement" || seen.has(path)) continue;
@@ -88,7 +79,6 @@ export const bundle = async (): Promise<Bundle> => {
       const names = new Set(group.map(nameOf));
       for (const [file, output] of Object.entries(outputs)) {
         const name = output.entryPoint && nameOf(output.entryPoint);
-        // What a page imports later is an entry of its own, named after its module.
         if (!name || !names.has(name)) continue;
         if (manifest.files[name]) throw new Error(`Two of the client's scripts are named ${name}.`);
         manifest.files[name] = {
@@ -100,13 +90,11 @@ export const bundle = async (): Promise<Bundle> => {
     }
   }
 
-  // Minified, without a source map, which Bun makes for scripts only: a
-  // browser's DevTools formats it to read, and minifying renames no variable,
-  // class or ID, so a theme still overrides tokens.css's variables.
+  // No source map (Bun makes them for scripts only). No renaming, so themes still apply.
   const styles = await Bun.build({
     entrypoints: [join(CLIENT_DIR, "styles", "site.css")],
     minify: true,
-    // Addresses from where the file is served (the logo), not files to bundle.
+    // Served from the site (the logo), not bundled.
     external: ["*.png"],
   });
   if (!styles.success) throw new AggregateError(styles.logs, "The styles did not build.");
@@ -117,14 +105,13 @@ export const bundle = async (): Promise<Bundle> => {
   files.set(cssFile, { body: new TextEncoder().encode(css), type: "text/css;charset=utf-8" });
   manifest.files[STYLES] = { file: cssFile, kind: "style", preload: [] };
 
-  // The tokens as written, to read and to start a theme from (/k/theme).
+  // As written, so /k/theme can start a theme from it.
   const tokens = await Bun.file(join(CLIENT_DIR, "styles", "tokens.css")).text();
   const tokensFile = `tokens-${contentHash(tokens)}.css`;
   files.set(tokensFile, { body: new TextEncoder().encode(tokens), type: "text/css;charset=utf-8" });
   manifest.files[TOKENS] = { file: tokensFile, kind: "style", preload: [] };
 
-  // Keep the palettes' original text for /k/theme. The manifest travels with
-  // the bundle, so both servers can put it into the HTML without a file read.
+  // In the manifest, so both servers put them into /k/theme without reading files.
   const themesDir = join(CLIENT_DIR, "styles", "themes");
   for (const name of readdirSync(themesDir)
     .filter((name) => name.endsWith(".css"))

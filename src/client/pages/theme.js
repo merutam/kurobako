@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The theme editor (src/pages/theme.tsx). A theme is CSS kept in this
-// browser; head/parts/custom-theme.js lays it over the site's on every page
-// but this one. Here it shows only while "Preview" is on, as it is typed,
-// and a saved theme opens with it off: one that hides the page is mended
-// here, and a reload always brings the page back.
+// Preview is off on opening, so a theme that hides the page can always be mended here.
 import { copyText, element, storage } from "../lib/common.js";
 import { confirmAction } from "../lib/dialog.js";
 import { loadHighlighter } from "../lib/highlight.js";
 import { createStatus } from "../lib/status.js";
 import { createTextEditor } from "../lib/text-editor.js";
 
-/** Where the theme is kept (head/parts/custom-theme.js reads the same). */
+/** head/parts/custom-theme.js reads the same. */
 const THEME_KEY = "kurobako-custom-theme";
 
 const status = createStatus(element("#status"));
@@ -33,27 +29,26 @@ element("#theme-preset-list").addEventListener("click", async (event) => {
   }
 });
 
-// The editor takes the textarea into itself: where it goes, from before that.
+// The editor takes the textarea in, so its place is found first.
 const parent = textarea.parentNode;
 const next = textarea.nextSibling;
 const editor = createTextEditor(textarea, { title: () => "theme.css" });
 parent.insertBefore(editor.editor, next);
 
 let defaults = "";
-/** The edited CSS over this page, built by script as the CSP allows. */
+/** Built by script, as the CSP allows. */
 const sheet = "adoptedStyleSheets" in document ? new CSSStyleSheet() : null;
 const preview = () => {
   if (!sheet) return;
   try {
     sheet.replaceSync(previewToggle.checked ? textarea.value : "");
   } catch {
-    // Unreadable CSS shows as nothing, as a browser skips it.
+    // As a browser skips unreadable CSS.
   }
   if (!document.adoptedStyleSheets.includes(sheet)) {
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
   }
 };
-/** Whether what is in the editor is what every page uses. */
 const showState = () => {
   const saved = storage.get(THEME_KEY);
   state.textContent =
@@ -82,11 +77,10 @@ textarea.addEventListener("input", () => {
 });
 previewToggle.addEventListener("change", preview);
 
-// Ctrl+Enter in the editor saves too (see text-editor.js).
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   const css = textarea.value;
-  // The site's own needs keeping no more: its later changes then apply.
+  // Not kept, so the site's later changes apply.
   if (css.trim() === defaults.trim()) storage.remove(THEME_KEY);
   else storage.set(THEME_KEY, css);
   if (css.trim() !== defaults.trim() && storage.get(THEME_KEY) !== css) {
@@ -128,7 +122,6 @@ try {
   show(saved ?? defaults);
   form.hidden = false;
   if (!sheet) status.error("This browser cannot use themes: it is too old for them.");
-  // CSS colors as it is typed: highlight.js once the page is up.
   (window.requestIdleCallback ?? setTimeout)(() => void loadHighlighter().catch(() => {}));
 } catch (error) {
   status.error(error.message);

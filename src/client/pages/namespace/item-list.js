@@ -38,37 +38,28 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
   const expandModeChoices = element("#expand-mode");
   const { canWrite, writeHeaders } = access;
   let config = null;
-  /** Items shown open; with "all", the ones closed by hand instead. */
   const expandedItems = new Set();
   const closedItems = new Set();
-  /**
-   * How items open: "one" at a time (opening one closes the other), "several"
-   * at once, or "all" of them. Remembered on this device.
-   */
+  /** Remembered on this device. */
   const EXPAND_MODES = ["one", "several", "all"];
   const EXPAND_MODE_KEY = "kurobako-expand";
   let expandMode = EXPAND_MODES.includes(storage.get(EXPAND_MODE_KEY))
     ? storage.get(EXPAND_MODE_KEY)
     : "one";
   const isExpanded = (id) => (expandMode === "all" ? !closedItems.has(id) : expandedItems.has(id));
-  /** Opens or closes a shown item, by id: set when its row is made. */
   const itemOpeners = new Map();
   let renderedSignature = "";
   let renderToken = 0;
-  /**
-   * The rows shown, by item id, with what they were made from: a row whose
-   * item has not changed is kept as it is, open or closed, its preview loaded.
-   */
+  /** Unchanged rows are kept as they are, open or closed, previews loaded. */
   let rows = new Map();
-  /** Blob URLs of previews, by item id: freed when that item's row goes. */
+  /** Freed when the row goes. */
   const objectUrls = new Map();
   const freeObjectUrls = (id) => {
     for (const url of objectUrls.get(id) ?? []) URL.revokeObjectURL(url);
     objectUrls.delete(id);
   };
 
-  // Only rewrites the countdown text, and only once it changes; the list
-  // itself arrives from the server.
+  // Only once it changes: the list itself comes from the server.
   const updateExpiries = () => {
     const update = (label, text) => {
       if (label.textContent !== text) label.textContent = text;
@@ -89,14 +80,9 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
 
   let mode = null;
 
-  /*
-   * The list shows entries: { item, info, opened? }. `opened` holds the content
-   * of a burn-after-reading item read here, kept after the server deletes it
-   * (and every other viewer loses it) until it is dismissed.
-   */
+  /* `opened` keeps a burn-after-reading item read here, after the server deletes it. */
   const opened = new Map();
   let serverItems = [];
-  /** Whether the queue has arrived once, by the live connection or a fetch. */
   let itemsShown = false;
 
   const textOf = (entry) => (entry.opened ? entry.opened.text : mode.loadText(entry.item));
@@ -115,23 +101,13 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     }
   };
 
-  /**
-   * An address that reads an encrypted item in parts, through the Service
-   * Worker; null when it cannot (no worker, or the item burns after reading,
-   * which must be read whole, once).
-   */
+  /** Burn-after-reading items must be read whole, once. */
   const partsAddress = async (entry) =>
     mode.streamOf && !entry.opened && !limitedItem(entry.item)
       ? streamAddress(await mode.streamOf(entry.item))
       : null;
 
-  /**
-   * A medium's browser address. Plain media stays streamed from the
-   * server. Decrypted video, audio and SVG come through the Service Worker,
-   * which serves them sandboxed; other media, or all of it without a worker,
-   * becomes a Blob URL, kept by its row or by the media feed for only as long
-   * as it needs it, and an SVG a data: address (see addresses.js).
-   */
+  /** Decrypted video, audio and SVG go through the Service Worker, which serves them sandboxed. */
   const mediaAddress = async (entry, { preview = false } = {}) => {
     const { item, info } = entry;
     if (!entry.opened && item.kind !== "sealed" && !limitedItem(item)) {
@@ -160,7 +136,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
 
   const downloadItem = async (entry) => {
     try {
-      // Saved as it arrives, never whole in this page's memory.
+      // Never whole in this page's memory.
       const address = await partsAddress(entry);
       if (address) {
         window.location.assign(`${address}?download`);
@@ -199,18 +175,14 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     }
   };
 
-  /**
-   * Copies a link to just this item. The server keeps which namespace the token
-   * belongs to; encrypted items add their own key after the #, which the server
-   * never sees and which opens this item only.
-   */
+  /** Encrypted items add their own key after the #, which opens this item only. */
   const shareItem = async (item) => {
     try {
       const response = await request(`${mode.basePath}/${encodeURIComponent(item.id)}/s`, {
         method: "POST",
         headers: writeHeaders(),
       });
-      // The address this page was opened at, which the server may not know.
+      // The server may not know the address this page was opened at.
       const { pathname } = new URL((await response.text()).trim());
       const key = await mode.shareKey(item);
       const link = `${window.location.origin}${pathname}${key ? `#${key}` : ""}`;
@@ -232,7 +204,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
         info.kind === "text"
           ? { text: await mode.loadText(item) }
           : { blob: await mode.loadBlob(item) };
-      // Now that it has been read, the title can show what it is.
       const title = content.text === undefined ? info.title : compactText(content.text);
       opened.set(item.id, { item, info: { ...info, title }, ...content });
       expandedItems.add(item.id);
@@ -256,14 +227,13 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     void renderItems(serverItems, { force: true });
   };
 
-  /** Whether a name is being edited; live updates wait until it is done. */
+  /** Live updates wait until it is done. */
   let renaming = false;
 
-  /** Renames in place: Enter or leaving the field saves, Escape cancels. */
   const renameItem = (entry, title) => {
     const holder = title.closest(".item-toggle") ?? title.parentElement;
     const input = h("input", { type: "text", class: "rename-input", "aria-label": "New name" });
-    // An unnamed text starts from its default name; keeping it changes nothing.
+    // Keeping the default name changes nothing.
     const named = entry.info.kind !== "text" || Boolean(entry.item.name);
     const current = entry.info.title === HIDDEN_TITLE ? "" : entry.info.title;
     const initial = named ? current : defaultTextName(current);
@@ -306,7 +276,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     input.addEventListener("blur", () => void finish(true));
   };
 
-  /** What itemRow needs to make an entry's row. */
   const rowOf = (entry, position) => ({
     item: entry.item,
     info: entry.info,
@@ -317,11 +286,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     downloadUrl: mode.downloadUrl?.(entry.item) ?? null,
   });
 
-  /**
-   * Gives a row (see item-row.js), made here or by the server, its behavior:
-   * clicking its toggle opens it, loading its preview, and each action does
-   * what its data-action says.
-   */
+  /** Rows made by the server get the same behavior as the browser's. */
   const wireItem = (listItem, entry) => {
     const { item, info } = entry;
     const on = (action, handler) =>
@@ -344,16 +309,12 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
           if (info.kind === "text") {
             preview.replaceChildren(highlightedText(await textOf(entry), info.title));
           } else if (info.isBundle) {
-            // A bundle is fetched (and decrypted) whole, then shown as its texts and files.
             const bytes = new Uint8Array(await (await blobOf(entry)).arrayBuffer());
             preview.replaceChildren(
               bundleView(bytes, { objectUrl: (blob) => objectUrl(blob, item.id) }),
             );
           } else {
-            // Plain images and videos load straight from the server (a video
-            // in parts, as it plays); an encrypted video plays in parts too,
-            // through the Service Worker; anything else is fetched (and
-            // decrypted) here, whole.
+            // Plain media streams from the server; encrypted video through the Service Worker.
             const { src } = await mediaAddress(entry, { preview: true });
             if (info.isVideo) {
               preview.replaceChildren(videoPlayer(src));
@@ -409,7 +370,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
       toggle.addEventListener("click", (event) => {
         if (event.detail <= 1) toggleOpen();
       });
-      // itemRow offers a rename (in the title's tooltip) only to those who can.
       if (title.title) {
         title.addEventListener("dblclick", (event) => {
           event.preventDefault();
@@ -422,7 +382,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
 
     on("open-once", () => openOnce(entry));
     on("media", () => mediaFeed.open(entry));
-    // Texts and bundles are edited in the composer, above the list.
     on("edit", () => onEdit(entry));
     on("copy", () => copyItem(entry));
     on("download", () => downloadItem(entry));
@@ -437,11 +396,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     return listItem;
   };
 
-  /**
-   * The rows the server rendered (a plain namespace's, a shared view's), by
-   * item id: the first render keeps those still made from the same item, as
-   * they are, instead of making them again.
-   */
+  /** The first render keeps the server's rows still made from the same item. */
   let serverRows = new Map(
     [...itemsList.querySelectorAll("li[data-made]")].map((node) => [node.dataset.id, node]),
   );
@@ -449,7 +404,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     const place = node.querySelector(".item-position");
     const shown = position ? String(position) : "";
     if (place.textContent !== shown) place.textContent = shown;
-    // What only this browser knows: whether it copies images, and its own times.
+    // Only this browser knows these.
     if (entry.info.isImage && !canCopyImages())
       node.querySelector('[data-action="copy"]')?.remove();
     localizeDates(node);
@@ -461,7 +416,6 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     expandMode = picked;
     storage.set(EXPAND_MODE_KEY, expandMode);
     closedItems.clear();
-    // One at a time keeps the newest of those open.
     if (expandMode === "one" && expandedItems.size > 1) {
       const keep = serverItems.find((item) => expandedItems.has(item.id))?.id;
       expandedItems.clear();
@@ -473,18 +427,16 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
   const renderItems = async (items, { force = false } = {}) => {
     serverItems = items;
     itemsShown = true;
-    // Rebuilding the list would drop the name being edited; it catches up after.
+    // Rebuilding would drop the name being edited.
     if (renaming) return;
     const serverIds = new Set(items.map((item) => item.id));
     const openedOnly = [...opened.values()].filter((entry) => !serverIds.has(entry.item.id));
-    // Written only when it differs from what the server (or the last render) wrote.
     const count = config?.maxItems ? `${items.length}/${config.maxItems}` : String(items.length);
     if (itemCount.textContent !== count) itemCount.textContent = count;
     emptyMessage.hidden = items.length + openedOnly.length > 0;
 
-    // Refreshing must not rebuild an unchanged list: that would steal focus and
-    // reload previews while someone is reading. The whole items count, so an
-    // item sent again (new date, maybe a new name) shows even if it was on top.
+    // Rebuilding an unchanged list would steal focus and reload previews. Whole
+    // items are compared, so an item sent again shows even if it was on top.
     const signature = JSON.stringify([items, [...opened.keys()]]);
     if (!force && signature === renderedSignature) return;
     renderedSignature = signature;
@@ -512,16 +464,13 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     mediaFeed.update(mediaEntries);
     openMediaLink.hidden = mediaEntries.length === 0;
     if (mediaEntries.length) {
-      // Relative, as the server writes it (items.tsx), with the fragment an
-      // encrypted page needs.
       const params = new URLSearchParams(window.location.search);
       params.set("media", mediaEntries[0].item.id);
       const href = `?${params}${window.location.hash}`;
       if (openMediaLink.getAttribute("href") !== href) openMediaLink.setAttribute("href", href);
     }
 
-    // Rows of unchanged items stay as they are (only their position moves),
-    // so a busy queue neither reloads previews nor opens and closes them.
+    // So a busy queue neither reloads previews nor opens and closes them.
     const positions = new Map(items.map((item, index) => [item.id, index + 1]));
     const next = new Map();
     for (const entry of entries) {
@@ -550,8 +499,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
       itemOpeners.delete(id);
     }
     rows = next;
-    // Only the first render may take the server's rows; ages and expiries in
-    // them were the server's, as of when it rendered them.
+    // Later renders have fresher ages and expiries than the server's.
     if (serverRows.size) {
       serverRows = new Map();
       updateExpiries();
@@ -564,15 +512,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     queueShown();
   };
 
-  /**
-   * Opened from a notification (see sw.js): its item, opened, and a text put
-   * on the clipboard when the browser lets the page write it without a tap.
-   */
+  /** Copies a text only when the browser allows it without a tap. */
   let queueShown;
-  /**
-   * The queue's first showing, rows and all: a plain namespace's comes with
-   * its page; an encrypted one's arrives by the connection, decrypted.
-   */
   const firstShown = new Promise((resolve) => {
     queueShown = resolve;
   });
@@ -590,7 +531,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     expandedItems.add(id);
     closedItems.delete(id);
     itemOpeners.get(id)?.(true);
-    // Reading it would use it up: only its own button does that.
+    // Reading it would use it up.
     if (limitedItem(item)) return;
     const info = await mode.describe(item);
     if (info.kind !== "text") return;

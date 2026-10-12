@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The home page's stats, shared by every request to this instance for a
-// little while, so a busy home page asks the hub once per STATS_TTL_MS.
+// So a busy home page asks the hub once per STATS_TTL_MS.
 import type { Deps } from "./deps";
 
 export const STATS_TTL_MS = 30_000;
@@ -14,7 +13,7 @@ export const createStats = ({ hub }: Pick<Deps, "hub">) => {
     if (!cache || cache.expires < Date.now()) {
       const entry = {
         expires: Date.now() + STATS_TTL_MS,
-        // A plain copy: an RPC result must not outlive its request.
+        // An RPC result must not outlive its request.
         body: hub()
           .stats()
           .then((stats) => ({ ...stats })),

@@ -77,7 +77,7 @@ export const LogPage = ({
 }: {
   site: SiteView;
   title: string;
-  /** The way back to the namespace; null for an encrypted one, which knows it once opened. */
+  /** null for an encrypted namespace, whose address only the browser knows. */
   backHref: string | null;
   jsonHref: string;
   entries: AccessLogEntry[];
@@ -86,8 +86,7 @@ export const LogPage = ({
     site={site}
     title={`${title} access log · Kurobako`}
     scripts={["log"]}
-    // An encrypted namespace's log takes its name from the page's fragment
-    // (see log.js): it shows once that is in place, as the namespace does.
+    // Its title comes from the page's fragment, so it waits like the namespace does.
     decrypting={backHref === null ? "Decrypting access log…" : undefined}
   >
     <LogContent title={title} backHref={backHref} jsonHref={jsonHref} entries={entries} />

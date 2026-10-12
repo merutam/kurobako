@@ -19,16 +19,13 @@ const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
 const sendHeaders = ({ burn, expiresIn }) => ({
   ...burnHeaders(burn),
   ...(expiresIn ? { "Expires-In": expiresIn } : {}),
-  // This device is not told of its own sends.
   ...pushSkipHeaders(),
 });
 const versionOf = (item) => item.updatedAt ?? item.createdAt;
 
 /*
- * A mode hides how items are stored. Every item is described as
- *   { kind: "text" | "file", title, size, filename?, mime?, isImage }
- * and its content is loaded on demand as text or a Blob. Loading the content
- * of a burn-after-reading item deletes it on the server.
+ * A mode hides how items are stored. Loading a burn-after-reading item's
+ * content deletes it on the server.
  */
 export const plainMode = (namespace, writeHeaders) => {
   const basePath = `${SITE}/${encodeURIComponent(namespace)}`;
@@ -40,11 +37,9 @@ export const plainMode = (namespace, writeHeaders) => {
     });
   return {
     basePath,
-    /** Which namespace a push message names (see lib/push.js). */
     pushKey: `plain:${namespace}`,
     title: `/${namespace}`,
     label: "",
-    /** The largest file a send takes, in bytes of its own contents. */
     fileLimit: (maxFileBytes) => maxFileBytes,
     shareUrl: `${window.location.origin}${basePath}`,
     createView: async () => {
@@ -68,7 +63,6 @@ export const plainMode = (namespace, writeHeaders) => {
     loadBlob: async (item) =>
       (await request(`${basePath}/${item.id}`, { cache: "no-store" })).blob(),
     downloadUrl: (item) => `${basePath}/${item.id}/d`,
-    /** Plain share links need nothing besides the token. */
     shareKey: async () => null,
     sendText: (text, settings) =>
       request(`${basePath}/new`, {
@@ -86,8 +80,7 @@ export const plainMode = (namespace, writeHeaders) => {
     sendFile: (file, settings) =>
       request(`${basePath}/new`, {
         method: "POST",
-        // The server detects images from the bytes; never let a picked .txt
-        // file turn into a text item.
+        // So a picked .txt file never turns into a text item.
         headers: {
           "Content-Type": "application/octet-stream",
           "X-Filename": encodeURIComponent(file.name),
@@ -109,7 +102,6 @@ export const plainMode = (namespace, writeHeaders) => {
       const edited = await response.json();
       return title === null ? edited : (await rename(edited, title)).json();
     },
-    /** A bundle's contents replaced by another bundle, named as `file` is. */
     editFile: async (item, file) =>
       (
         await request(`${basePath}/${encodeURIComponent(item.id)}/e`, {
@@ -123,20 +115,15 @@ export const plainMode = (namespace, writeHeaders) => {
           body: file,
         })
       ).json(),
-    /** An empty name gives a text back its default, the start of its text. */
     rename,
   };
 };
 
-/** An encrypted namespace, by its secret name or a read-only link's token. */
 export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
   const space = readToken ? await openReadOnlySpace(readToken) : await openSealedSpace(secretName);
   const basePath = `${SITE}/e/${space.id}`;
   const readOnlyUrl = `${window.location.origin}${SITE}/e#/${space.readToken}`;
-  /**
-   * Metadata header → its unwrapped key and metadata (a promise; null if
-   * unreadable). Keyed on the header, which a rename changes.
-   */
+  /** Keyed on the header, which a rename changes. */
   const openedItems = new Map();
   const openItem = (item) => {
     if (!openedItems.has(item.metadata)) {
@@ -177,7 +164,6 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
     });
   };
 
-  /** New contents under the item's own key, at the version shown. */
   const replace = async (item, replacement) =>
     (
       await request(`${basePath}/${encodeURIComponent(item.id)}/e`, {
@@ -199,11 +185,9 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
     label: "Encrypted",
     // The limit counts the sealed body: a tag for every 64 KiB.
     fileLimit: (maxFileBytes) => contentSize(maxFileBytes),
-    // Opened by a read-only link, that link is what it passes on.
     shareUrl: readToken
       ? readOnlyUrl
       : `${window.location.origin}${SITE}/e#${encodeURIComponent(secretName)}`,
-    /** The name-derived write key; none by a read-only link. */
     writeKey: space.writeKey,
     readOnlyUrl,
     createView: async () => {
@@ -244,7 +228,6 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
       });
     },
     downloadUrl: null,
-    /** What the Service Worker needs to read the item in parts (see streamAddress). */
     streamOf: async (item) => {
       const opened = await openItem(item);
       if (!opened) throw new Error("This item could not be decrypted.");
@@ -260,7 +243,7 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
             : opened.metadata.filename || "file",
       };
     },
-    /** The item's own key, for the part of a share link the server never sees. */
+    /** For the part of a share link the server never sees. */
     shareKey: async (item) => (await openItem(item))?.keyText ?? null,
     sendText: (text, settings) => {
       const bytes = new TextEncoder().encode(text);
@@ -269,7 +252,7 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
     },
     sendFile: async (file, settings) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      // The same rules as the server's for plain files: images by their bytes.
+      // The same rules as the server's: images by their bytes.
       return send(bytes, fileMetadata(bytes, file.name), settings);
     },
     editText: async (item, text, { original, title }) => {
@@ -292,10 +275,7 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
       const { filename } = fileMetadata(bytes, file.name);
       return replace(item, await opened.withContents(bytes, { title: filename, filename }));
     },
-    /**
-     * The new name goes into the item's metadata, sealed again with its own
-     * key. An empty name gives a text back its default, the start of its text.
-     */
+    /** Sealed again with the item's own key. */
     rename: async (item, name) => {
       const opened = await openItem(item);
       if (!opened) throw new Error("This item could not be decrypted.");

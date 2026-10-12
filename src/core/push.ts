@@ -1,31 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Web Push: telling a device that something arrived, through its browser's
-// push service, with no connection kept open. The message is encrypted for
-// the device (RFC 8291), so the push service reads nothing of it, and signed
-// with the server's VAPID key (RFC 8292). WebCrypto only: the same on Bun and
-// on Workers.
+// Web Push, encrypted for the device (RFC 8291) so the push service reads
+// nothing, and signed with VAPID (RFC 8292). WebCrypto only, so it runs on
+// Bun and Workers alike.
 
 export type PushConfig = {
-  /** The VAPID public key: a P-256 point, uncompressed, base64url (65 bytes). */
+  /** A P-256 point, uncompressed, base64url (65 bytes). */
   publicKey: string;
-  /** Its private scalar, base64url (32 bytes). */
+  /** base64url (32 bytes). */
   privateKey: string;
-  /** Who runs this server, for the push services: a mailto: or https: URL. */
+  /** Push services require a contact: a mailto: or https: URL. */
   subject: string;
 };
 
-/** A browser's subscription, as PushSubscription.toJSON() gives it. */
 export type PushTarget = { endpoint: string; p256dh: string; auth: string };
 
-/** What a device is told: which namespace, which item, and a glimpse of it. */
 export type PushMessage = {
   space: "plain" | "sealed";
   name: string;
   id: string;
   kind: string;
-  /** A plain text's start or a file's name; none for what is encrypted or read once. */
+  /** None for what is encrypted or read once. */
   preview?: string;
 };
 
@@ -37,13 +33,10 @@ export const PUSH_SCHEMA = `CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at INTEGER NOT NULL
 )`;
 
-/** A preview's length, well within a push message's 4 kB. */
+/** Well within a push message's 4 kB. */
 export const PUSH_PREVIEW_CHARS = 140;
 
-/**
- * Where subscriptions may point: the browsers' push services. Anything else
- * would have this server post wherever a client asks.
- */
+/** Anything else would have this server post wherever a client asks. */
 const PUSH_HOSTS = [
   /^fcm\.googleapis\.com$/,
   /^updates\.push\.services\.mozilla\.com$/,
@@ -64,7 +57,7 @@ export const fromBase64Url = (text: string): Uint8Array<ArrayBuffer> => {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 };
 
-/** Bytes WebCrypto takes: backed by a plain ArrayBuffer. */
+/** WebCrypto takes only plain ArrayBuffer-backed bytes. */
 type Bytes = Uint8Array<ArrayBuffer>;
 
 const concat = (...parts: Uint8Array[]): Bytes => {
@@ -86,17 +79,12 @@ const decodes = (text: unknown, length: number) => {
   }
 };
 
-/**
- * Which subscription a send comes from, so its own device is not told of it:
- * the first 128 bits of SHA-256(endpoint), base64url (the page sends it as
- * Push-Skip; lib/push.js computes the same).
- */
+/** So the sending device is not told of its own send; lib/push.js computes the same. */
 export const skipIdOf = async (endpoint: string) =>
   toBase64Url(
     new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(endpoint))).slice(0, 16),
   );
 
-/** A subscription from a client, checked; or why not. */
 export const parseTarget = (value: unknown): PushTarget | { error: string } => {
   const subscription = value as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } };
   let url: URL;
@@ -116,10 +104,7 @@ export const parseTarget = (value: unknown): PushTarget | { error: string } => {
   return { endpoint: url.href, p256dh: p256dh as string, auth: auth as string };
 };
 
-/**
- * What is wrong with a VAPID key pair, if anything (ops/vapid.ts makes a
- * good one): which key, and what it should look like. Never the keys.
- */
+/** Says which key is wrong and how it should look, never the keys themselves. */
 export const vapidKeyProblem = (publicKey: string, privateKey: string): string | null => {
   if (!publicKey || !privateKey) {
     return `${publicKey ? "VAPID_PRIVATE_KEY" : "VAPID_PUBLIC_KEY"} is missing: notifications need both keys.`;
@@ -142,14 +127,10 @@ const hkdf = async (salt: Bytes, ikm: Bytes, info: Bytes, length: number) =>
     ),
   );
 
-/** One record holds the whole message: this much, its padding and tag included. */
+/** One record holds the whole message, padding and tag included. */
 const RECORD_SIZE = 4096;
 
-/**
- * A message encrypted for one subscription (RFC 8291, aes128gcm): only the
- * browser holding the subscription's private key opens it. `salt` and
- * `serverKeys` are for tests; each message gets fresh ones.
- */
+/** `salt` and `serverKeys` are for tests; real messages get fresh ones. */
 export const encryptMessage = async (
   target: PushTarget,
   plaintext: Uint8Array,
@@ -209,11 +190,7 @@ export const encryptMessage = async (
   return concat(header, asPublic, ciphertext);
 };
 
-/**
- * The Authorization header that names this server to a push service (RFC
- * 8292): a JWT for the endpoint's origin, signed with the VAPID key, good
- * for twelve hours.
- */
+/** Under the 24 hours RFC 8292 allows. */
 export const vapidAuthorization = async (
   endpoint: string,
   config: PushConfig,
@@ -246,10 +223,7 @@ export const vapidAuthorization = async (
   return `vapid t=${unsigned}.${toBase64Url(signature)}, k=${config.publicKey}`;
 };
 
-/**
- * Sends one message: "gone" when the push service no longer knows the
- * subscription (the browser dropped it), so it can be forgotten.
- */
+/** "gone": the browser dropped the subscription, so it can be forgotten. */
 export const sendPush = async (
   target: PushTarget,
   message: PushMessage,
@@ -261,7 +235,7 @@ export const sendPush = async (
       Authorization: await vapidAuthorization(target.endpoint, config),
       "Content-Encoding": "aes128gcm",
       "Content-Type": "application/octet-stream",
-      // Kept a day for a device that is offline, as long as an item lasts by default.
+      // A day for an offline device, as long as an item lasts by default.
       TTL: String(24 * 60 * 60),
       // A clipboard is wanted now: delivered even to a device saving power.
       Urgency: "high",

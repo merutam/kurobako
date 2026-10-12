@@ -1,31 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Logins without server-side state: a session is its expiry time, signed with
-// the key it was opened with. Any server holding the key can check it, and
-// changing the key ends every session.
+// Stateless sessions: an expiry signed with the key. Any server with the key checks them, and
+// changing the key ends them all.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { Context } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { clientKey } from "../core/visits";
 import { type Api, type AppContext, jsonError, readLimited } from "./context";
 
-/** Equal-length digests, so the comparison time reveals nothing about the input. */
+/** Equal-length digests, so timing reveals nothing. */
 export const sameSecret = (a: string, b: string) =>
   timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 
-/** `Authorization: Bearer <key>`, for scripts. */
 export const hasBearer = (c: Context, key: string) => {
   const header = c.req.header("authorization") ?? "";
   return header.startsWith("Bearer ") && sameSecret(header.slice("Bearer ".length), key);
 };
 
-/** Sessions for one purpose ("admin-session", "access-session"), so one never opens the other. */
+/** Per purpose, so an access session never opens the admin. */
 export const signedSessions = (key: string, purpose: string) => {
   const sign = (expires: string) =>
     createHmac("sha256", key).update(`${purpose}:${expires}`).digest("base64url");
   return {
-    /** A session value lasting `ms` from now. */
     issue: (ms: number) => {
       const expires = String(Date.now() + ms);
       return `${expires}.${sign(expires)}`;
@@ -38,13 +35,9 @@ export const signedSessions = (key: string, purpose: string) => {
   };
 };
 
-/** A login's body, {"key": "…"}, is small: anything larger is not one. */
+/** Anything larger is not a login: refused before parsing. */
 export const MAX_LOGIN_BYTES = 4_096;
 
-/**
- * What a login sent, from its body (null bytes: too large): JSON from a
- * script, {"key": "…"}, or a page's form, key=…&next=….
- */
 export const parseLogin = (
   bytes: Uint8Array | null,
   form: boolean,
@@ -59,31 +52,23 @@ export const parseLogin = (
   }
 };
 
-/** Where a login keeps its session, and for how long. */
 export type SessionCookie = {
   name: string;
-  /** The paths it is sent to: the whole site, or just the admin's. */
   path: string;
-  /** Strict for the admin's; Lax, so links from elsewhere still find a session. */
+  /** Lax for the site, so links from elsewhere keep the session; Strict for the admin. */
   sameSite: "Strict" | "Lax";
   ms: number;
 };
 
-/** Whether a request comes from a page's own form, rather than a script. */
+/** Forms get redirects and pages; scripts get JSON. */
 const fromForm = (c: AppContext) =>
   (c.req.header("content-type") ?? "").startsWith("application/x-www-form-urlencoded");
 
-/** A path inside this site to go to after a login, never another site. */
+/** Never another site: an open redirect would make the login a phishing tool. */
 export const insidePath = (value: unknown) =>
   typeof value === "string" && value.startsWith("/") && !value.startsWith("//") ? value : "/";
 
-/**
- * A login with `key`, and a session cookie out. A script sends {"key": "…"}
- * and gets JSON; a page's form posts key (and next) and is sent on to
- * `next` (inside the site), or gets its page again from `form`, with the
- * reason. Failed attempts are counted per address in the hub, which turns
- * that address away for a while after too many. `label` names it in the logs.
- */
+/** Failed attempts are counted per address in the hub, which locks the address out for a while. */
 export const loginWith = (
   api: Api,
   key: string,
@@ -103,7 +88,7 @@ export const loginWith = (
       c.status(status);
       return page(c, form.page(error, next));
     };
-    // Failed attempts are counted like sends: an IPv6 network as one.
+    // Counted like sends, so an IPv6 network cannot rotate addresses.
     const who = clientKey(ip);
     if (await hub().loginLockedOut(who)) {
       return refuse(429, "Too many failed attempts. Try again in 15 minutes.");
@@ -126,7 +111,6 @@ export const loginWith = (
   };
 };
 
-/** The way out: the session cookie goes; a page's form is sent to `then`. */
 export const logoutOf = (cookie: SessionCookie, then: string) => (c: AppContext) => {
   deleteCookie(c, cookie.name, { path: cookie.path, secure: true });
   return fromForm(c) ? c.redirect(then, 303) : c.json({ ok: true });

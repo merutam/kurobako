@@ -4,12 +4,7 @@
 import { FileField } from "./components/file-field";
 import { Layout, type SiteView } from "./components/layout";
 
-/**
- * The admin dashboard, /k/a. With a session, the dashboard comes out open with
- * its first answers embedded (`admin-data`), so admin.js draws them at once;
- * without one, only the login shows: a plain form, which the server answers
- * with this page again, logged in or with `error`.
- */
+/** With a session, the first answers are embedded so the dashboard draws at once. */
 export const AdminPage = ({
   site,
   data,
@@ -22,7 +17,6 @@ export const AdminPage = ({
   <Layout
     site={site}
     title="Admin · Kurobako"
-    // Logged out, the page is only its form.
     scripts={data ? ["admin"] : []}
     data={data ? { id: "admin-data", value: data } : undefined}
     noIndex

@@ -19,21 +19,16 @@ const integerQuery = (c: Context, name: string, fallback: number, max: number) =
   return Number.isSafeInteger(value) && value >= 0 ? Math.min(value, max) : fallback;
 };
 
-/** Lists are paged so the dashboard never renders thousands of rows at once. */
+/** So the dashboard never renders thousands of rows at once. */
 const pageQuery = (c: Context) => ({
   limit: Math.max(1, integerQuery(c, "limit", DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE)),
   offset: integerQuery(c, "offset", 0, Number.MAX_SAFE_INTEGER),
   search: (c.req.query("q") ?? "").trim(),
 });
 
-/**
- * The dashboard's session: a cookie set by logging in with the key, or
- * `Authorization: Bearer <key>` for scripts. The key never travels in a URL.
- * Sessions are signed with the key, so they hold on every server sharing it.
- */
+/** Signed with the key, so a session holds on every server sharing it. */
 const adminSession = (api: Api, key: string) => {
   const sessions = signedSessions(key, "admin-session");
-  // Sent to the admin's routes only, under the site's base path.
   const cookie: SessionCookie = {
     name: SESSION_COOKIE,
     path: `${api.config.basePath}${ADMIN_PATH}`,
@@ -44,10 +39,7 @@ const adminSession = (api: Api, key: string) => {
   return { sessions, cookie, hasSession };
 };
 
-/**
- * Guards everything under /a, including the instance's backups (archives.ts);
- * the page itself and the login are open.
- */
+/** Registered on /a/* in app.ts, so it covers the backups in archives.ts too. */
 export const adminGuard = (api: Api, key: string) => {
   const { hasSession } = adminSession(api, key);
   const OPEN_PATHS = new Set([ADMIN_PATH, `${ADMIN_PATH}/`, `${ADMIN_PATH}/login`]);
@@ -59,10 +51,7 @@ export const adminGuard = (api: Api, key: string) => {
   });
 };
 
-/**
- * The dashboard at /a. Failed logins are counted in the hub of the server
- * that gets them (behind src/runtime/bun/router.ts, always the first).
- */
+/** Failed logins count on the first server (src/runtime/bun/router.ts sends them there). */
 export const adminRoutes = (api: Api, key: string) => {
   const app = new Hono<AppEnv>();
   const { hub, page, platform, appVersion, siteView } = api;
@@ -80,7 +69,7 @@ export const adminRoutes = (api: Api, key: string) => {
   };
   const namespacesPage = (c: Context) => hub().namespacesPage(pageQuery(c));
 
-  // With a session, the page comes with what the dashboard would ask for first.
+  // Embedded, so the dashboard shows without a second round trip.
   app.get(ADMIN_PATH, async (c) => {
     if (!hasSession(c)) return page(c, renderPage(<AdminPage site={siteView} data={null} />));
     c.header("Cache-Control", "no-store");

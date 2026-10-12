@@ -2,56 +2,22 @@
 // Copyright (C) 2026 Kurobako contributors
 // Source and license: https://github.com/merutam/kurobako
 
-// End-to-end encryption for /e#name namespaces: the one implementation of the
-// protocol described at /k/protocol. Pages import this file as a module, and it
-// is also a command-line client (Node 20+ or Bun, no dependencies):
+// End-to-end encryption for /e#name namespaces: the one implementation of
+// /k/protocol. Pages import it, and it is a command-line client too (Node 20+
+// or Bun, no dependencies), taking curl's own options and paths:
 //
 //   curl -O https://<site>/k.mjs
-//   node k.mjs https://<site>/e#<name>/ls              the same requests as curl,
-//   node k.mjs -d 'hello' https://<site>/e#<name>/new  on an encrypted namespace
+//   node k.mjs https://<site>/e#<name>/ls
+//   node k.mjs -d 'hello' https://<site>/e#<name>/new
 //
-// It takes curl's own options and paths, encrypting and decrypting on the
-// way: run `node k.mjs` for the list. The secret name ends at the first "/".
+// PBKDF2 turns the secret name into K; HKDF derives the namespace key and the
+// write key; the ID is a one-way hash of the write key. A read-only link
+// carries the ID and namespace key, never K, so it cannot lead to the write
+// key. Salt, iterations and HKDF labels are protocol: changing them makes
+// every encrypted namespace unreadable.
 //
-// One PBKDF2 run turns the secret name into a 256-bit secret, K; HKDF then
-// gives from it the namespace key and write key; the namespace ID is a
-// one-way hash of the write key. A read-only link carries the ID
-// and the namespace key, never K, so it cannot lead to the write key. The
-// salt, iteration count and HKDF labels are part of the protocol: changing
-// them makes every existing encrypted namespace unreadable.
-//
-// Each item gets its own random AES-GCM key, which encrypts its contents and
-// its metadata. The namespace key only wraps that item key (AES-KW), so handing out an
-// item key (in a share link) reveals that one item and nothing else.
-// ============================================================================
-// FILE MAP - search "SECTION 01" ... "SECTION 24" to jump between sections.
-// Single-file module: cryptographic API (01–07), CLI (08–24).
-//
-// 01  Protocol parameters and shared primitives
-// 02  Encodings and common utilities
-// 03  Item metadata validation and serialization
-// 04  Authenticated encryption and segmented bodies
-// 05  Secret names, text titles and URL fragments
-// 06  Key derivation and namespace access
-// 07  Read-only views and shared item access
-// 08  CLI constants, usage and entry-point detection
-// 09  CLI argument and URL parsing
-// 10  HTTP transport, discovery and protocol compatibility
-// 11  CLI input, output and downloads
-// 12  File, media and MIME detection
-// 13  Safe filenames and text download names
-// 14  Encrypted item listing and lookup
-// 15  Item presentation: JSON, contents and streaming
-// 16  Human-readable tables and formatting
-// 17  Bulk export and offline backup reading
-// 18  Encrypted uploads, edits and renames
-// 19  Encrypted namespace request routing
-// 20  Shared item and read-only view routes
-// 21  Plain namespace detection and live updates
-// 22  Plain HTTP request routing
-// 23  Media playback: links and local HTTP server
-// 24  CLI dispatcher and direct execution
-// ============================================================================
+// Each item has its own random key, wrapped by the namespace key (AES-KW), so
+// a share link's item key reveals that one item and nothing else.
 
 // ============================================================================
 // SECTION 01 - Protocol parameters and shared primitives
@@ -61,31 +27,23 @@ const PROTOCOL_SALT = "kurobako/v4";
 const PBKDF2_ITERATIONS = 600_000;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
-/**
- * Contents are sealed in segments of this many bytes (the last one shorter),
- * each with its own AES-GCM tag, so each opens on its own: a part of a body
- * can be read and checked without the rest.
- */
+/** Each segment has its own tag, so part of a body can be read and checked alone. */
 export const SEGMENT_BYTES = 65_536;
-/** A body's size for `size` bytes of contents: one tag per segment. */
 export const sealedSize = (size) => size + TAG_BYTES * Math.ceil(size / SEGMENT_BYTES);
-/** The contents' size in a body of `sealed` bytes: the reverse of sealedSize. */
 export const contentSize = (sealed) =>
   Math.max(0, sealed - TAG_BYTES * Math.ceil(sealed / (SEGMENT_BYTES + TAG_BYTES)));
 /**
- * One PBKDF2-SHA256 block (32 bytes), K. A second block would double the cost
- * of opening a namespace without costing a guesser anything, since the ID
- * alone checks a guess. All keys are AES-128: the name, not the key, is what
- * a guesser faces.
+ * One PBKDF2 block: a second would double the cost of opening a namespace
+ * without costing a guesser anything, since the ID alone checks a guess.
+ * AES-128 throughout: the name, not the key, is what a guesser faces.
  */
 const DERIVED_BITS = 256;
 const ID_BYTES = 16;
 const NAMESPACE_KEY_BYTES = 16;
 const WRITE_KEY_BYTES = 16;
-/** HKDF labels: what each key derived from K is for. */
 const NAMESPACE_KEY_INFO = "kurobako/v4/namespace";
 const WRITE_KEY_INFO = "kurobako/v4/write";
-/** Item keys are AES-128 too, which keeps a share link short (22 characters after the #). */
+/** AES-128 keeps a share link short (22 characters after the #). */
 const ITEM_KEY_BYTES = 16;
 
 // ============================================================================
@@ -107,11 +65,11 @@ const fromBase64Url = (text) => {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 };
 
-/** Item keys are extractable: a share link carries one, and the namespace key wraps them. */
+/** Extractable: a share link carries one, and the namespace key wraps them. */
 const importKey = (raw) =>
   crypto.subtle.importKey("raw", raw, "AES-GCM", true, ["encrypt", "decrypt"]);
 
-/** The namespace key only wraps and unwraps item keys (AES-KW, RFC 3394). */
+/** Only wraps item keys (AES-KW, RFC 3394), so it never touches contents. */
 const importWrappingKey = (raw) =>
   crypto.subtle.importKey("raw", raw, "AES-KW", false, ["wrapKey", "unwrapKey"]);
 
@@ -120,11 +78,8 @@ const importWrappingKey = (raw) =>
 // ============================================================================
 
 /**
- * Metadata as it is sealed: only what cannot be told otherwise. A file has
- * `filename` and, unless it is application/octet-stream, `mime`; a text has
- * `title`, left out when empty. `rev` is left out while 0; each replacement
- * also gets a random `bodyId` so concurrent edits never share a body key.
- * The size is told by the body (see contentSize).
+ * Only what cannot be told otherwise: the size comes from the body. Each
+ * replacement gets a random `bodyId` so concurrent edits never share a body key.
  */
 const packMetadata = ({ kind, title, filename, mime, rev, bodyId }) => ({
   ...(kind === "file"
@@ -142,7 +97,6 @@ const validBodyId = (bodyId) => {
   return bytes.byteLength === 16 && toBase64Url(bytes) === bodyId;
 };
 
-/** Metadata as clients use it: { kind, title, filename?, mime?, size, rev, bodyId? }. */
 const unpackMetadata = (packed, bodySize) => {
   if (!packed || typeof packed !== "object" || Array.isArray(packed)) {
     throw new Error("Invalid encrypted item metadata.");
@@ -180,15 +134,12 @@ const OCTET_STREAM = "application/octet-stream";
 // SECTION 04 - Authenticated encryption and segmented bodies
 // ============================================================================
 
-/**
- * What each seal is for, as AES-GCM's additional data: a metadata seal never
- * opens as contents, nor the other way round, though both use the item key.
- */
+/** As additional data, so a metadata seal never opens as contents, nor the reverse. */
 const METADATA_LABEL = encoder.encode("kurobako/v4/metadata");
-/** Revision zero uses its unique item key; replacements add a random body ID. */
+/** Replacements add a random body ID, so no two revisions share a key. */
 const BODY_INFO = "kurobako/v4/body/";
 
-/** IV followed by the AES-GCM ciphertext and tag; `label` is authenticated, not sent. */
+/** `label` is authenticated, not sent. */
 const sealWith = async (key, label, bytes) => {
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const ciphertext = new Uint8Array(
@@ -200,11 +151,7 @@ const sealWith = async (key, label, bytes) => {
   return sealed;
 };
 
-/**
- * A segment's nonce: its number in 11 big-endian bytes, then 1 for the last
- * segment, 0 for the others. Segments cannot be moved, dropped from the end
- * or taken from another body.
- */
+/** Numbered, last marked: segments cannot be moved, cut off or swapped between bodies. */
 const segmentNonce = (index, last) => {
   const nonce = new Uint8Array(IV_BYTES);
   let rest = index;
@@ -216,7 +163,6 @@ const segmentNonce = (index, last) => {
   return nonce;
 };
 
-/** An item's body key; bodyId is mandatory for every replacement. */
 export const bodyKey = async (itemKeyBytes, rev = 0, bodyId) => {
   if (
     !Number.isSafeInteger(rev) ||
@@ -234,7 +180,6 @@ export const bodyKey = async (itemKeyBytes, rev = 0, bodyId) => {
   );
 };
 
-/** Contents sealed as a body: their segments, one after the other. */
 const sealBody = async (key, bytes) => {
   if (!bytes.byteLength) throw new Error("The content is empty.");
   const count = Math.ceil(bytes.byteLength / SEGMENT_BYTES);
@@ -251,11 +196,7 @@ const sealBody = async (key, bytes) => {
   return body;
 };
 
-/**
- * Opens segments of a body: `bytes` holds segments `first` onward (whole
- * ones, the body's last one included when `last`), as a Range request for
- * them returns. With first 0 and last true, the whole body.
- */
+/** Takes what a Range request for those segments returns. */
 export const openSegments = async (key, bytes, first = 0, last = true) => {
   const sealed = new Uint8Array(bytes);
   const step = SEGMENT_BYTES + TAG_BYTES;
@@ -283,12 +224,7 @@ export const openSegments = async (key, bytes, first = 0, last = true) => {
   return contents;
 };
 
-/**
- * Opens a body as it arrives, a segment at a time, never whole in memory.
- * `chunks` (a fetch body, or any async iterable of bytes) holds the body from
- * segment `first` on, as a Range request for it returns; what comes out is
- * the contents' bytes [start, end]. Stopping early cancels `chunks`.
- */
+/** A segment at a time, so a body is never whole in memory. Stopping early cancels `chunks`. */
 export async function* openStream(
   key,
   chunks,
@@ -341,13 +277,9 @@ const openWith = async (key, label, sealed) => {
 /** The same name must give the same key on every device and keyboard. */
 export const normalizeSecretName = (name) => name.normalize("NFC").trim();
 
-/**
- * In a link, "/" ends the secret name: what follows is a path, as in
- * /e#name/ls. So a name can never contain one.
- */
+/** "/" ends the secret name in a link (/e#name/ls), so a name can never contain one. */
 export const NAME_PATH_SEPARATOR = "/";
 
-/** Why a secret name cannot be used, or null. */
 export const secretNameProblem = (name, maxLength) => {
   if (!name) return "Enter a name.";
   if (name.includes(NAME_PATH_SEPARATOR)) return 'A name cannot contain "/".';
@@ -355,11 +287,7 @@ export const secretNameProblem = (name, maxLength) => {
   return null;
 };
 
-/**
- * A text's default title: up to 80 Unicode code points. Only when truncated,
- * cut at the last word boundary and remove trailing punctuation. The server
- * uses the same convention for plain texts; this is not part of decryption.
- */
+/** The server uses the same convention for plain texts; it is not part of decryption. */
 const DEFAULT_NAME_CHARS = 80;
 export const defaultTextName = (text) => {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -376,11 +304,7 @@ export const defaultTextName = (text) => {
   return (space > 0 ? cut.slice(0, space) : cut).replace(/[\s,.;:!?–—-]+$/u, "");
 };
 
-/**
- * An encrypted link's fragment (without the #): "name/path", or a read-only
- * link's "/token/path". The first gives { name, path }; the second
- * { name: "", readToken, path }.
- */
+/** "name/path", or a read-only link's "/token/path". */
 export const splitFragment = (fragment) => {
   if (fragment.startsWith(NAME_PATH_SEPARATOR)) {
     const rest = fragment.slice(1);
@@ -405,7 +329,7 @@ export const splitFragment = (fragment) => {
 
 export const encryptionAvailable = () => Boolean(globalThis.crypto?.subtle);
 
-/** `bytes` bytes of HKDF-SHA256 from `secret`, for `info`; the salt is empty. */
+/** The salt is empty: K is already uniformly random. */
 const hkdf = async (secret, info, bytes) => {
   const key = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveBits"]);
   return new Uint8Array(
@@ -417,10 +341,6 @@ const hkdf = async (secret, info, bytes) => {
   );
 };
 
-/**
- * Everything a secret name gives: K (PBKDF2), and from it the namespace ID,
- * the namespace key and the write key, as bytes.
- */
 export const deriveNamespaceKeys = async (secretName) => {
   if (!encryptionAvailable()) {
     throw new Error("Encryption needs a secure (https) connection.");
@@ -445,8 +365,7 @@ export const deriveNamespaceKeys = async (secretName) => {
     ),
   );
   const writeKey = await hkdf(secret, WRITE_KEY_INFO, WRITE_KEY_BYTES);
-  // The public ID is bound to the write credential. The server can verify a
-  // Write-Key on the first send without learning the secret name or K.
+  // The ID is bound to the write key, so the server checks a Write-Key without learning K.
   const id = new Uint8Array(
     await crypto.subtle.digest("SHA-256", encoder.encode(toBase64Url(writeKey))),
   ).subarray(0, ID_BYTES);
@@ -458,16 +377,12 @@ export const deriveNamespaceKeys = async (secretName) => {
   };
 };
 
-/** An encrypted namespace opened by its name: it reads, and writes with its write key. */
 export const openSealedSpace = async (secretName) => {
   const keys = await deriveNamespaceKeys(secretName);
   return spaceOf(keys.id, keys.namespaceKey, toBase64Url(keys.writeKey), keys.secret);
 };
 
-/**
- * An encrypted namespace opened by a read-only link's token,
- * base64url(ID ‖ namespace key): it reads everything but cannot write.
- */
+/** base64url(ID ‖ namespace key): it reads everything but cannot write. */
 export const openReadOnlySpace = async (token) => {
   if (!encryptionAvailable()) {
     throw new Error("Encryption needs a secure (https) connection.");
@@ -484,10 +399,7 @@ export const openReadOnlySpace = async (token) => {
   return spaceOf(bytes.subarray(0, ID_BYTES), bytes.subarray(ID_BYTES), null);
 };
 
-/**
- * A namespace's operations, from its ID and namespace key; `writeKey`
- * (base64url, for Write-Key) when opened by its name, null by a read-only link.
- */
+/** `writeKey` is null by a read-only link. */
 const spaceOf = async (idBytes, namespaceKeyBytes, writeKey, secret = null) => {
   const namespaceKey = await importWrappingKey(namespaceKeyBytes);
   const readToken = new Uint8Array(ID_BYTES + NAMESPACE_KEY_BYTES);
@@ -497,7 +409,6 @@ const spaceOf = async (idBytes, namespaceKeyBytes, writeKey, secret = null) => {
   return {
     id: toBase64Url(idBytes),
     writeKey,
-    /** The fragment of a read-only link, after "#/": base64url(ID ‖ namespace key). */
     readToken: toBase64Url(readToken),
 
     /** A fresh view ID derives a distinct read key without disclosing the namespace key. */
@@ -510,11 +421,7 @@ const spaceOf = async (idBytes, namespaceKeyBytes, writeKey, secret = null) => {
       return sealViewEntry(await hkdf(secret, `kurobako/v6/view/${viewId}`, 16), viewId, keyText);
     },
 
-    /**
-     * Encrypts one item; `header` goes in X-Sealed-Metadata, `body` is
-     * uploaded, and `keyText` (the item key) is what a share link carries.
-     * `metadata` is { kind, title, filename?, mime? }; see packMetadata.
-     */
+    /** `keyText`, the item key, is what a share link carries. */
     sealItem: async (bytes, metadata) => {
       const rawKey = crypto.getRandomValues(new Uint8Array(ITEM_KEY_BYTES));
       const itemKey = await importKey(rawKey);
@@ -533,12 +440,7 @@ const spaceOf = async (idBytes, namespaceKeyBytes, writeKey, secret = null) => {
       };
     },
 
-    /**
-     * Unwraps an item's key and reads its metadata; `sealedSize` is the
-     * item's size as the server lists it. `withMetadata(changes)` gives the
-     * item's X-Sealed-Metadata with its metadata changed (to rename it),
-     * under the same key.
-     */
+    /** `withMetadata` reseals under the same key, so a rename keeps share links working. */
     openItem: async (header, sealedSize) => {
       const [wrappedKey = "", sealedMetadata = ""] = header.split(".");
       let itemKey;
@@ -561,7 +463,6 @@ const spaceOf = async (idBytes, namespaceKeyBytes, writeKey, secret = null) => {
         ...opened,
         withMetadata: async (changes) =>
           `${wrappedKey}.${await opened.sealMetadata({ ...opened.metadata, ...changes })}`,
-        /** New contents under the next revision, keeping this item's key. */
         withContents: async (bytes, changes = {}) => {
           const changed = await opened.sealContents(bytes, changes);
           return { ...changed, header: `${wrappedKey}.${changed.sealedMetadata}` };
@@ -600,11 +501,7 @@ export const openViewEntry = async (viewId, viewKeyText, envelope) => {
   return toBase64Url(itemKey);
 };
 
-/**
- * Opens an item with its own key, as a share link carries it after the #.
- * Returns its metadata, a decrypt function for its contents, and the key.
- * `sealedSize` is the item's size as the server lists it.
- */
+/** As a share link carries the key, after the #, which the server never sees. */
 export const openSharedItem = (keyText, header, sealedSize) =>
   openItemWithKey(keyText, header.split(".")[1] ?? "", sealedSize);
 
@@ -621,7 +518,6 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
   return {
     metadata,
     keyText,
-    /** The body key of these contents' revision, for opening them in parts. */
     bodyKey: () => bodyKey(rawKey, metadata.rev, metadata.bodyId),
     open: async (bytes) =>
       openSegments(await bodyKey(rawKey, metadata.rev, metadata.bodyId), bytes),
@@ -661,13 +557,10 @@ const openItemWithKey = async (keyText, sealedMetadata, sealedSize) => {
 // SECTION 08 - CLI constants, usage and entry-point detection
 // ============================================================================
 
-/** This file's version, the same as the server it comes from (package.json). */
+/** The same as the server it comes from, so mismatches can be reported. */
 export const VERSION = "0.8.15";
-/** The protocol this file speaks; a server says its own in /.well-known/kurobako. */
 export const PROTOCOL = 8;
-// Everything below only runs when this file is executed directly. It reads
-// like curl: the same options and the same paths as the plain API, with
-// e#<name> in place of the namespace.
+// Only when run directly. It reads like curl, with e#<name> in place of the namespace.
 
 const USAGE = `Usage: node k.mjs [options] <link>
 
@@ -718,11 +611,9 @@ As with curl, -d @file drops line breaks; --data-binary @file keeps them.
 Plain links (<site>/<namespace>/...) work too, sent as they are; JSON prints
 the same either way, and errors go to standard error.`;
 
-/** What the plain API says a text is. */
 const TEXT_MIME = "text/plain; charset=utf-8";
-/** Texts in lists are cut to this many characters with ?summary, as on the server. */
+/** As on the server. */
 export const TEXT_PREVIEW_CHARS = 280;
-/** An item: its position (1 is the newest) or its six-letter ID. */
 const ITEM_PATTERN = /^(?:[1-9][0-9]{0,3}|[a-z]{6})$/;
 const BURN_VALUES = new Set(["1", "true", "yes"]);
 const FIXED_PATHS = new Set([
@@ -753,7 +644,6 @@ const runningAsScript = async () => {
 // SECTION 09 - CLI argument and URL parsing
 // ============================================================================
 
-/** Options that take a value, by short and long name. */
 const VALUE_OPTIONS = {
   d: "data",
   T: "upload",
@@ -778,7 +668,7 @@ const TOGGLE_OPTIONS = {
   "--no-clobber": ["noClobber", true],
   "--clobber": ["clobber", true],
 };
-/** curl options that change nothing here, accepted so curl commands paste as they are. */
+/** Accepted, so curl commands paste as they are. */
 const IGNORED = new Set([
   "s",
   "S",
@@ -795,7 +685,6 @@ const IGNORED = new Set([
 const parseArgs = (args) => {
   const options = {
     data: null,
-    /** How curl reads it: "data" (-d), "dataBinary" or "dataRaw". */
     dataMode: "data",
     upload: null,
     method: null,
@@ -861,7 +750,6 @@ const parseArgs = (args) => {
   return link === null ? null : { link, options };
 };
 
-/** A shared link's fragment: its key, then optionally /ls or another path. */
 const splitSharedFragment = (fragment) => {
   const decoded = decodeURIComponent(fragment);
   const slash = decoded.indexOf("/");
@@ -870,7 +758,6 @@ const splitSharedFragment = (fragment) => {
     : { keyText: decoded.slice(0, slash), suffix: decoded.slice(slash) };
 };
 
-/** A link as the site shows it; "https://" may be left out. */
 const parseLink = (text) => {
   // What is left of "$BOX/e#name" when BOX is empty.
   if (text.startsWith("/")) {
@@ -880,13 +767,11 @@ const parseLink = (text) => {
   }
   const url = new URL(/^[a-z]+:\/\//i.test(text) ? text : `https://${text}`);
   const fragment = url.hash.slice(1);
-  // A site may live under a path (https://example.com/k): whatever comes
-  // before /e or /i/<token> is part of the site.
+  // A site may live under a path (https://example.com/k).
   const sealed = /^((?:\/[^/]+)*)\/e$/.exec(url.pathname);
   if (sealed && fragment) {
     const { name, readToken, path } = splitFragment(fragment);
     const site = `${url.origin}${sealed[1]}`;
-    // A read-only link (e#/<token>): no name, only the means to read.
     if (readToken !== undefined) return { kind: "sealed", site, name: "", readToken, path };
     const problem = secretNameProblem(name);
     if (problem) throw new Error(problem);
@@ -917,9 +802,8 @@ const parseLink = (text) => {
   return { kind: "plain", url: `${url.origin}${url.pathname}${url.search}` };
 };
 
-/** A namespace path split the same way for online and offline requests. */
+/** The same split online and offline, so both answer alike. */
 const parseNamespacePath = (fullPath) => {
-  // A query follows the path, and a trailing slash means the same as none.
   const [rawPath = "", query = ""] = fullPath.split("?", 2);
   const path = rawPath.replace(/\/+$/, "");
   const [rawFirst = "", second, ...extra] = path.split("/");
@@ -930,21 +814,15 @@ const parseNamespacePath = (fullPath) => {
 // SECTION 10 - HTTP transport, discovery and protocol compatibility
 // ============================================================================
 
-/** The write key of the encrypted namespace a command works on, derived from its name. */
 let namespaceWriteKey = null;
 
-/**
- * fetch, failing with which site could not be reached and why. A private
- * instance's key, in KUROBAKO_KEY, goes with every request unless the command
- * sends its own Authorization header; an encrypted namespace's write key, in
- * KUROBAKO_WRITE_KEY, unless it sends its own Write-Key.
- */
+/** KUROBAKO_KEY and KUROBAKO_WRITE_KEY go with every request unless the command sends its own. */
 const reach = async (url, init = {}) => {
   const key = globalThis.process?.env?.KUROBAKO_KEY;
   const writeKey = globalThis.process?.env?.KUROBAKO_WRITE_KEY ?? namespaceWriteKey;
   const headers = new Headers(init.headers);
   if (key && !headers.has("authorization")) headers.set("authorization", `Bearer ${key}`);
-  // The encrypted namespace's write capability; plain routes ignore it.
+  // Plain routes ignore it.
   if (writeKey && !headers.has("write-key")) headers.set("write-key", writeKey);
   try {
     return await fetch(url, { ...init, headers });
@@ -954,16 +832,10 @@ const reach = async (url, init = {}) => {
   }
 };
 
-/** Where every Kurobako server describes itself: its base path, version and rules. */
 export const WELL_KNOWN_PATH = "/.well-known/kurobako";
 const described = new Map();
 
-/**
- * The description of the Kurobako server a URL belongs to, or null when there
- * is none. A server under a path (/k) answers at /k/.well-known/kurobako, and
- * at the domain's root if the site in front passes that on: the root is tried
- * first, then each leading part of the path.
- */
+/** The root is tried first: a site under a path may pass it on. */
 const kurobakoConfig = (url) => {
   const { origin, pathname } = new URL(url);
   const parts = pathname.split("/").filter(Boolean).slice(0, -1);
@@ -986,11 +858,7 @@ const kurobakoConfig = (url) => {
   return described.get(key);
 };
 
-/**
- * Why a request failed, told better once the site is known: no Kurobako
- * server at all, or one of another version than this file (which may or may
- * not be the cause, so it is only a hint).
- */
+/** A version mismatch may not be the cause, so it is only a hint. */
 const explainFailure = async (url, message) => {
   const { origin } = new URL(url);
   const config = await kurobakoConfig(url);
@@ -1006,14 +874,10 @@ const explainFailure = async (url, message) => {
   return message;
 };
 
-/** Why this file and the server at `origin` do not understand each other. */
 const protocolMismatch = (origin, config) =>
   `This k.mjs speaks the Kurobako protocol ${PROTOCOL} and the server ${config.protocol ?? "an older one"}; its own speaks it: curl -O ${origin}${config.clientUrl}`;
 
-/**
- * Encrypted items open only with the server's protocol: checked before any,
- * rather than failing to decrypt.
- */
+/** Checked first, rather than failing to decrypt. */
 const requireProtocol = async (url) => {
   const config = await kurobakoConfig(url);
   if (config && config.protocol !== PROTOCOL) {
@@ -1021,11 +885,7 @@ const requireProtocol = async (url) => {
   }
 };
 
-/**
- * An API request. Fails with the server's own error message, or says the site
- * is no Kurobako server when it answers like something else (an error without
- * Kurobako's JSON, or a web page). `page` allows a page as the answer.
- */
+/** An answer without Kurobako's JSON means another kind of site. */
 const call = async (url, init, { page = false } = {}) => {
   const response = await reach(url, init);
   const isPage = (response.headers.get("content-type") ?? "").startsWith("text/html");
@@ -1050,12 +910,7 @@ const readInput = async (source) => {
   return new Uint8Array(await readFile(source));
 };
 
-/** -d's value: the text itself, @file or @- (standard input). */
-/**
- * What -d sends, read as curl reads it: @file (or @- for standard input)
- * without its line breaks, which --data-binary keeps; --data-raw takes even
- * a leading @ as it is.
- */
+/** As curl reads it: @file without its line breaks, which --data-binary keeps. */
 const dataBytes = async ({ data, dataMode }) => {
   if (dataMode === "dataRaw" || !data.startsWith("@")) return encoder.encode(data);
   const bytes = await readInput(data.slice(1));
@@ -1067,7 +922,7 @@ const writeStdout = (bytes) =>
     process.stdout.write(bytes, (error) => (error ? reject(error) : resolve())),
   );
 
-/** A server-chosen download name, preferring RFC 5987's encoded form. */
+/** RFC 5987's encoded form first, since it keeps any character. */
 const contentDispositionName = (header) => {
   const encoded = /(?:^|;)\s*filename\*\s*=\s*UTF-8'[^']*'([^;]+)/i
     .exec(header)?.[1]
@@ -1084,13 +939,9 @@ const contentDispositionName = (header) => {
 };
 
 /**
- * Contents go where curl would put them: -o <file>, -O (named after the URL,
- * or with -J after the item itself), or standard output,
- * which refuses binary data in a terminal unless asked with -o -. `isText` is
- * known before fetching, so a refused item is never consumed. With `parts`
- * (an async iterable of bytes, made on demand), they are written as they
- * arrive, so a large file is never whole in memory and `| mpv -` starts at once;
- * otherwise `load` gives them whole.
+ * Where curl would put it. Binary data is refused in a terminal; `isText` is
+ * known before fetching, so a refused item is never consumed. `parts` streams,
+ * so `| mpv -` starts at once and large files are never whole in memory.
  */
 const deliver = async ({ options, isText, ownName, urlName, load, parts }) => {
   const forced = options.output === "-";
@@ -1121,8 +972,7 @@ const deliver = async ({ options, isText, ownName, urlName, load, parts }) => {
     return;
   }
   const { open, unlink } = await import("node:fs/promises");
-  // curl's -O and -o overwrite. -OJ protects a server-chosen name unless
-  // --clobber is explicit; --no-clobber protects every output name.
+  // -OJ protects a server-chosen name unless --clobber is explicit.
   const exclusive = options.noClobber || (options.headerName && !options.clobber);
   let file;
   try {
@@ -1139,7 +989,7 @@ const deliver = async ({ options, isText, ownName, urlName, load, parts }) => {
       written += chunk.byteLength;
     }
   } catch (error) {
-    // Half a file is no file: it goes, and the error says why.
+    // Half a file is no file.
     await file.close();
     await unlink(toFile).catch(() => {});
     throw error;
@@ -1152,11 +1002,9 @@ const deliver = async ({ options, isText, ownName, urlName, load, parts }) => {
 // SECTION 12 - File, media and MIME detection
 // ============================================================================
 
-/** Names Windows refuses for a file, whatever the extension. */
+/** Windows refuses these, whatever the extension. */
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
-/** A file name that is safe to write anywhere: no directories, odd characters or reserved names. */
-/** MP4 brands (an ISO media file's first "ftyp") that hold video. */
 const MP4_BRANDS = [
   "isom",
   "iso2",
@@ -1171,10 +1019,7 @@ const MP4_BRANDS = [
   "dash",
 ];
 
-/**
- * What a file is, from its first bytes, as the server tells for plain files:
- * { kind: "image" | "video" | "audio", extension, mime }, or null for anything else.
- */
+/** As the server tells plain files, so encrypted ones are typed alike. */
 export const detectMedia = (bytes) => {
   const ascii = (start, length) => String.fromCharCode(...bytes.subarray(start, start + length));
   const image = (extension, mime) => ({ kind: "image", extension, mime });
@@ -1218,8 +1063,6 @@ export const detectMedia = (bytes) => {
     if (brand === "M4A " || brand === "M4B ") return audio("m4a", "audio/mp4");
     if (MP4_BRANDS.includes(brand)) return video("mp4", "video/mp4");
   }
-  // Matroska and WebM: an EBML header, whose DocType (element 0x4282, a
-  // one-byte size, then the name) tells which.
   const EBML = [0x1a, 0x45, 0xdf, 0xa3];
   if (bytes.length >= 4 && EBML.every((byte, index) => bytes[index] === byte)) {
     for (let index = 4; index + 2 < Math.min(bytes.length, 64); index += 1) {
@@ -1232,9 +1075,7 @@ export const detectMedia = (bytes) => {
       break;
     }
   }
-  // SVG: text whose root element is <svg, after an optional BOM, XML
-  // declaration, comments and a doctype without an internal subset ([), all
-  // within the first 1024 bytes (the server's SIGNATURE_BYTES).
+  // Within the server's SIGNATURE_BYTES; an internal subset ([) declares entities no image needs.
   let text = new TextDecoder().decode(bytes.subarray(0, 1024));
   for (;;) {
     text = text.trimStart();
@@ -1256,16 +1097,7 @@ export const detectMedia = (bytes) => {
   }
 };
 
-/**
- * A file's metadata, by the rules the server applies to plain files: an
- * image or a video is told by its bytes and named with its own extension;
- * anything else is application/octet-stream under its own (safe) name.
- */
-/**
- * A bundle: texts and files sent as one tar whose first entry is the manifest,
- * kurobako.json (see the protocol page). Told by those first bytes, as the
- * server tells it for plain files.
- */
+/** By the server's rules for plain files. */
 export const BUNDLE_MIME = "application/vnd.kurobako.bundle+tar";
 const isBundle = (bytes) => {
   const signature = new TextEncoder().encode("kurobako.json\0");
@@ -1287,7 +1119,7 @@ export const fileMetadata = (bytes, name) => {
       size: bytes.byteLength,
     };
   }
-  // A file sent without a name is called "file", as on the server.
+  // As on the server.
   const filename = media
     ? `${safeName(
         String(name || "file")
@@ -1314,8 +1146,7 @@ export const safeName = (name, fallback) => {
   const last = String(name || "")
     .split(/[\\/]/)
     .pop();
-  // The same rules as the server's: letters, digits, ".", "_", "-" and spaces,
-  // a short extension kept, no reserved name and no leading "-".
+  // The same rules as the server's.
   const extension = /\.([\p{L}\p{N}]{1,10})$/u.exec(last)?.[1];
   const base = (extension ? last.slice(0, -extension.length - 1) : last)
     .normalize("NFKC")
@@ -1326,13 +1157,12 @@ export const safeName = (name, fallback) => {
     .replace(/^\.+|\.+$/g, "")
     .trim()
     .slice(0, 100);
-  // An empty name falls back, but keeps its extension.
   const named = base || fallback;
   const safe = WINDOWS_RESERVED.test(named) || named.startsWith("-") ? `_${named}` : named;
   return extension ? `${safe}.${extension}` : safe;
 };
 
-/** A text's suggested filename base: keep its whole first phrase, not a path segment. */
+/** Its whole first phrase, not a path segment. */
 export const textFileBase = (value) =>
   safeName(`${value.replace(/[\\/]/g, "-")}.txt`, "text")
     .replace(/\.txt$/u, "")
@@ -1340,7 +1170,6 @@ export const textFileBase = (value) =>
 export const suggestedTextFileBase = (text) =>
   textFileBase(defaultTextName(text).replace(/[^\p{L}\p{N} ]+/gu, " "));
 
-/** A text's download name, including old names that have no extension. */
 export const textDownloadName = (title, id = "shared") => {
   const fallback = `text-${id}.txt`;
   if (!title) return fallback;
@@ -1352,7 +1181,6 @@ export const textDownloadName = (title, id = "shared") => {
 // SECTION 14 - Encrypted item listing and lookup
 // ============================================================================
 
-/** The namespace's items, newest first, with their metadata decrypted. */
 const openList = async (space, site) => {
   const items = await (await call(`${site}/e/${space.id}/ls`)).json();
   return Promise.all(
@@ -1362,22 +1190,16 @@ const openList = async (space, site) => {
         number: index + 1,
         item,
         opened,
-        // Its contents are at <namespace>/<id>, still sealed.
         contentUrl: `${site}/e/${space.id}/${item.id}`,
       };
     }),
   );
 };
 
-/** One item, by its position (1 is the newest) or its ID. */
-/**
- * An item by its position (digits, 1 being the newest), its ID, or else its
- * name: a file's name or a text's title, the newest of that name. The server
- * cannot look up encrypted names, so the list is decrypted here.
- */
+/** The server cannot look up encrypted names, so the list is decrypted here. */
 const lookUpIn = (entries, selector) => {
   if (/^\d+$/.test(selector)) return entries[Number(selector) - 1] ?? null;
-  // A name, exactly; or else the start of one, ignoring case (newest first).
+  // An exact name first; else a prefix, ignoring case, newest first.
   const nameOf = ({ opened }) => opened?.metadata.filename ?? opened?.metadata.title ?? null;
   const start = selector.toLowerCase();
   return (
@@ -1401,10 +1223,7 @@ const findEntry = async (space, site, selector) =>
 // SECTION 15 - Item presentation: JSON, contents and streaming
 // ============================================================================
 
-/**
- * An item as the plain API's JSON shows it, with the encrypted fields opened:
- * a text's name, a file's name and type.
- */
+/** As the plain API shows it, so scripts read both alike. */
 const itemJson = (item, metadata) => {
   const isImage = metadata?.mime?.startsWith("image/");
   return {
@@ -1416,18 +1235,13 @@ const itemJson = (item, metadata) => {
     ...(item.readsLeft !== undefined ? { readsLeft: item.readsLeft } : {}),
     kind: !metadata ? "unreadable" : metadata.kind === "text" ? "text" : isImage ? "image" : "file",
     ...(metadata?.kind === "text" ? { mime: TEXT_MIME } : {}),
-    // Burn-after-reading texts have no name, as in the plain API.
+    // As in the plain API.
     ...(metadata?.kind === "text" && !isLimited(item) ? { name: metadata.title } : {}),
     ...(metadata?.kind === "file" ? { mime: metadata.mime, filename: metadata.filename } : {}),
     size: metadata?.size ?? item.size,
   };
 };
 
-/**
- * A text's own field, as the plain API gives it: the text, or a preview of
- * its first characters when it is too long to keep inline on the server (or,
- * with ?summary, longer than a preview). Burn-after-reading texts show none.
- */
 const textJson = (text, size, { burn = false, summary = false, inlineLimit = Infinity } = {}) => {
   if (burn || text === null) return {};
   if (size > inlineLimit || (summary && text.length > TEXT_PREVIEW_CHARS)) {
@@ -1436,13 +1250,9 @@ const textJson = (text, size, { burn = false, summary = false, inlineLimit = Inf
   return { text };
 };
 
-/** The server's limit for texts kept inline, from its description. */
 const inlineLimitOf = async (url) => (await kurobakoConfig(url))?.inlineTextBytes ?? Infinity;
 
-/**
- * What -O and -J call an item, as the server names plain downloads: its file
- * name, a text's safe name (or .txt if extensionless), or text-<id>.txt.
- */
+/** As the server names plain downloads. */
 const ownName = (entry) => {
   const { kind, title, filename } = entry.opened.metadata;
   if (kind !== "text") return safeName(filename, "file");
@@ -1452,7 +1262,7 @@ const ownName = (entry) => {
 const contentsOf = async (entry) =>
   entry.opened.open(entry.loadBody ? await entry.loadBody() : await fetchBytes(entry.contentUrl));
 
-/** An entry's text or preview. Reading one consumes nothing. */
+/** Reading one consumes nothing. */
 const entryText = async (entry, options = {}) => {
   const metadata = entry.opened?.metadata;
   if (metadata?.kind !== "text" || isLimited(entry.item)) return {};
@@ -1460,7 +1270,6 @@ const entryText = async (entry, options = {}) => {
   return textJson(text, metadata.size, options);
 };
 
-/** One decrypted entry in the plain API's JSON shape. */
 const entryJson = async (entry, options = {}) => ({
   ...itemJson(entry.item, entry.opened?.metadata),
   ...(await entryText(entry, options)),
@@ -1469,16 +1278,11 @@ const entryJson = async (entry, options = {}) => ({
 const entriesJson = (entries, options = {}) =>
   Promise.all(entries.map((entry) => entryJson(entry, options)));
 
-/** Sends one decrypted entry through the common curl-like output rules. */
-/**
- * An entry's contents as they arrive, opened a segment at a time; null for a
- * local backup's, which is read whole from its file.
- */
+/** null for a local backup's, read whole from its file. */
 const entryParts = (entry) => {
   if (entry.loadBody) return null;
   return async function* () {
     const response = await call(entry.contentUrl);
-    // A plain item (see plainEntry) is its contents already.
     if (!entry.opened.bodyKey) {
       yield* response.body;
       return;
@@ -1499,7 +1303,7 @@ const deliverEntry = (entry, options, urlName = ownName(entry)) =>
     parts: entryParts(entry),
   });
 
-/** A plain item shaped like an opened encrypted one, for common output code. */
+/** So the output code is shared. */
 const plainEntry = (item, index, source) => ({
   number: index + 1,
   item,
@@ -1520,7 +1324,7 @@ const plainEntry = (item, index, source) => ({
 // SECTION 16 - Human-readable tables and formatting
 // ============================================================================
 
-/** Decimal units, like the site's limits (100 MB, 64 kB). */
+/** Decimal, like the site's limits. */
 export const formatBytes = (bytes) => {
   const units = ["B", "kB", "MB", "GB"];
   let value = bytes;
@@ -1535,7 +1339,6 @@ const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short", time
 const formatTime = (time) => timeFormat.format(new Date(time));
 const LIST_TITLE_CHARS = 40;
 
-/** An item's title from its JSON: its text, preview or file name. */
 const titleOf = (item, limit = Number.POSITIVE_INFINITY) => {
   if (item.kind === "unreadable") return "(could not decrypt)";
   const raw = item.name ?? item.text ?? item.preview ?? item.filename ?? "";
@@ -1544,7 +1347,6 @@ const titleOf = (item, limit = Number.POSITIVE_INFINITY) => {
   return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
 };
 
-/** Rows of cells as aligned columns; empty columns are left out. */
 const columns = (rows, rightAligned = new Set()) => {
   const widths = rows[0].map((_, column) => Math.max(...rows.map((row) => row[column].length)));
   return rows
@@ -1560,7 +1362,6 @@ const columns = (rows, rightAligned = new Set()) => {
     .join("\n");
 };
 
-/** A queue, one line per item, newest first. */
 const itemsTable = (items) =>
   items.length
     ? columns(
@@ -1579,7 +1380,6 @@ const itemsTable = (items) =>
 
 const printJson = (value) => console.log(JSON.stringify(value, null, 2));
 
-/** A decrypted entry as JSON for tables: a text's title stands in as its preview. */
 const tableJson = (entry) => {
   const json = itemJson(entry.item, entry.opened?.metadata);
   const title = entry.opened?.metadata.title;
@@ -1590,11 +1390,7 @@ const tableJson = (entry) => {
 // SECTION 17 - Bulk export and offline backup reading
 // ============================================================================
 
-/**
- * -O on the bare link: exports every item here under its own name, overwriting
- * as curl's -O does. Another item of the same name gets its ID in the name.
- * Burn-after-reading items stay unread.
- */
+/** Overwrites, as curl's -O does. Burn-after-reading items stay unread. */
 const saveAll = async (entries, options) => {
   const { writeFile } = await import("node:fs/promises");
   if (!entries.length) return console.log("The namespace is empty.");
@@ -1608,7 +1404,6 @@ const saveAll = async (entries, options) => {
         `${label}: skipped, it deletes when opened (read it with node k.mjs <link>/${entry.number})`,
       );
     } else {
-      // Its own name, or with its ID when another file already has that name.
       const own = ownName(entry);
       const dot = own.lastIndexOf(".");
       const withId =
@@ -1637,7 +1432,6 @@ const saveAll = async (entries, options) => {
   }
 };
 
-/** The read-only paths shared by extracted plain and encrypted backups. */
 const localNamespaceRequest = async (entries, fullPath, options) => {
   const { path, query, first, second, extra } = parseNamespacePath(fullPath);
   if (path === "") {
@@ -1651,15 +1445,13 @@ const localNamespaceRequest = async (entries, fullPath, options) => {
   if (path === "ls") {
     const listingOptions = {
       summary: new URLSearchParams(query).has("summary"),
-      // The server's inline limit is not recorded in a backup. Locally the
-      // whole text is available; ?summary still requests a short preview.
+      // A backup does not record the server's inline limit; ?summary still asks for a preview.
       inlineLimit: Infinity,
     };
     printJson(await entriesJson(entries, listingOptions));
     return;
   }
-  // As online, <item>.json means details unless an item has that exact ID or
-  // filename. A backup cannot recreate the server-owned share URL.
+  // A backup cannot recreate the server-owned share URL.
   if (first.endsWith(".json") && second === undefined) {
     const same = lookUpIn(entries, first);
     const exact = same && (same.item.id === first || same.opened?.metadata.filename === first);
@@ -1678,11 +1470,7 @@ const localNamespaceRequest = async (entries, fullPath, options) => {
   await deliverEntry(requireEntryIn(entries, first), options, second ?? first);
 };
 
-/**
- * Opens an extracted backup, an item in it, or a read path below it. Encrypted
- * ones take #<secret>/<path>; KUROBAKO_SECRET may supply the secret. False
- * means the argument is not a local path.
- */
+/** False: the argument is not a local path. */
 const localRequest = async (text, options) => {
   const hash = text.indexOf("#");
   const beforeFragment = hash < 0 ? text : text.slice(0, hash);
@@ -1701,8 +1489,7 @@ const localRequest = async (text, options) => {
   } catch (error) {
     if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
     pathExists = false;
-    // A virtual suffix such as backup/ls does not exist on disk. Walk only to
-    // an explicitly named ancestor; a hostname must not turn into the cwd.
+    // Only to an explicitly named ancestor, so a hostname never turns into the cwd.
     const cwd = resolve(".");
     let candidate = dirname(requested);
     while (candidate !== dirname(candidate)) {
@@ -1738,7 +1525,6 @@ const localRequest = async (text, options) => {
     search = parent;
   }
   if (!manifestPath) {
-    // A missing virtual path without a manifest was a hostname after all.
     if (!pathExists && markedLocal) throw new Error(`Local path not found: ${rawPath}`);
     if (filePath && !markedLocal) return false;
     throw new Error("A local backup item needs the manifest.json from its extracted backup.");
@@ -1887,7 +1673,6 @@ const send = async (space, site, options, filename) => {
     metadata = fileMetadata(contents, filename || (options.upload === "-" ? "" : options.upload));
   } else {
     contents = await dataBytes(options);
-    // A burn-after-reading text shows no preview anywhere.
     const title = options.limited ? "" : defaultTextName(decoder.decode(contents));
     metadata = { kind: "text", title, size: contents.byteLength };
   }
@@ -1917,7 +1702,6 @@ const send = async (space, site, options, filename) => {
       body,
     })
   ).json();
-  // As in the plain API, a text comes back with its text, unless it burns.
   const text =
     metadata.kind === "text"
       ? textJson(decoder.decode(contents), metadata.size, {
@@ -1928,10 +1712,6 @@ const send = async (space, site, options, filename) => {
   printJson({ ...itemJson(item, metadata), ...text });
 };
 
-/**
- * One item as the plain API's <item>.json shows it, decrypted: its details,
- * its text unless it burns, its position and a share link with its key.
- */
 const describeEntry = async (entry, base) => {
   const described = await (await call(`${base}/${entry.item.id}.json`)).json();
   return {
@@ -1941,10 +1721,7 @@ const describeEntry = async (entry, base) => {
   };
 };
 
-/**
- * Renames an encrypted item: its metadata, sealed again with its own key. An
- * empty name gives a text back its default, the start of its text.
- */
+/** Sealed again with its own key, so share links keep working. */
 const rename = async (space, site, selector, given) => {
   const entry = await findEntry(space, site, selector);
   const name = given.replace(/\s+/g, " ").trim();
@@ -1978,7 +1755,6 @@ const rename = async (space, site, selector, given) => {
   );
 };
 
-/** Replaces an encrypted text under its next revision, keeping its item key. */
 const edit = async (space, site, selector, options) => {
   const entry = await findEntry(space, site, selector);
   if (isLimited(entry.item)) throw new Error("An item with limited reads cannot be edited.");
@@ -2013,13 +1789,12 @@ const edit = async (space, site, selector, options) => {
 // SECTION 19 - Encrypted namespace request routing
 // ============================================================================
 
-/** The encrypted namespace, path by path, as the plain API answers it. */
+/** As the plain API answers, so the same commands work on both. */
 const sealedRequest = async ({ site, name, readToken, path: fullPath }, options) => {
   await requireProtocol(`${site}/e`);
   const { path, query, first, second, extra } = parseNamespacePath(fullPath);
   const space =
     readToken !== undefined ? await openReadOnlySpace(readToken) : await openSealedSpace(name);
-  // Opened by its name, it can write; by a read-only link, it has no write key.
   namespaceWriteKey = space.writeKey;
   const base = `${site}/e/${space.id}`;
   const { method } = options;
@@ -2075,14 +1850,13 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
     });
   }
 
-  // Retired endpoint: preserve its explicit migration error for encrypted URLs.
+  // Kept, so old commands get a clear error.
   if (path === "lock" && (method === "POST" || method === "DELETE")) {
     const response = await call(`${base}/lock`, { method });
     return printJson(await response.json());
   }
 
-  // Backups go as they are: the server sends items still encrypted, and a
-  // backup is restored the same way.
+  // Items stay encrypted in backups, so they pass through as they are.
   if (path === "import" && sending && (method === "POST" || method === "PUT")) {
     const body = options.data !== null ? await dataBytes(options) : await readInput(options.upload);
     const response = await call(`${base}/import`, { method: "POST", body });
@@ -2116,7 +1890,6 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
       !ITEM_PATTERN.test(first) &&
       first !== "ls"
     ) {
-      // curl -T photo.jpg <ns>/ sends to <ns>/photo.jpg: the path, if any, is the name.
       return send(space, site, options, path === "new" ? "" : first);
     }
     throw new Error("Send texts with -d to <link>/new, files with -T to <link>/.");
@@ -2143,7 +1916,6 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
       ),
     );
   }
-  // .json is an item's JSON, unless an item has exactly that name.
   if (first.endsWith(".json") && second === undefined && method === "GET") {
     const same = await lookUp(space, site, first);
     const exact = same && (same.item.id === first || same.opened?.metadata.filename === first);
@@ -2161,12 +1933,12 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
   }
 
   if (method === "DELETE" && second === undefined) {
-    // Resolved here: the server cannot find an encrypted item by name.
+    // The server cannot find an encrypted item by name.
     const entry = await findEntry(space, site, first);
     return printJson(await (await call(`${base}/${entry.item.id}`, { method: "DELETE" })).json());
   }
   if ((method === "GET" || method === "POST") && second === "s") {
-    // The server's link, plus the item's key after the #, which it never sees.
+    // The item's key goes after the #, which the server never sees.
     const entry = await findEntry(space, site, first);
     const url = (await (await call(`${base}/${entry.item.id}/s`)).text()).trim();
     return console.log(`${url}#${entry.opened.keyText}`);
@@ -2182,7 +1954,6 @@ const sealedRequest = async ({ site, name, readToken, path: fullPath }, options)
 // SECTION 20 - Shared item and read-only view routes
 // ============================================================================
 
-/** A shared encrypted item: /i/<token>#key and its /c, /d, /ls and .json. */
 const sharedRequest = async ({ base, suffix, keyText }, options) => {
   if (options.method !== "GET") throw new Error("A shared item can only be read.");
   await requireProtocol(base);
@@ -2207,7 +1978,6 @@ const sharedRequest = async ({ base, suffix, keyText }, options) => {
   return deliverEntry(entry, options, suffix ? suffix.slice(1) : base.split("/").pop());
 };
 
-/** A shared view's index, decrypted from its fragment when necessary. */
 const viewRequest = async ({ base, suffix, keyText }, options) => {
   if (options.method !== "GET") throw new Error("A shared view can only be read.");
   await requireProtocol(base);
@@ -2252,11 +2022,7 @@ const viewRequest = async ({ base, suffix, keyText }, options) => {
 // SECTION 21 - Plain namespace detection and live updates
 // ============================================================================
 
-/**
- * Whether a plain link is a bare namespace (https://<site>/notes). With one
- * part in its path it is, at a site at the domain's root; with more, the site
- * may live under a path (https://example.com/k/notes), which the server says.
- */
+/** With more than one path part, the site may live under a path, which the server says. */
 const isNamespace = async (url) => {
   const pathname = new URL(url).pathname.replace(/\/$/, "");
   if (/^\/[a-z0-9_-]+$/.test(pathname)) return true;
@@ -2269,14 +2035,9 @@ const isNamespace = async (url) => {
   );
 };
 
-/** Plain links go to the server as they are, like curl would send them. */
 /**
- * Stays on a namespace's live connection and prints a line per change, for
- * scripts (`while read -r event id name`): "new <id> <name>", "moved <id>
- * <name>" (the same contents sent again), "changed <id> <name>", "gone <id>"
- * (deleted, expired or burnt). It connects before fetching /ls, then consumes
- * only queue deltas. It reconnects by itself and prints only what changed
- * meanwhile. `nameOf(item)` names an item (decrypting it if need be).
+ * For scripts (`while read -r event id name`): new, moved, changed, gone.
+ * Connects before fetching /ls, so nothing between the two is missed.
  */
 const watchLive = async (base, nameOf) => {
   if (typeof WebSocket === "undefined") {
@@ -2290,13 +2051,11 @@ const watchLive = async (base, nameOf) => {
   const address = `${base.replace(/^http/, "ws")}/live`;
   const accessKey = globalThis.process?.env?.KUROBAKO_KEY;
   const print = (line) => process.stdout.write(`${line}\n`);
-  /** What was last seen by item ID; null until the first /ls snapshot. */
   let known = null;
   let revision = -1;
   let pending = [];
   const names = new Map();
   const named = async (item) => {
-    // Encrypted items change their sealed metadata when edited or renamed; plain ones, their name.
     const key = item.metadata ?? `${item.id}/${item.name ?? item.filename ?? ""}`;
     if (!names.has(key)) names.set(key, (await nameOf(item)) || "-");
     return names.get(key);
@@ -2312,7 +2071,6 @@ const watchLive = async (base, nameOf) => {
       });
     }
     if (known) {
-      // Oldest first, as they happened.
       for (const [id, now] of [...seen].reverse()) {
         const before = known.get(id);
         if (!before) print(`new ${id} ${now.name}`);
@@ -2405,13 +2163,11 @@ const watchLive = async (base, nameOf) => {
 // ============================================================================
 
 const plainRequest = async ({ url }, options) => {
-  // <namespace>/live: its changes, line by line, until stopped.
   const watched = url.replace(/\/live\/?$/, "");
   if (options.method === "GET" && watched !== url && (await isNamespace(watched))) {
     return watchLive(watched, (item) => item.name ?? item.filename ?? "");
   }
-  // The bare namespace is a page; here it lists the items, like e#<name>, or
-  // with -O saves them all.
+  // The bare namespace is a page; here it lists the items, like e#<name>.
   if (options.method === "GET" && (await isNamespace(url))) {
     const base = url.replace(/\/$/, "");
     if (options.remoteName) {
@@ -2435,8 +2191,7 @@ const plainRequest = async ({ url }, options) => {
   if (options.data !== null) {
     body = await dataBytes(options);
     headers["Content-Type"] ??= "application/x-www-form-urlencoded";
-    // The edit route is conditional. Fetch the item's current version unless
-    // the caller supplied its own If-Match, keeping the command curl-like.
+    // Edits need If-Match; fetch it unless given, so the command stays curl-like.
     if (
       /\/e\/?$/.test(new URL(target).pathname) &&
       !Object.keys(headers).some((name) => name.toLowerCase() === "if-match")
@@ -2447,8 +2202,6 @@ const plainRequest = async ({ url }, options) => {
     }
   } else if (options.upload !== null) {
     body = await readInput(options.upload);
-    // curl -T file <url>/ appends the file's name; here a bare namespace gets
-    // it too, with or without the slash.
     if (options.upload !== "-" && (await isNamespace(target))) {
       target = `${target.replace(/\/$/, "")}/${encodeURIComponent(safeName(options.upload, "file"))}`;
     }
@@ -2457,16 +2210,12 @@ const plainRequest = async ({ url }, options) => {
   const type = response.headers.get("content-type") ?? "";
   if (!response.ok) {
     const bytes = new Uint8Array(await response.arrayBuffer());
-    // Kurobako answers errors as {"error": …}; anything else is another kind of site.
     let error = null;
     try {
       error = JSON.parse(decoder.decode(bytes))?.error ?? null;
     } catch {}
-    // As for an encrypted namespace: the error itself, on standard error.
     throw new Error(await explainFailure(url, error ?? `Server error (${response.status}).`));
   }
-  // The server's JSON (a list, an item's details, a sent item) printed as it
-  // is for an encrypted namespace, unless it is going to a file.
   if (/^application\/json/.test(type) && options.output === null && !options.remoteName) {
     const text = await response.text();
     try {
@@ -2477,7 +2226,6 @@ const plainRequest = async ({ url }, options) => {
   }
   const disposition = response.headers.get("content-disposition") ?? "";
   const urlName = new URL(target).pathname.split("/").pop() || "index";
-  // Anything else is written as it arrives.
   return deliver({
     options,
     isText: /^(text\/|application\/json)/.test(type),
@@ -2496,13 +2244,10 @@ const plainRequest = async ({ url }, options) => {
 //   node k.mjs serve <item link>               prints a local address, until stopped
 //   node k.mjs play <item link> [-- <args>]    opens it in mpv, and stops with it
 //
-// A player seeks: it asks for parts of a file (Range), and a video recorded
-// on a phone is only playable from its end (its index is there). Standard
-// output cannot be sought, so these serve the item on 127.0.0.1 instead,
-// where each request fetches only the segments it needs from the site and
-// opens them as they arrive: what public/sw.js does for a page's <video>.
-// The address carries a random token, so other pages and programs on this
-// computer cannot guess it; the item's key never leaves this process.
+// Players seek with Range, and phone videos keep their index at the end, so
+// standard output will not do. This serves the item on 127.0.0.1, fetching
+// only the segments each request needs, as public/sw.js does for pages. The
+// random token keeps other local programs out; the key never leaves.
 
 const MEDIA_USAGE = `Usage:
   node k.mjs serve [--port <n>] <item link>
@@ -2515,7 +2260,7 @@ player, mpv unless --player or KUROBAKO_PLAYER says another, and stops when
 the player does. Items that are deleted once read cannot be served: each
 seek would read them again. Save those with -o instead.`;
 
-/** Every read of an item that is deleted once read uses it up: a player reads many times. */
+/** A player reads many times. */
 const refuseLimited = (item) => {
   if (isLimited(item)) {
     throw new Error(
@@ -2524,18 +2269,12 @@ const refuseLimited = (item) => {
   }
 };
 
-/**
- * What an item link serves: { filename, mime, size, fetchParts(range) },
- * where fetchParts gives { body }, the contents [start, end] as they arrive
- * (all of them without a range).
- */
 const playable = async (link) => {
   const target = parseLink(link);
   if (target.kind === "view") throw new Error("Pick one item of the view: open its link first.");
 
   if (target.kind === "plain") {
-    // A plain item is served as the site serves it; the address is its ID's,
-    // which does not move when something is sent.
+    // By ID, which does not move when something is sent.
     const url = target.url.replace(/\/[cd]\/?$/, "").replace(/\/$/, "");
     const item = await (await call(`${url}.json`)).json();
     refuseLimited(item);
@@ -2586,7 +2325,6 @@ const playable = async (link) => {
         : safeName(metadata.filename, "file"),
     mime: metadata.mime || "application/octet-stream",
     size: metadata.size,
-    // Only the segments holding the range are fetched, then opened in turn.
     fetchParts: async (range) => {
       const first = range ? Math.floor(range.start / SEGMENT_BYTES) : 0;
       const last = range ? Math.floor(range.end / SEGMENT_BYTES) : Infinity;
@@ -2606,10 +2344,6 @@ const playable = async (link) => {
   };
 };
 
-/**
- * The contents' bytes [start, end] a Range header asks for, null for all of
- * them, or "unsatisfiable" for a range outside (as public/sw.js reads it).
- */
 const playRange = (header, size) => {
   const match = /^bytes=(\d*)-(\d*)$/.exec(header?.trim() ?? "");
   if (!match || (!match[1] && !match[2])) return null;
@@ -2622,10 +2356,6 @@ const playRange = (header, size) => {
   return start < size && start <= end ? { start, end } : "unsatisfiable";
 };
 
-/**
- * Serves `media` on 127.0.0.1 at a random address; resolves with that
- * address and the server, once it listens.
- */
 const serveMedia = async (media, port = 0) => {
   const { createServer } = await import("node:http");
   const token = toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
@@ -2665,7 +2395,7 @@ const serveMedia = async (media, port = 0) => {
       response.writeHead(range ? 206 : 200, headers);
       for await (const chunk of parts.body) {
         if (closed) break;
-        // The player reads slower than the site sends: wait for it.
+        // The player reads slower than the site sends.
         if (!response.write(chunk)) {
           await new Promise((resolve) => {
             const done = () => {
@@ -2691,7 +2421,6 @@ const serveMedia = async (media, port = 0) => {
   return { server, address: `http://127.0.0.1:${server.address().port}${path}` };
 };
 
-/** serve or play: their own options, then the item's link, then (play) the player's. */
 const parseMediaArgs = (args) => {
   const options = { port: 0, player: globalThis.process?.env?.KUROBAKO_PLAYER || "mpv" };
   let link = null;
@@ -2725,7 +2454,7 @@ const mediaCommand = async (command, args) => {
   const media = await playable(link);
   const { server, address } = await serveMedia(media, options.port);
   if (command === "serve") {
-    // The address alone on standard output, for $(…); the rest on standard error.
+    // The address alone on standard output, for $(…).
     console.log(address);
     console.error(`Serving ${media.filename} (${formatBytes(media.size)}); Ctrl+C stops.`);
     return;
@@ -2756,7 +2485,7 @@ const mediaCommand = async (command, args) => {
 // ============================================================================
 
 const main = async (args) => {
-  // Asking for help is not an error: it goes to standard output.
+  // Asking for help is not an error.
   if (!args.length || args.includes("-h") || args.includes("--help")) {
     console.log(USAGE);
     return;
@@ -2782,8 +2511,7 @@ const main = async (args) => {
   }
 };
 
-// Pages bundle this file with KUROBAKO_PAGE defined (src/client/build.ts):
-// there this is dead code, and with it the whole command line is left out.
+// Dead code in pages (KUROBAKO_PAGE, src/client/build.ts), so the command line is left out.
 // biome-ignore lint/correctness/noUndeclaredVariables: only a page's build defines it; typeof is safe anywhere.
 if (typeof KUROBAKO_PAGE === "undefined" && (await runningAsScript())) {
   await main(process.argv.slice(2));

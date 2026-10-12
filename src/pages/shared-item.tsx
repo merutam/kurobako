@@ -81,9 +81,8 @@ export const SharedItemPage = ({
   url,
 }: {
   site: SiteView;
-  /** Null once it is gone. */
   item: StoredItem | null;
-  /** A plain text's contents, when they are not inline in `item`. */
+  /** When they are not inline in `item`. */
   text: string | null;
   url: string;
 }) => (
@@ -93,7 +92,6 @@ export const SharedItemPage = ({
     scripts={["shared-item"]}
     data={{ id: "item-data", value: item ? sharedItem(item) : null }}
     noIndex
-    // An encrypted item shows only once decrypted, as a namespace does.
     decrypting={item?.kind === "sealed" ? "Decrypting item…" : undefined}
   >
     {item && item.kind !== "sealed" ? (

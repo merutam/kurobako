@@ -7,7 +7,7 @@ import { logError } from "./log";
 import { type NamespaceRef, objectName, SHARE_TOKEN_BYTES } from "./model";
 import { slotOf, slotPrefix } from "./routing";
 
-/** What the public stats count. Never tied to a namespace or a visitor. */
+/** Never tied to a namespace or a visitor, so the stats stay public. */
 export const ACTIVITY_EVENTS = ["sentText", "sentFile", "sentEncrypted", "openedOnce"] as const;
 export type ActivityEvent = (typeof ACTIVITY_EVENTS)[number];
 type ActivityCounts = Record<ActivityEvent, number>;
@@ -18,22 +18,20 @@ export type Page<T> = { total: number; offset: number; limit: number; items: T[]
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
-/** The stats show at most 7 days of activity and 24 hours of visitors. */
 const ACTIVITY_RETENTION_DAYS = 7;
 const VISITOR_RETENTION_MS = DAY_MS;
-/** A visitor seen again within this time is not rewritten. */
+/** Spares a write on every page view. */
 const VISITOR_REFRESH_MS = 30 * MINUTE_MS;
 const TOP_COUNTRIES = 5;
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MS = 15 * MINUTE_MS;
-/** Pruning and the empty-namespace sweep run on this alarm, not on every write. */
+/** On an alarm, not on every write. */
 const HOUSEKEEPING_MS = HOUR_MS;
-/** Namespaces asked to clean up per sweep; a full batch sweeps again soon. */
+/** Bounded, so one sweep never runs long; a full batch sweeps again soon. */
 const SWEEP_BATCH = 50;
 
 const dayKey = (time: number) => new Date(time).toISOString().slice(0, 10);
 
-/** What requests may ask of the hub (see NAMESPACE_METHODS). */
 export const HUB_METHODS = [
   "reportNamespace",
   "forgetNamespace",
@@ -58,21 +56,16 @@ export const HUB_METHODS = [
 ] as const satisfies readonly (keyof HubCore)[];
 export type HubApi = Remote<HubCore, (typeof HUB_METHODS)[number]>;
 
-/** What the hub needs from its platform. */
 export interface HubHost {
   sql: Sql;
-  /** Schedules alarm() unless it is already scheduled. */
   ensureAlarm(time: number): Promise<void>;
-  /** Schedules alarm(), replacing any earlier time. */
   setAlarm(time: number): Promise<void>;
-  /** Asks a namespace to delete itself if it is still empty. */
   cleanUpNamespace(ref: NamespaceRef): Promise<void>;
 }
 
 /**
- * Site-wide state, one instance per deployment: namespace sizes, daily
- * activity, recent visitors, share links and failed admin logins. Only
- * aggregates leave through stats(); names and IPs are for the admin.
+ * Site-wide state, one per deployment. Only aggregates leave through stats();
+ * names and IPs are for the admin.
  */
 export class HubCore {
   private readonly sql: Sql;
@@ -107,8 +100,7 @@ export class HubCore {
     this.sql.exec(
       "CREATE TABLE IF NOT EXISTS login_failures (ip TEXT PRIMARY KEY, count INTEGER NOT NULL, reset_at INTEGER NOT NULL)",
     );
-    // Item IDs are unique within their namespace only, so a link is per
-    // namespace and item.
+    // Item IDs are unique within their namespace only.
     this.sql.exec(
       `CREATE TABLE IF NOT EXISTS item_shares (
         token TEXT PRIMARY KEY,
@@ -128,17 +120,13 @@ export class HubCore {
     );
   }
 
-  /** The `total` column of a query's single row. */
   private count(query: string, ...params: SqlValue[]): number {
     return this.sql.exec<{ total: number }>(query, ...params)[0]?.total ?? 0;
   }
 
-  /** Housekeeping runs hourly while there is anything to keep tidy. */
   private ensureAlarm(): Promise<void> {
     return this.host.ensureAlarm(Date.now() + HOUSEKEEPING_MS);
   }
-
-  // --- Writes -----------------------------------------------------------
 
   async reportNamespace(
     ref: NamespaceRef,
@@ -157,12 +145,11 @@ export class HubCore {
     await this.ensureAlarm();
   }
 
-  /** After a restart, which drops every live connection. */
+  /** A restart drops every live connection. */
   async resetConnections(): Promise<void> {
     this.sql.exec("UPDATE namespaces SET connections = 0 WHERE connections > 0");
   }
 
-  /** A namespace that cleaned itself up: drop it from the listing and its share links. */
   async forgetNamespace(ref: NamespaceRef): Promise<void> {
     this.sql.exec("DELETE FROM namespaces WHERE space = ? AND name = ?", ref.space, ref.name);
     this.sql.exec("DELETE FROM item_shares WHERE space = ? AND name = ?", ref.space, ref.name);
@@ -179,7 +166,6 @@ export class HubCore {
     await this.ensureAlarm();
   }
 
-  /** One page view. Only rewrites a visitor not seen for a while. */
   async recordVisitor(ip: string, country: string | null): Promise<void> {
     const now = Date.now();
     this.sql.exec(
@@ -194,11 +180,7 @@ export class HubCore {
     await this.ensureAlarm();
   }
 
-  /**
-   * Hourly: prunes old rows and asks namespaces listed as empty for longer
-   * than EMPTY_NAMESPACE_TTL_SECONDS to clean up, a safety net for their own
-   * cleanup.
-   */
+  /** A safety net for namespaces whose own cleanup never ran. */
   async alarm(): Promise<void> {
     const now = Date.now();
     this.sql.exec("DELETE FROM visitors WHERE last_seen <= ?", now - VISITOR_RETENTION_MS);
@@ -234,9 +216,7 @@ export class HubCore {
     }
   }
 
-  // --- Share links ------------------------------------------------------
-
-  /** One token per item: sharing the same item twice gives the same link. */
+  /** Sharing the same item twice gives the same link. */
   private createShareRow(ref: NamespaceRef, itemId: string, expiresAt: string | null): string {
     const existing = this.sql.exec<{ token: string }>(
       "SELECT token FROM item_shares WHERE space = ? AND name = ? AND item_id = ?",
@@ -270,7 +250,7 @@ export class HubCore {
     return token;
   }
 
-  /** A view index needs many links; one hub RPC is cheaper than one per item. */
+  /** One RPC instead of one per item. */
   async createShares(
     ref: NamespaceRef,
     items: { id: string; expiresAt: string | null }[],
@@ -280,7 +260,7 @@ export class HubCore {
     return tokens;
   }
 
-  /** An item sent again lives longer, and so does its share link. */
+  /** An item sent again lives longer, and so does its link. */
   async extendShare(ref: NamespaceRef, itemId: string, expiresAt: string | null): Promise<void> {
     this.sql.exec(
       "UPDATE item_shares SET expires_at = ? WHERE space = ? AND name = ? AND item_id = ?",
@@ -302,12 +282,11 @@ export class HubCore {
     return { ref: { space: row.space, name: row.name }, itemId: row.item_id };
   }
 
-  /** For links whose item is gone (deleted, pushed out of the queue, read once). */
   async forgetShare(token: string): Promise<void> {
     this.sql.exec("DELETE FROM item_shares WHERE token = ?", token);
   }
 
-  /** The opaque view route resolves to its source only inside the server. */
+  /** Resolved only inside the server, so a view link never reveals its namespace. */
   async registerView(ref: NamespaceRef, token: string): Promise<void> {
     this.sql.exec(
       "INSERT INTO namespace_views (token, space, name) VALUES (?, ?, ?)",
@@ -338,8 +317,6 @@ export class HubCore {
     );
   }
 
-  // --- Admin login lockout ---------------------------------------------
-
   async loginLockedOut(ip: string): Promise<boolean> {
     const row = this.sql.exec<{ count: number; reset_at: number }>(
       "SELECT count, reset_at FROM login_failures WHERE ip = ?",
@@ -366,8 +343,6 @@ export class HubCore {
   async loginSucceeded(ip: string): Promise<void> {
     this.sql.exec("DELETE FROM login_failures WHERE ip = ?", ip);
   }
-
-  // --- Reads ------------------------------------------------------------
 
   private activityTotals(days: number): ActivityCounts {
     const totals = Object.fromEntries(ACTIVITY_EVENTS.map((event) => [event, 0])) as ActivityCounts;
@@ -401,7 +376,6 @@ export class HubCore {
     return { plain: of("plain"), sealed: of("sealed") };
   }
 
-  /** Public, aggregate-only numbers for the home page. */
   async stats() {
     const since = Date.now() - DAY_MS;
     const { plain, sealed } = this.totals();
@@ -445,12 +419,11 @@ export class HubCore {
     };
   }
 
-  /** What every item together takes, in bytes. */
   async storedBytes(): Promise<number> {
     return this.count("SELECT COALESCE(SUM(bytes), 0) AS total FROM namespaces");
   }
 
-  /** Every namespace this hub knows, plain and encrypted: what a full backup covers. */
+  /** Plain and encrypted: what a full backup covers. */
   async allNamespaces(): Promise<NamespaceRef[]> {
     return this.sql.exec<NamespaceRef>("SELECT space, name FROM namespaces ORDER BY space, name");
   }

@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// An item's row in a list, written once for both sides: the server renders a
-// plain namespace's rows with it (src/pages/components/items.tsx), the browser renders
-// the rest and takes over the server's rows as they are (namespaces/item-list.js).
-// It only describes the markup, through h (see dom.js); what the controls do
-// is wired up in the browser, found by their data-action.
+// Written once for both sides, so the browser can take over the server's rows as they are.
 import { BUNDLE_MIME } from "./bundle.js";
 import {
   compactText,
@@ -18,11 +14,7 @@ import {
 
 export const limitedItem = (item) => Boolean(item.burn || item.readsLeft !== undefined);
 
-/**
- * A plain item, as the pages show it: { kind: "text" | "file", title,
- * filename?, mime?, size, isImage, isVideo }. A text goes by its name, or by its start
- * (long texts arrive as a preview; the whole text is fetched when needed).
- */
+/** Long texts arrive as a preview; the whole text is fetched when needed. */
 export const describePlain = (item) =>
   item.kind === "text"
     ? {
@@ -60,15 +52,10 @@ const kindLabel = (info) =>
             ? "Bundle"
             : "File";
 
-/** "Text · 23 B · 10/6/26, 9:10 AM": the start of the line under an item's title. */
 export const itemSummary = (item, info) =>
   `${kindLabel(info)} · ${formatBytes(info.size ?? item.size)} · ${dateFormatter.format(new Date(item.createdAt))}`;
 
-/**
- * The line under a shared item's title, as `h` makes it (see dom.js):
- * "Text · 23 B · 10/6/26, 9:10 AM · expires in 23 hours". The server writes
- * the date in its own zone; the browser rewrites only that <time>.
- */
+/** The server writes the date in its own zone; the browser rewrites only that <time>. */
 export const itemMeta = (h, item, info, opened = false) => {
   const parts = [
     `${kindLabel(info)} · ${formatBytes(info.size ?? item.size)}`,
@@ -88,7 +75,6 @@ export const itemMeta = (h, item, info, opened = false) => {
   return parts.flatMap((part, index) => (index ? [" · ", part] : [part]));
 };
 
-/** A page's dates, from the server's zone to this browser's. */
 export const localizeDates = (root) => {
   for (const time of root.querySelectorAll("time[data-local-date]")) {
     const local = dateFormatter.format(new Date(time.dateTime));
@@ -96,15 +82,11 @@ export const localizeDates = (root) => {
   }
 };
 
-/**
- * Everything a row is made from, as text: a row is made again only when this
- * changes. The server puts its hash on the rows it renders (data-made), so the
- * browser can tell which it can keep.
- */
+/** Hashed on server rows (data-made), so the browser can tell which to keep. */
 export const rowState = (item, info, opened, canWrite) =>
   JSON.stringify([item, info, Boolean(opened), canWrite]);
 
-/** 32-bit FNV-1a, in hex: short enough for an attribute. */
+/** Short enough for an attribute. */
 export const rowHash = (state) => {
   let hash = 0x811c9dc5;
   for (let index = 0; index < state.length; index += 1) {
@@ -114,7 +96,6 @@ export const rowHash = (state) => {
   return (hash >>> 0).toString(16);
 };
 
-/** What an item is, as its row shows it. */
 const KIND_NAMES = {
   burn: "once",
   unreadable: "locked",
@@ -126,16 +107,7 @@ const KIND_NAMES = {
   file: "file",
 };
 
-/**
- * One row per item: its position (1 is the newest, as in $BOX/ns/1), what it
- * is, its name, size and age, and its actions as words. The row's toggle opens
- * its body: the contents of a text or an image, and every detail. Closed, as
- * made here; the browser opens the ones it should.
- *
- * `opened` is set for a burn-after-reading item read on this page;
- * `downloadUrl` is where to download it straight from the server, if anywhere;
- * `made`, the server's rowHash.
- */
+/** Closed as made here; the browser opens the ones it should. */
 export const itemRow = (
   h,
   { item, info, position, opened = false, canWrite, canCopyImages, downloadUrl, made },
@@ -169,7 +141,6 @@ export const itemRow = (
     h("span", { "data-created-at": item.createdAt }, formatAge(item.createdAt)),
   );
 
-  /** A row's action: its name, as text, which the styles put in brackets. */
   const actionButton = (label, action, title, className) =>
     h(
       "button",

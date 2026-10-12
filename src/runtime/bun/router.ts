@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// A front for several Kurobako servers, each with its own data directory and
-// hub, sharing one S3 store: `SERVERS=http://10.0.0.1:3000,http://10.0.0.2:3000
-// bun src/runtime/bun/router.ts`. It keeps no state. Each namespace and its share
-// links go to the server that owns their slot (see routing.ts), with live
-// connections relayed both ways. The admin dashboard shows one server at a
-// time, picked with ?server=<n> (1 is the first); logins always go to the
-// first, which keeps the lockout in one place. Other pages go by the
-// visitor's address, so the same visitor keeps landing on one server. /stats.json adds up every server's. Each server keeps its
-// own limits.
+// A stateless front for several servers sharing one S3 store. Namespaces and
+// share links go to the server owning their slot (see routing.ts); other pages
+// go by the visitor's address so they keep landing on one server. Admin logins
+// always go to the first server, which keeps the lockout in one place.
 
 import type { Server, ServerWebSocket } from "bun";
 import { loadConfig } from "../../config";
@@ -19,13 +14,12 @@ import { firstValue } from "../../core/visits";
 import { printJsonLines } from "./log";
 
 export type RouterOptions = {
-  /** The servers' addresses, the same list and order on every router. */
+  /** The same list and order on every router, so they all agree on owners. */
   servers: string[];
   port: number;
   hostname?: string;
-  /** Set only behind a reverse proxy: the header holding the client's address. */
+  /** Only behind a reverse proxy: otherwise clients could fake their address. */
   clientIpHeader?: string | null;
-  /** The servers' BASE_PATH, if they have one. */
   basePath?: string;
 };
 
@@ -47,10 +41,9 @@ const DROPPED_HEADERS = [
   "sec-websocket-extensions",
   "sec-websocket-accept",
 ];
-/** Where the client is, as servers behind a proxy read it; trusted only from a proxy. */
+/** Trusted only from a proxy. */
 const LOCATION_HEADERS = ["cf-ipcountry", "cf-region", "cf-ipcity"];
 const STATS_TTL_MS = 30_000;
-/** `path` is a request's path inside the site (see sitePath). */
 const isAdmin = (path: string) => path === ADMIN_PATH || path.startsWith(`${ADMIN_PATH}/`);
 const STATS_TIMEOUT_MS = 5_000;
 
@@ -58,7 +51,7 @@ type Relay = {
   target: string;
   headers: Headers;
   upstream?: WebSocket;
-  /** What the client sent before the server's side was open. */
+  /** Sent before the server's side was open, so nothing is lost. */
   pending: (string | Uint8Array<ArrayBuffer>)[];
 };
 
@@ -68,7 +61,7 @@ const BunWebSocket = WebSocket as unknown as new (
   options: { headers: Headers },
 ) => WebSocket;
 
-/** A close code a server may send: 1000, or one of the application's own. */
+/** Only 1000 and the application's own codes may be sent. */
 const closeCode = (code: number) => (code === 1000 || (code >= 3000 && code < 5000) ? code : 1011);
 
 const unreachable = () =>
@@ -77,7 +70,6 @@ const unreachable = () =>
     { status: 502 },
   );
 
-/** Sums every number; the top countries are merged, then cut to the longest list given. */
 export const mergeStats = (all: Record<string, unknown>[]) => {
   const merged: Record<string, unknown> = {};
   const countries = new Map<string, number>();
@@ -127,7 +119,6 @@ export const startRouter = (options: RouterOptions) => {
     return owners[slotOfKey(ip)] as string;
   };
 
-  /** The server the dashboard is looking at, from 1; the first one for logins. */
   const adminServer = (url: URL, path: string) => {
     if (path === `${ADMIN_PATH}/login`) return 1;
     const server = Number(url.searchParams.get("server"));
@@ -179,7 +170,6 @@ export const startRouter = (options: RouterOptions) => {
     async fetch(request, server) {
       const url = new URL(request.url);
       const ip = clientIp(request, server);
-      // Outside the base path, any server answers (with a 404).
       const path = sitePath(options.basePath ?? "", url.pathname) ?? "";
       if (path === "/stats.json" && request.method === "GET") {
         try {
@@ -210,8 +200,7 @@ export const startRouter = (options: RouterOptions) => {
           decompress: false,
         });
         const relayed = new Response(response.body, response);
-        // Which server answered, and how many there are, for the dashboard's
-        // server picker. Only on answers it got by being logged in.
+        // For the dashboard's server picker; only on logged-in answers.
         if (isAdmin(path) && path !== `${ADMIN_PATH}/login` && response.ok) {
           relayed.headers.set("X-Kurobako-Server", String(adminServer(url, path)));
           relayed.headers.set("X-Kurobako-Servers", String(servers.length));
@@ -242,8 +231,7 @@ export const startRouter = (options: RouterOptions) => {
       },
       message(socket, message) {
         const { upstream, pending } = socket.data;
-        // Bun hands binary messages over as a Buffer, possibly on shared
-        // memory, which a WebSocket does not send: a plain copy goes.
+        // A Buffer may be on shared memory, which a WebSocket does not send: a plain copy goes.
         const data = typeof message === "string" ? message : new Uint8Array(message);
         if (upstream?.readyState === WebSocket.OPEN) upstream.send(data);
         else pending.push(data);

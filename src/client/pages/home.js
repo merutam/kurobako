@@ -2,8 +2,6 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { normalizeSecretName, secretNameProblem } from "../../../public/k.mjs";
-// The home page: opening a namespace, plain or encrypted (with a random
-// name, and how strong a typed one is).
 import { element, readConfig, SITE, setupNamespaceField } from "../lib/common.js";
 import { createStatus } from "../lib/status.js";
 
@@ -16,11 +14,10 @@ const strength = element("#name-strength");
 const encrypted = element("#encrypted");
 const randomButton = element("#random-name");
 const status = createStatus(element("#home-status"));
-/** Lowercase letters and digits are valid in both modes. */
 const RANDOM_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
 
 const RANDOM_NAME_CHARACTERS = 16;
-/** Four groups of four characters: 80 bits, far beyond guessing. */
+/** 80 bits: far beyond guessing. */
 const randomName = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(RANDOM_NAME_CHARACTERS));
   const characters = [...bytes].map((byte) => RANDOM_ALPHABET[byte % RANDOM_ALPHABET.length]);
@@ -29,11 +26,8 @@ const randomName = () => {
 const RANDOM_NAME_PATTERN = new RegExp(`^[${RANDOM_ALPHABET}]{4}(?:-[${RANDOM_ALPHABET}]{4}){3}$`);
 
 /**
- * Bits a guesser faces, estimated on the safe side. A Random name has 80. A
- * name someone typed is far less random than it looks (words, dates, names),
- * so it counts at most 2.5 bits a character, and a repeated character adds
- * nothing. Strength is what someone holding the server's data would face:
- * they can test guesses offline against the namespace ID.
+ * Estimated on the safe side: typed names are far less random than they look,
+ * and whoever holds the server's data can test guesses offline against the ID.
  */
 const HUMAN_BITS_PER_CHARACTER = 2.5;
 const STRENGTH = [

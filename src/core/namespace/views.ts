@@ -80,7 +80,7 @@ export class Views {
       .map((row) => ({ id: row.item_id, ...(row.envelope ? { envelope: row.envelope } : {}) }));
   }
 
-  /** Called without an await between the queue insertion and this insertion. */
+  /** No await between the queue insert and this one, so a view never misses an item. */
   append(token: string, id: string, envelope?: string): void {
     const ordinal =
       this.sql().exec<{ first: number | null }>(
@@ -96,7 +96,7 @@ export class Views {
     );
   }
 
-  /** Reorders the active view, without changing any frozen view. */
+  /** Frozen views never change. */
   moveToFront(token: string, id: string): void {
     const ordinal =
       this.sql().exec<{ first: number | null }>(
@@ -111,7 +111,7 @@ export class Views {
     );
   }
 
-  /** A plain import needs no client-side envelopes, so it can join the active view. */
+  /** Plain items need no client-side envelopes, so they can join the active view. */
   syncPlain(token: string, ids: string[]): void {
     for (const [ordinal, id] of ids.entries()) {
       this.sql().exec(

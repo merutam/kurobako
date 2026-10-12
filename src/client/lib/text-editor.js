@@ -3,9 +3,7 @@
 
 import { h } from "../shared/dom.js";
 import { icon } from "../shared/icons.js";
-// Syntax-highlighted native textareas and their language picker. The editable
-// textarea stays in charge of selection, forms and accessibility; a copy below
-// it only paints the syntax colors.
+// The textarea keeps selection, forms and accessibility; a copy below only paints colors.
 
 import { highlighter, withHighlighter } from "./highlight.js";
 import { highlightedCode, lineNumbers, MAX_HIGHLIGHT_CHARACTERS } from "./items.js";
@@ -30,7 +28,6 @@ const PREFERRED_EXTENSIONS = {
 
 export { MAX_HIGHLIGHT_CHARACTERS };
 
-/** The language picker's options; only Plain text and `selected` until highlight.js is here. */
 const languageOptions = (selected) => {
   const hljs = highlighter();
   const options = [h("option", { value: "" }, "Plain text")];
@@ -50,10 +47,8 @@ const languageOptions = (selected) => {
   return options;
 };
 
-/** Fills a language picker with `selected` chosen, and with every language once they are known. */
 export const fillLanguages = (select, selected) => {
-  // The first fill takes `selected` over what the page came with; later
-  // fills (once highlight.js is here) keep what has been picked since.
+  // Later fills keep what has been picked since.
   let first = true;
   const fill = () => {
     const value = first ? selected : select.value || selected;
@@ -122,13 +117,7 @@ const addResizeHandle = (editor) => {
   editor.append(handle);
 };
 
-/**
- * Keeps a native textarea editable over a syntax-colored, scroll-synchronized
- * copy. The textarea's own letters are transparent, so the copy must follow
- * every keystroke: it is redrawn on the next frame with the selected grammar.
- * A text too large to color on every keystroke shows its letters at once and
- * its colors when typing pauses.
- */
+/** The textarea's letters are transparent, so the copy must follow every keystroke. */
 export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   const highlight = h("pre", { class: "text-editor-highlight", "aria-hidden": "true" });
   const gutterText = h("span");
@@ -138,10 +127,9 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   let lineStarts = [0];
   let colorTimer = null;
   let frame = null;
-  /** Whether coloring the whole text took too long to do on every keystroke. */
+  /** Large texts color only when typing pauses. */
   let slow = false;
-  // Scroll the contents, not their <pre> containers: the textarea can scroll
-  // farther at the bottom, where a <pre>'s own scrollTop would be clamped.
+  // The contents, not their <pre>: its scrollTop would clamp before the textarea's.
   const syncScroll = () => {
     const x = textarea.scrollLeft;
     const y = textarea.scrollTop;
@@ -166,8 +154,7 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     } else {
       code = h("code", { class: "hljs" }, text);
     }
-    // A visible character after a final newline keeps the last empty line
-    // visible when the textarea scrolls to the bottom.
+    // Keeps the last empty line visible when the textarea scrolls to the bottom.
     if (text.endsWith("\n")) code.append(" ");
     highlight.replaceChildren(code);
     syncScroll();
@@ -211,10 +198,6 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     updatePosition();
   };
 
-  /**
-   * Where the caret is: "12:5", and how much is selected, "12:5 (27)". The
-   * caller puts it below the text, with the form's other details.
-   */
   const position = h("span", { class: "text-editor-position", "aria-hidden": "true" });
   let positionFrame = null;
   const showEmptySelection = () => {
@@ -262,7 +245,6 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     const line = low + 1;
     const column = caret - lineStarts[low] + 1;
     const selected = end - start;
-    // Short, as editors write it (line:column), with the words on hover.
     position.textContent = `${line}:${column}${selected ? ` (${selected})` : ""}`;
     position.title = `Line ${line}, column ${column}${selected ? `, ${selected} selected` : ""}`;
     showEmptySelection();
@@ -281,16 +263,14 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     syncScroll();
     updatePosition();
   });
-  // A phone's keyboard composes a word before it is typed, and some browsers
-  // tell the page only once it is done: meanwhile the textarea shows its own
-  // letters (the colored copy cannot follow), then colors come back.
+  // Phone keyboards compose before telling the page: the textarea shows its own
+  // letters meanwhile, since the colored copy cannot follow.
   textarea.addEventListener("compositionstart", () => editor.classList.add("composing"));
   textarea.addEventListener("compositionupdate", () => refresh());
   textarea.addEventListener("compositionend", () => {
     editor.classList.remove("composing");
     refresh({ immediate: true });
   });
-  // The caret moves by typing, clicking, the arrow keys and selecting.
   for (const type of ["input", "click", "keyup", "select", "focus"]) {
     textarea.addEventListener(type, updatePosition);
   }
@@ -311,7 +291,6 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   document.addEventListener("selectionchange", () => {
     if (document.activeElement === textarea) updatePosition();
   });
-  // Ctrl+Enter (Cmd+Enter on a Mac) sends, or saves, without reaching for the mouse.
   textarea.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();

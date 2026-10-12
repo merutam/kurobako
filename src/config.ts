@@ -4,62 +4,46 @@
 import { type PushConfig, vapidKeyProblem } from "./core/push";
 
 export type AppConfig = {
-  /**
-   * Where the site lives under its domain: "" for the root, or a path such
-   * as "/k" to share a domain with another site.
-   */
+  /** A path such as "/k" shares the domain with another site. */
   basePath: string;
   maxFileBytes: number;
   maxTextBytes: number;
-  /** Texts no larger than this stay directly in SQLite. */
+  /** Larger texts go to the blob store. */
   inlineTextBytes: number;
   itemTtlMs: number;
   maxItems: number;
-  /** How long a namespace may stay empty before its storage is deleted. */
+  /** Empty namespaces are deleted after this, so names do not hold storage forever. */
   emptyNamespaceTtlMs: number;
-  /** Open live-update sockets allowed per namespace. */
   maxLiveConnections: number;
-  /** Sends allowed per client address per minute. */
   sendsPerMinute: number;
-  /**
-   * Requests per client per minute that find nothing (a namespace, item or
-   * share link that is not there); past them, it reads nothing for a while.
-   */
   missesPerMinute: number;
-  /** The most every item together may take, in bytes; null for no limit. */
+  /** null: no limit. */
   maxStorageBytes: number | null;
   /**
-   * Clients on hosting, cloud and VPN networks or Tor (see networks.ts):
-   * "allow" counts them like anyone, "limit" counts their sends and misses
-   * by network block (IPv4 /24, IPv6 /48), "block" refuses their sends.
+   * "limit" counts per network block (IPv4 /24, IPv6 /48): a script cannot spread over a
+   * provider's many addresses.
    */
   automatedNetworks: AutomatedNetworks;
-  /** Unset disables the admin dashboard at /a. */
+  /** Unset: no admin dashboard. */
   adminKey: string | null;
   adminSessionHours: number;
-  /** Set, only those who know it can use the site: a private instance. */
+  /** Set: a private instance. */
   accessKey: string | null;
   accessSessionDays: number;
-  /** In a private instance, whether share links still open for anyone. */
   publicShares: boolean;
-  /** Push notifications (see core/push.ts); null when the VAPID keys are unset. */
+  /** null when the VAPID keys are unset. */
   push: PushConfig | null;
-  /**
-   * Devices told of each namespace's sends; past it, the oldest goes. Each
-   * send is a message to each of them, all at once.
-   */
+  /** Each send is a push to every one of them at once, so this bounds the burst. */
   maxPushSubscriptions: number;
 };
 
-/** The largest sizes a platform can take; each platform sets its own. */
+/** Each platform sets its own: Workers cap request bodies, a server does not. */
 export type PlatformLimits = {
   maxFileBytes: number;
   maxTextBytes: number;
-  /** Largest text that this platform can safely keep directly in SQLite. */
   maxInlineTextBytes: number;
 };
 
-/** Used by self-hosted platforms, where the operator chooses practical limits. */
 const UNBOUNDED_LIMITS: PlatformLimits = {
   // Leave room for protocol overhead while staying within safe integers.
   maxFileBytes: Number.MAX_SAFE_INTEGER - 1_000_000,
@@ -67,12 +51,9 @@ const UNBOUNDED_LIMITS: PlatformLimits = {
   maxInlineTextBytes: Number.MAX_SAFE_INTEGER - 1_000_000,
 };
 
-/** Long enough that guessing it, even without the login rate limit, is hopeless. */
+/** Hopeless to guess even without the login rate limit. */
 export const ADMIN_KEY_MIN_LENGTH = 32;
-/**
- * The key to a private instance is typed on phones too, so it may be shorter;
- * failed logins are limited per address all the same.
- */
+/** Shorter: it is typed on phones, and failed logins are rate limited anyway. */
 export const ACCESS_KEY_MIN_LENGTH = 16;
 
 type Vars = Record<string, unknown>;
@@ -116,13 +97,9 @@ const accessKey = (vars: Vars): string | null => {
   return key;
 };
 
-/**
- * Push notifications need a VAPID key pair (`bun ops/vapid.ts` makes one);
- * without both keys there are none, and pages offer none.
- */
 let pushProblemLogged = false;
 const push = (vars: Vars): PushConfig | null => {
-  // A value pasted as ops/vapid.ts prints it (NAME=value), or quoted, is taken too.
+  // Accepts the line as ops/vapid.ts prints it (NAME=value), or quoted.
   const text = (name: string) =>
     typeof vars[name] === "string"
       ? (vars[name] as string)
@@ -139,8 +116,7 @@ const push = (vars: Vars): PushConfig | null => {
     (/^(?:mailto:|https:\/\/)\S+$/.test(subject)
       ? null
       : "VAPID_SUBJECT must be a mailto: or https: URL.");
-  // An optional feature set up wrong turns off alone: on Workers, where every
-  // request reads the settings, throwing here would take the whole site down.
+  // On Workers every request reads the settings: throwing here would take the whole site down.
   if (problem) {
     if (!pushProblemLogged) {
       console.error(`Notifications are off: ${problem} \`bun ops/vapid.ts\` makes a key pair.`);
@@ -172,7 +148,6 @@ const adminKey = (vars: Vars): string | null => {
 
 const basePath = (vars: Vars): string => {
   const raw = typeof vars.BASE_PATH === "string" ? vars.BASE_PATH.trim() : "";
-  // "k", "/k" and "/k/" all mean /k.
   const trimmed = raw.replace(/^\/+|\/+$/g, "");
   const path = trimmed ? `/${trimmed}` : "";
   if (path && !/^(?:\/[A-Za-z0-9._~-]+)+$/.test(path)) {
@@ -181,11 +156,7 @@ const basePath = (vars: Vars): string => {
   return path;
 };
 
-/**
- * Reads the settings from environment variables (or a Worker's vars and
- * secrets). The defaults are the same everywhere; how far the sizes may go is
- * the platform's `limits`.
- */
+/** Same defaults everywhere; `limits` is how far each platform lets sizes go. */
 export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMITS): AppConfig => {
   const vars = env as Vars;
   const maxTextBytes = integer(
