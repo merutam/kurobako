@@ -92,7 +92,7 @@ in
           node.wait_until_succeeds("garage node id -q")
       ids = {node.name: node.succeed("garage node id -q").strip() for node in nodes}
 
-      # The one-time setup of README.md: connect, lay out, bucket and key.
+      # The one-time setup of docs/self-hosting.md: connect, lay out, bucket and key.
       for node in [a, b, c]:
           box.succeed(f"garage node connect {ids[node.name]}")
       for node in nodes:

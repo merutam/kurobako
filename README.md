@@ -2,339 +2,119 @@
 
 A web clipboard with short queues kept apart by namespace. Open `/myns` on
 your phone and on your computer to share the same box: no accounts, the 20
-newest items kept, each expiring after a day.
-
-- **Plain** (`/myns`): the server stores what is sent, and everything works
-  with `curl`.
-- **Encrypted** (`/e#name`): the client encrypts everything; the name, after
-  the `#`, never reaches the server. Anyone with the name can read, so use a
-  long one (*Random name* on the home page makes 80 bits).
-
-It runs on Cloudflare Workers or as a self-hosted Bun server.
-
-## Command line
-
-`BOX` is the address of a Kurobako instance and `ns` a namespace name:
+newest items kept, each expiring after a day. `/e#name` namespaces are
+end-to-end encrypted.
 
 ```sh
-BOX=https://kurobako.mugens.org
-curl $BOX/ns/ls                    # the queue as JSON, newest first
-curl $BOX/ns/1                     # the newest item's contents
-curl $BOX/ns/1.json                # its details and a share link
-curl -OJ $BOX/ns/1/d               # saved under its own name
-curl -d 'hello' $BOX/ns/new        # send a text
-curl -T photo.jpg $BOX/ns/         # send a file
-curl -H burn:1 -d 'once' $BOX/ns/new   # deleted when first read
-curl -H 'If-Match: "<updatedAt-or-createdAt>"' -d 'changed' $BOX/ns/1/e
-curl -d 'new name' $BOX/ns/1/n     # rename
-curl -X DELETE $BOX/ns/1           # delete
-curl $BOX/ns/1/s                   # a link to share it
+curl -d 'hello' https://kurobako.mugens.org/myns/new   # send a text
+curl -T photo.jpg https://kurobako.mugens.org/myns/    # send a file
+curl https://kurobako.mugens.org/myns/1                # the newest item
 ```
 
-An item is its position (1 is the newest), its six-letter ID (which never
-changes) or its name, even cut short (`$BOX/ns/report` finds
-`Report 2024.pdf`). A text is named by its start until renamed.
+Every instance documents its whole API, plain and encrypted, at `/k/protocol`.
 
-For encrypted namespaces, [`/k.mjs`](public/k.mjs) takes the same options and
-paths as curl, with `e#name` in place of the namespace, and does the
-encryption (Node 20+ or Bun, no dependencies):
+## Running an instance
 
-```sh
-curl -O $BOX/k.mjs
-node k.mjs "$BOX/e#secret name"                # the items, one per line
-node k.mjs "$BOX/e#secret name/1"              # an item's contents
-node k.mjs -d 'hello' "$BOX/e#secret name/new"
-node k.mjs -d 'changed' "$BOX/e#secret name/1/e" # edit if unchanged meanwhile
-node k.mjs -O "$BOX/e#secret name"             # export every item here (overwrites)
-node k.mjs -X POST "$BOX/e#secret name/views"   # create a read-only shared view
-node k.mjs "$BOX/e#secret name/live"           # a line per change, until stopped
-```
+### Self-hosted
 
-`/live` stays connected and prints `new <id> <name>`, `moved`, `changed`,
-`gone <id>` as they happen, for scripts; it works on
-plain namespaces too, and reconnects by itself (Node 22+ or Bun):
-
-```sh
-node k.mjs "$BOX/e#secret name/live" | while read -r event id name; do
-  [ "$event" = new ] && node k.mjs -OJ "$BOX/e#secret name/$id/d"
-done
-```
-
-With [Nix](https://nixos.org/), `nix run github:merutam/kurobako#k -- <options> <link>`
-runs it without Node installed. `node k.mjs` lists everything it does. The whole protocol, plain and
-encrypted, is at `/k/protocol` on every instance. Every instance describes itself
-(base path, version, limits) at `/.well-known/kurobako`.
-
-## Behavior
-
-- **A namespace exists once something is sent to it**, so opening random
-  names creates nothing. Once its items are gone, it is
-  deleted after an hour.
-- **Limits:** texts up to 1 MB, files up to 100 MB, 300 sends a minute per
-  address (an IPv6 /64 network counts as one).
-- **Guessing names gets slow:** an address that asks for 300 namespaces, items
-  or share links that are not there in a minute reads nothing for the rest of
-  it. Plain names are still best long: a short one is easy to find.
-- **File types** come from the bytes: PNG, JPEG, GIF, WebP, AVIF and HEIC are
-  shown as images; anything else is a download.
-- **Burn after reading** (`Burn: 1`): only one reader gets the item.
-- **Per-send limits:** `Reads: 3` permits three explicit content reads;
-  `Expires-In: 3600` expires an item after an hour, within the instance limit.
-- **No copies:** sending contents already in a plain queue moves that item to
-  the top (`200` with `"existing": true`); a clone uses `No-Dedup: 1` to
-  preserve distinct source items with identical bytes.
-- **Share links** (`/i/<token>`) open one item without revealing its
-  namespace, and die with it. Encrypted ones carry the item's key after the
-  `#`.
-- **Shared views** (`/v/<token>`) list item links without revealing the source
-  namespace. The active view gains new items; older views keep their member
-  list but show edits to those items. The view page can clone available items
-  into a new, independent plain or encrypted namespace.
-- **Live:** open pages get every change over a WebSocket.
-- **Access log** at `<ns>/log`. The home page shows aggregate stats only,
-  counted from page views, whose address and country are kept for a day.
-
-## Backups
-
-A namespace comes out whole as a zip or a tar, and goes back the same way.
-Encrypted items stay encrypted in it, so a backup needs no secret:
-
-```sh
-curl -OJ $BOX/ns/zip                       # ns-2026-10-06.zip (or /tar)
-curl -OJ "$BOX/ns/zip?since=2026-10-01"    # only what was sent or changed since
-curl -T ns-2026-10-06.zip $BOX/ns/import   # put back (into any plain namespace)
-node k.mjs -O "$BOX/e#secret name"         # every item, decrypted, into this folder
-```
-
-Like curl, `k.mjs -O` overwrites a local file of the same name; add
-`--no-clobber` to refuse. It exports but does not synchronize a folder. An
-extracted plain backup accepts `./backup`, `./backup/ls`, `/1`, `/item-id` and
-`/1.json`; in a full backup, select one as `./backup/plain/<namespace>/ls`.
-Encrypted backups use `./backup#secret name/ls`, and `-O` on the bare link
-exports their decrypted items. A `.sealed` file can also be printed directly
-with the same `#secret name`. `KUROBAKO_SECRET` may carry the name instead.
-Keep `manifest.json` beside the extracted files.
-
-With `ADMIN_KEY` set, `/k/a/zip` and `/k/a/tar` back up every namespace, and
-`/k/a/import` restores them:
-
-```sh
-curl -H "Authorization: Bearer $ADMIN_KEY" -o backup.tar $BOX/k/a/tar
-```
-
-Import merges: a newer revision replaces a text with the same ID; files stay
-immutable, and nothing is deleted. Incremental backups omit deletions; restore
-a full snapshot into an empty instance for an exact copy. Items that burn after
-reading are left out.
-
-A backup also comes in parts, each a whole backup of its own items, for
-anything with a request size limit (Cloudflare takes 100 MB per request):
-`?max=<bytes>` keeps each part within that size, headers and manifest
-included (an item larger than that still goes, alone in its part), and its
-`X-Kurobako-Next` header, given back as `?after=`, starts the next one. The
-last part has none:
-
-```sh
-next=
-while :; do
-  curl -fsS -OJ -D head -H "Authorization: Bearer $ADMIN_KEY" \
-    "$BOX/k/a/zip?max=99000000&after=$next" || break
-  next=$(sed -n 's/^x-kurobako-next: *//Ip' head | tr -d '\r')
-  [ -n "$next" ] || break
-done
-for part in kurobako-*-part*.zip; do
-  curl -fsS -H "Authorization: Bearer $ADMIN_KEY" -T "$part" "$BOX/k/a/import"
-done
-```
-
-## Write access
-
-A plain namespace's name lets anyone who knows it write. An encrypted
-namespace requires the write key derived from its complete secret name on
-every mutation, including the first upload. Share links never carry that key.
-The old lock endpoint is disabled.
-
-## A private instance
-
-Kurobako forgets by design. For one that keeps things, just for you:
-
-```sh
-ITEM_TTL_SECONDS=0          # items never expire
-MAX_STORAGE_BYTES=50000000000   # but never more than 50 GB in all
-ACCESS_KEY=...              # 16 characters or more: only who has it gets in
-```
-
-Pages then ask for the key once (a session lasts `ACCESS_SESSION_DAYS`).
-Scripts send it as `Authorization: Bearer <key>`, and `k.mjs` reads it from
-`KUROBAKO_KEY`. Share links still open for anyone, one item each, unless
-`PUBLIC_SHARES=false`. Add a daily backup, above, and keep it elsewhere.
-
-## Running it
-
-Settings are environment variables (`vars` in `wrangler.jsonc` on Cloudflare):
-
-| Variable | Default | Notes |
-| --- | ---: | --- |
-| `MAX_FILE_BYTES` | `100000000` | at most 100 MB on Cloudflare Free and Pro; self-hosted has no application cap |
-| `MAX_TEXT_BYTES` | `1000000` | at most 100 MB on Cloudflare Free and Pro; self-hosted has no application cap |
-| `INLINE_TEXT_BYTES` | `64000` | texts above this size go to R2/S3 instead of SQLite; at most 2 MB on Cloudflare and no application cap self-hosted |
-| `ITEM_TTL_SECONDS` | `86400` | `0`: no expiry; 30 days at most |
-| `MAX_ITEMS` | `20` | per namespace; 1,000 at most |
-| `EMPTY_NAMESPACE_TTL_SECONDS` | `3600` | before an empty namespace is deleted |
-| `MAX_LIVE_CONNECTIONS` | `100` | per namespace |
-| `MAX_STORAGE_BYTES` | unset | every item together, across namespaces; sends past it get `507` |
-| `MISSES_PER_MINUTE` | `300` | per client: requests for namespaces, items or share links that are not there; past it, the client reads nothing for a minute. On Cloudflare, also set `MISS_LIMITER`'s limit |
-| `AUTOMATED_NETWORKS` | `limit` | hosting, cloud and VPN networks and Tor, where scripts run: `allow` counts them like anyone; `limit` counts their sends and misses by network block (IPv4 /24, IPv6 /48); `block` refuses their sends (`403`). Reading is never blocked |
-| `SENDS_PER_MINUTE` | `300` | per client address (an IPv6 /64 network counts as one); on Cloudflare, also set `UPLOAD_LIMITER`'s limit in `wrangler.jsonc` |
-| `ADMIN_KEY` | unset | enables `/k/a`; 32 characters or more |
-| `ADMIN_SESSION_HOURS` | `12` | |
-| `ACCESS_KEY` | unset | makes the instance private (see "A private instance"); 16 characters or more |
-| `ACCESS_SESSION_DAYS` | `30` | how long a login to a private instance lasts |
-| `PUBLIC_SHARES` | `true` | in a private instance, whether share links open for anyone |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | unset | push notifications of new items, which each device turns on per namespace; `bun ops/vapid.ts` makes the pair (keep it: a new one makes every device subscribe again). On Cloudflare, put the private key in a secret |
-| `MAX_PUSH_SUBSCRIPTIONS` | `20` | devices notified per namespace; past it, the oldest is dropped. Each send is one message per device, sent together (on Cloudflare, mind the subrequests a request may make) |
-| `VAPID_SUBJECT` | the project's page | how push services reach whoever runs the instance: a `mailto:` or `https:` URL |
-| `BASE_PATH` | unset | e.g. `/k`, to share a domain with another site: `$BOX` is then `https://example.com/k` |
-
-Values beyond a platform's technical limits are refused at start.
-
-**Cloudflare Workers.** Namespaces are Durable Objects and files live in a
-private R2 bucket. Set `account_id`, `routes` and `bucket_name` in
-`wrangler.jsonc`, optionally `bunx wrangler secret put ADMIN_KEY`, then
-`bun run deploy`.
-
-**Self-hosted.** `src/runtime/bun/server.ts` keeps one SQLite file per namespace and
-larger texts and files in any S3-compatible store. Namespace databases open
-lazily; the least recently used connections are closed after reaching
-`SQLITE_MAX_OPEN` (default `1000`), and idle connections close after
-`SQLITE_IDLE_SECONDS` (default `60`). `compose.yaml` runs it with
-[Garage](https://garagehq.deuxfleurs.fr/):
+`compose.yaml` runs the Bun server with [Garage](https://garagehq.deuxfleurs.fr/)
+for file storage:
 
 ```sh
 ops/init-env.sh                # writes .env with fresh secrets
 podman compose up -d --build   # or docker compose
 ```
 
-Any other S3-compatible store works instead of Garage, such as Cloudflare
-R2: set `S3_ENDPOINT` (for R2, `https://<account id>.r2.cloudflarestorage.com`),
-`S3_REGION` (`auto`), `S3_BUCKET` and its keys in `.env`, and start the server
-alone with `podman compose up -d --build --no-deps kurobako`. Give it a bucket
-of its own as two instances sharing one would delete each other's files.
+It listens on `127.0.0.1:3000`: put a reverse proxy with HTTPS in front, and
+set `CLIENT_IP_HEADER` (e.g. `x-forwarded-for`) so limits count real clients.
 
-With [Nix](https://nixos.org/), the flake runs the same server without a
-container, with settings from the environment (it reads no `.env`):
+Any S3-compatible store works instead of Garage: set `S3_ENDPOINT`,
+`S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` in
+`.env` and start the server alone with `podman compose up -d --build --no-deps kurobako`.
+Give each instance a bucket of its own.
 
-```sh
-S3_ENDPOINT=https://<account id>.r2.cloudflarestorage.com S3_REGION=auto \
-S3_BUCKET=kurobako S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=... \
-nix run github:merutam/kurobako
-```
-
-Or with a single-node Garage next to it, as `compose.yaml` runs, in one
-command and with no S3 settings:
+### Nix
 
 ```sh
-nix run github:merutam/kurobako#with-garage
+nix run github:merutam/kurobako#with-garage   # server and a local Garage
+nix run github:merutam/kurobako               # server only, S3_* from the environment
 ```
 
-`nix build` leaves the server in `./result/bin/kurobako`. It listens on
-`127.0.0.1:3000` and keeps its SQLite files in `~/.local/share/kurobako`
-(`$XDG_DATA_HOME/kurobako`); `HOST`, `PORT` and `DATA_DIR` change them.
-`with-garage` keeps Garage's files, keys and log in `garage/` there, and
-listens on `127.0.0.1:3900` and `3901` (`GARAGE_S3_PORT`, `GARAGE_RPC_PORT`).
-
-It listens on `127.0.0.1:3000`; put a reverse proxy with HTTPS in front.
-Besides the settings above it takes `S3_ENDPOINT`, `S3_BUCKET`,
-`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `DATA_DIR`, `PORT`,
-`HOST`, `SQLITE_MAX_OPEN`, `SQLITE_IDLE_SECONDS`, `PUBLIC_URL` and, behind a
-proxy, `CLIENT_IP_HEADER` (e.g. `x-forwarded-for`). Behind Cloudflare, a
-Transform Rule that sets the header `cf-asn` to `ip.src.asnum` lets
-`AUTOMATED_NETWORKS` tell networks apart; without it, every client counts as
-a home. It logs each request and error, as one JSON line when not in a
-terminal: `podman compose logs -f kurobako`.
-
-**On NixOS.** The flake has a module, `services.kurobako`, that runs the
-server as a systemd service, with Garage on the same machine if asked:
+On NixOS, the module runs it as a service, with Caddy for HTTPS:
 
 ```nix
-# flake.nix: inputs.kurobako.url = "github:merutam/kurobako";
 imports = [ kurobako.nixosModules.default ];
 services.kurobako = {
   enable = true;
-  domain = "box.example"; # HTTPS through Caddy, with its certificate
-  garage.enable = true; # one node; its keys, bucket and layout are made on first boot
+  domain = "box.example";
+  garage.enable = true;
   environmentFile = "/run/secrets/kurobako.env"; # ADMIN_KEY, ACCESS_KEY
 };
 ```
 
-`domain` puts Caddy in front, opens ports 80 and 443 (`openFirewall`), and
-sets `PUBLIC_URL` and `CLIENT_IP_HEADER`; without it, the server answers
-plain HTTP on `127.0.0.1:3000`, for a proxy of your own. Other settings go
-in `settings` (`settings.MAX_ITEMS = 50;`), or with the secrets in
-`environmentFile`, a `.env` as compose uses. Without `garage.enable`, set
-`s3.endpoint`, `s3.region` and `s3.bucket`, and the store's keys in
-`environmentFile`. The SQLite files are in `/var/lib/kurobako`.
+Replicated storage and several servers behind a router are in
+[docs/self-hosting.md](docs/self-hosting.md).
 
-**Replicated storage.** With `garage.mode = "cluster"`, Garage keeps
-`garage.replicationFactor` copies of each file (3 by default: it reads and
-writes with one node down) on as many storage nodes, in different zones
-when it can. Choose the factor once, as Garage does not support changing it
-later. Every machine with the server also runs a Garage node, a storage node
-or a gateway (one that keeps nothing and passes requests on), and the server
-talks to it alone, so no single node stops it. A storage node may run
-Garage alone, with `services.kurobako.garage` set and the server left off.
-On every node:
+### Cloudflare Workers
 
-```nix
-services.kurobako.garage = {
-  enable = true;
-  mode = "cluster";
-  rpcPublicAddr = "10.0.0.1:3901";          # this node, as the others reach it
-  environmentFile = "/run/secrets/garage.env"; # GARAGE_RPC_SECRET, the same on all
-  openFirewall = true;                       # the RPC port, better on a private network
-};
-# where the server runs, its S3 key (S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY):
-services.kurobako.environmentFile = "/run/secrets/kurobako.env";
-```
-
-Then once, as root on any node (`garage node id` prints each node's ID;
-the key is the one in the server's `environmentFile`):
+Set `account_id`, `routes` and `bucket_name` in `wrangler.jsonc`, then:
 
 ```sh
-garage node connect <id>@10.0.0.2:3901        # each other node
-garage layout assign -z dc1 -c 500G <id>      # each storage node, its zone and size
-garage layout assign -z dc1 -g <id>           # each gateway
-garage layout apply --version 1
-garage bucket create kurobako
-garage key import -n kurobako <key id> <secret key>
-garage bucket allow --read --write kurobako --key <key id>
+bunx wrangler secret put ADMIN_KEY   # optional
+bun run deploy
 ```
 
-Copies are no backup: a deleted file goes from every node. And the SQLite
-files in `/var/lib/kurobako`, which list the items and hold short texts,
-are on one machine only: back them up (`sqlite3 .backup`, or Litestream), or
-keep namespace backups (`/<ns>/tar`, `/k/a/tar`).
+## Settings
 
-`nix flake check` runs both setups in virtual machines (`nix/tests.nix`),
-with a storage node lost along the way.
+Environment variables (`vars` in `wrangler.jsonc` on Cloudflare). Values
+beyond a platform's limits are refused at start.
 
-**Several servers.** Each server keeps its own data directory, and all share
-one S3 store. `src/runtime/bun/router.ts` sits in front, keeps no state and sends
-each namespace, with its share links and live connections, to the server
-that owns it:
+| Variable | Default | Notes |
+| --- | ---: | --- |
+| `ITEM_TTL_SECONDS` | `86400` | `0`: never expire; 30 days at most otherwise |
+| `MAX_ITEMS` | `20` | per namespace; 1,000 at most |
+| `MAX_FILE_BYTES` | `100000000` | 100 MB at most on Cloudflare Free and Pro |
+| `MAX_TEXT_BYTES` | `1000000` | 100 MB at most on Cloudflare Free and Pro |
+| `INLINE_TEXT_BYTES` | `64000` | larger texts go to R2/S3; 2 MB at most on Cloudflare |
+| `MAX_STORAGE_BYTES` | unset | all items together; sends past it get `507` |
+| `SENDS_PER_MINUTE` | `300` | per address (an IPv6 /64 is one); on Cloudflare, also `UPLOAD_LIMITER` |
+| `MISSES_PER_MINUTE` | `300` | requests for things that are not there; on Cloudflare, also `MISS_LIMITER` |
+| `AUTOMATED_NETWORKS` | `limit` | hosting, VPN and Tor networks: `allow`, `limit` (count per network block) or `block` sends |
+| `ADMIN_KEY` | unset | enables `/k/a`; 32 characters or more |
+| `ACCESS_KEY` | unset | makes the instance private; 16 characters or more |
+| `PUBLIC_SHARES` | `true` | in a private instance, whether share links still open |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | unset | push notifications; `bun ops/vapid.ts` makes the pair (keep it) |
+| `BASE_PATH` | unset | e.g. `/k`, to share a domain with another site |
+
+Also: `EMPTY_NAMESPACE_TTL_SECONDS`, `MAX_LIVE_CONNECTIONS`,
+`ADMIN_SESSION_HOURS`, `ACCESS_SESSION_DAYS`, `MAX_PUSH_SUBSCRIPTIONS`,
+`VAPID_SUBJECT`; and, self-hosted only, `DATA_DIR`, `HOST`, `PORT`,
+`PUBLIC_URL`, `SQLITE_MAX_OPEN` and `SQLITE_IDLE_SECONDS`.
+
+### A private instance
+
+For one that keeps things, just for you:
 
 ```sh
-SERVERS=http://10.0.0.1:3000,http://10.0.0.2:3000 bun src/runtime/bun/router.ts
+ITEM_TTL_SECONDS=0
+MAX_STORAGE_BYTES=50000000000
+ACCESS_KEY=...
 ```
 
-The servers run with `CLIENT_IP_HEADER=x-forwarded-for` and listen only
-where the router reaches them. Every router needs the same `SERVERS`, in the
-same order, and the servers' `BASE_PATH` if they have one. A server added later takes about 1/n of the namespaces; their
-SQLite files must move with them. Each server limits sends on its own, and
-admin logins go to the first. `/k/a` shows one server at a time, with a picker
-(`/k/a?server=2`); one login works on every server sharing `ADMIN_KEY`.
-`/stats.json` adds up every server's (a visitor seen by two servers counts
-twice).
+Scripts send the key as `Authorization: Bearer <key>`.
+
+### Backups
+
+With `ADMIN_KEY` set, the whole instance comes out as a tar or zip and goes
+back the same way; encrypted items stay encrypted:
+
+```sh
+curl -H "Authorization: Bearer $ADMIN_KEY" -o backup.tar https://box.example/k/a/tar
+curl -H "Authorization: Bearer $ADMIN_KEY" -T backup.tar https://box.example/k/a/import
+```
+
+On Cloudflare, requests are capped at 100 MB: `/k/protocol` shows how to back
+up in parts.
 
 ## Development
 
@@ -342,69 +122,14 @@ twice).
 
 ```sh
 bun install
-bun run dev          # wrangler dev (it runs the build first)
+bun run dev          # wrangler dev
 bun run start        # the Bun server
-bun run build        # dist/, what Cloudflare serves without the Worker
-bun run test         # Worker tests, then the Bun server's
+bun run test
 bun run typecheck
-bun run lint         # Biome; bun run format applies its fixes
-bun pm version minor # new version, in package.json and public/k.mjs
+bun run lint
 ```
-
-### Layout
-
-```
-src/
-  app.ts, config.ts   the Hono app and its settings, the same on both runtimes
-  assets.ts           what is served besides pages: the bundle's manifest, public/'s files
-  core/               the logic, with no HTTP and no runtime in it
-    namespace/        one namespace: its queue, access log and shared views (SQLite)
-    hub.ts            site-wide state: stats, share links, logins
-    model.ts          items and names; archive.ts, contents.ts, media.ts, routing.ts, …
-    host.ts           what the cores need from where they run (SQL, a blob store)
-  api/                the HTTP routes, one file per kind of thing: each gives a Hono
-                      app (xRoutes) or a middleware, put together in app.ts
-  services/           what the routes do, with no HTTP in it: backups, sends, shares, …
-  pages/              the pages, rendered on the server with Hono JSX: each a component
-                      (<HomePage site={…} />), turned into HTML by renderPage
-    components/       <Layout>, every page's frame, and the pieces pages share
-    documents/        the protocol and the licenses
-  runtime/            platform.ts, the contract, and its two implementations:
-    cloudflare/       Durable Objects, R2 and rate limiters (worker.ts is the entry)
-    bun/              SQLite files, S3 and a router for several servers (server.ts)
-  client/             the browser's code, bundled by client/build.ts:
-    pages/<name>.js   a page's script (pages/<name>.tsx loads it); helpers in pages/<name>/
-    head/<name>.js    classic scripts, run before the first paint
-    lib/              what pages share; shared/ is what the server renders with too
-    styles/, vendor/
-public/               served as it is: k.mjs (the client and command line), sw.js, icons
-ops/                  build.ts (dist/ for Cloudflare), version.ts, icons.sh
-test/                 shared.ts runs against both runtimes
-```
-
-A request goes from `runtime/<platform>` to `app.ts`, then to a route in
-`api/`. The route reads the request (path, query, headers, body), asks a
-service in `services/` or a core through the platform (a Durable Object on
-Cloudflare, an object in the same process on Bun) and answers with JSON or a
-page from `pages/`. A service never sees the request: it takes plain values
-and gives back data, so status codes and headers stay in `api/`.
-
-Pages arrive with their data; their script takes over the HTML as it is.
-Only encrypted contents wait for the browser, which holds the key.
-
-The browser's code is bundled into files named by their contents, served at
-`/k/assets/` and cached for good; each page preloads the chunks it imports,
-and the large ones (highlight.js, the QR code) load after the page. The Bun
-server bundles in memory when it starts. For Cloudflare, `bun run build`
-(which Wrangler runs before `dev` and `deploy`) writes `dist/`: the bundle,
-`public/`, and the protocol and licenses pages, which need no Worker.
-
-- `test/shared.ts` runs on both platforms.
-- After changing `wrangler.jsonc`, run `bun run types`; after changing
-  `assets/icon.png`, run `ops/icons.sh`.
 
 ## License
 
-[AGPL-3.0-or-later](LICENSE). Third-party production dependencies keep their
-own notices in [`LICENSES/`](LICENSES), also published at `/k/licenses` on
-every instance.
+[AGPL-3.0-or-later](LICENSE). Third-party notices are in [`LICENSES/`](LICENSES)
+and at `/k/licenses` on every instance.

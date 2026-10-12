@@ -11,7 +11,7 @@
 # garage.replicationFactor copies of every file. Each machine running the
 # server runs a Garage node too, a storage node or a gateway (one that keeps
 # nothing and passes requests on), and the server talks to it alone, so no
-# single node is in its way. See README.md, "Replicated storage", for the one-time
+# single node is in its way. See docs/self-hosting.md, "Replicated storage", for the one-time
 # setup of the cluster.
 { self }:
 {

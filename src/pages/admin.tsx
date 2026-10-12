@@ -90,7 +90,7 @@ export const AdminPage = ({
         <h2 id="backup-title">Backup</h2>
         <p class="hint">
           Every namespace as a zip or a tar. Items that delete when opened are left out. A backup
-          larger than a request may be split in parts: see the README.
+          larger than a request may be split in parts: see the protocol page.
         </p>
         <p class="actions">
           <button id="backup-zip" type="button">

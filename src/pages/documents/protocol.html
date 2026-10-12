@@ -175,7 +175,7 @@
       </tr>
       <tr>
         <td><code>curl -D - -OJ "$BOX/ns/zip?max=100000000"</code></td>
-        <td>in parts of about that size; while more remain, <code>X-Kurobako-Next</code> goes back as <code>?after=</code></td>
+        <td>in parts within that size, headers included; while more remain, <code>X-Kurobako-Next</code> goes back as <code>?after=</code></td>
       </tr>
       <tr>
         <td><code>curl -T ns-2026-10-06.zip $BOX/ns/import</code></td>
