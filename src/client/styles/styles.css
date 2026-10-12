@@ -1624,7 +1624,8 @@ summary::before {
   min-width: 18rem;
   white-space: normal;
 }
-.prose .data-table td:nth-child(2) code {
+/* :where() scopes without weight, so later `code` rules keep their order. */
+:where(.prose) .data-table td:nth-child(2) code {
   white-space: nowrap;
 }
 .data-table td small {

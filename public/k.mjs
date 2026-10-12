@@ -562,54 +562,120 @@ export const VERSION = "0.8.16";
 export const PROTOCOL = 8;
 // Only when run directly. It reads like curl, with e#<name> in place of the namespace.
 
-const USAGE = `Usage: node k.mjs [options] <link>
+const HELP_INTRO = `Usage: node k.mjs [options] <link>     (or bun k.mjs, or k from Nix)
 
-The requests and options are curl's; for an encrypted namespace, e#<name>
-takes the place of the namespace and k.mjs does the encryption:
+curl's requests and options, for Kurobako: e#<name> takes the place of the
+namespace, and k.mjs encrypts and decrypts on the way. Plain links
+(<site>/<namespace>/...) are sent as they are.`;
 
-  node k.mjs <site>/e#<name>                  the items, one per line
-  node k.mjs <site>/e#<name>/ls               the items as JSON
-  node k.mjs <site>/e#<name>/1                an item's contents (1 is the newest)
-  node k.mjs <site>/e#<name>/1.json           its details and a share link
-  node k.mjs -OJ <site>/e#<name>/1/d          saved under its own name
-  node k.mjs -O <site>/e#<name>               exports every item here (overwrites)
-  node k.mjs './backup/ls'                    lists an extracted plain backup, offline
-  node k.mjs './backup/plain/<ns>/1'          opens one namespace in a full backup
-  node k.mjs -O './backup#<name>'             exports an extracted encrypted backup
-  node k.mjs './backup#<name>/ls'             lists that backup as JSON, offline
-  node k.mjs './backup#<name>/1'              decrypts its newest item, offline
-  node k.mjs './backup/.../item.sealed#<name>'   decrypts one local backup item
-  node k.mjs -d 'hello' <site>/e#<name>/new   sends a text (-d @file, -d @- for stdin)
-  node k.mjs -T photo.jpg <site>/e#<name>/    sends a file
-  node k.mjs -H burn:1 -d 'once' <site>/e#<name>/new
-  node k.mjs -H Reads:3 -H Expires-In:3600 -d 'limited' <site>/e#<name>/new
-  node k.mjs -d 'changed' <site>/e#<name>/1/e   edits a text if it has not changed
-  node k.mjs -d 'new name' <site>/e#<name>/1/n   renames it (empty: a text's default)
-  node k.mjs -X DELETE <site>/e#<name>/1
-  node k.mjs <site>/e#<name>/1/s              a link to share it, with its key
-  node k.mjs -X POST <site>/e#<name>/views     creates a read-only shared view
-  node k.mjs <site>/e#<name>/views             lists its shared views
-  node k.mjs <site>/i/<token>#<key>           a shared item
-  node k.mjs <site>/i/<token>#<key>/ls        its one item as a JSON list
-  node k.mjs <site>/v/<token>#<view-key>      a shared view, one line per item
-  node k.mjs <site>/v/<token>#<view-key>/ls   its items as a JSON list
-  node k.mjs <site>/e#<name>/1 | mpv -        contents stream as they arrive
-  node k.mjs play <site>/e#<name>/1           plays it in mpv, seeking included
-  node k.mjs serve <site>/e#<name>/1          a local address for any player
+/** Data, not text, so the columns are always aligned. */
+const HELP_SECTIONS = [
+  [
+    "Reading",
+    [
+      ["<site>/e#<name>", "the items, one per line"],
+      ["<site>/e#<name>/ls", "the items as JSON"],
+      ["<site>/e#<name>/1", "an item's contents (1 is the newest)"],
+      ["<site>/e#<name>/1.json", "its details and a share link"],
+      ["-OJ <site>/e#<name>/1/d", "saved under its own name"],
+      ["-O <site>/e#<name>", "every item into this folder (overwrites)"],
+      ["<site>/e#<name>/live", "a line per change (new, moved, changed, gone)"],
+    ],
+  ],
+  [
+    "Sending and editing",
+    [
+      ["-d 'hello' <site>/e#<name>/new", "a text (-d @file, -d @- for stdin)"],
+      ["-T photo.jpg <site>/e#<name>/", "a file"],
+      ["-H burn:1 -d 'once' <site>/e#<name>/new", "deleted by its first read"],
+      ["-H Reads:3 -H Expires-In:3600 -d 'hi' <site>/e#<name>/new", "three reads, one hour"],
+      ["-d 'changed' <site>/e#<name>/1/e", "edits a text, if unchanged meanwhile"],
+      ["-d 'new name' <site>/e#<name>/1/n", "renames it (empty: a text's default)"],
+      ["-X DELETE <site>/e#<name>/1", "deletes it"],
+    ],
+  ],
+  [
+    "Sharing",
+    [
+      ["<site>/e#<name>/1/s", "a link to it alone, with its key"],
+      ["-X POST <site>/e#<name>/views", "a read-only shared view"],
+      ["<site>/e#<name>/views", "its shared views"],
+      ["<site>/i/<token>#<key>", "a shared item; /ls for JSON"],
+      ["<site>/v/<token>#<view-key>", "a shared view, one line per item; /ls for JSON"],
+      ["<site>/e#/<token>", "an older read-only link: reads, cannot write"],
+    ],
+  ],
+  [
+    "Media",
+    [
+      ["<site>/e#<name>/1 | mpv -", "streams as it arrives"],
+      ["play <site>/e#<name>/1", "plays it in mpv, seeking included"],
+      ["serve <site>/e#<name>/1", "a local address for any player"],
+    ],
+  ],
+  [
+    "Offline backups",
+    [
+      ["./backup/ls", "an extracted plain backup"],
+      ["./backup/plain/<ns>/1", "one namespace of a full backup"],
+      ["'./backup#<name>/ls'", "an extracted encrypted backup, decrypted"],
+      ["-O './backup#<name>'", "exports it"],
+      ["'./backup/.../<id>.sealed#<name>'", "decrypts one item"],
+    ],
+  ],
+  [
+    "Options",
+    [
+      ["-d, --data <text>", "sends a text; --data-binary @file keeps line breaks"],
+      ["-T, --upload-file <file>", "sends a file"],
+      ["-X, --request <method>", "DELETE, POST, …"],
+      ["-H, --header <header>", "Burn, Reads, Expires-In, If-Match, …"],
+      ["-o, --output <file>", "writes there (-o - for standard output)"],
+      ["-O, -J", "names the file after the URL, or after the item"],
+      ["--no-clobber", "never overwrites a file"],
+      ["-s -S -L -f -p", "ignored, so curl commands paste as they are"],
+      ["-h, --help", "this help"],
+    ],
+  ],
+  [
+    "Environment",
+    [
+      ["KUROBAKO_KEY", "a private instance's key"],
+      ["KUROBAKO_WRITE_KEY", "an encrypted namespace's write key, if not from its name"],
+      ["KUROBAKO_SECRET", "the secret name, for offline encrypted backups"],
+      ["KUROBAKO_PLAYER", "the player for play (mpv by default)"],
+    ],
+  ],
+];
 
-Options: -d, -T, -X, -H, -o <file> (-o - for standard output), -O, -J,
---no-clobber (do not overwrite)
-(and -s, -S, -L, -f, -p, ignored).
-A private instance's key goes in KUROBAKO_KEY: KUROBAKO_KEY=... node k.mjs <link>
-A plain namespace's name grants writes. An encrypted namespace requires the Write-Key its secret name derives; KUROBAKO_WRITE_KEY can supply it explicitly.
-<link>/live stays on and prints a line per change (new, moved, changed, gone),
-the encrypted ones decrypted: for scripts.
-An encrypted namespace writes with the key its name gives. A legacy read-only
-link, <site>/e#/<token>, reads but cannot write.
-As with curl, -d @file drops line breaks; --data-binary @file keeps them.
--h or --help shows this.
-Plain links (<site>/<namespace>/...) work too, sent as they are; JSON prints
-the same either way, and errors go to standard error.`;
+/** Only on a terminal, so pipes and files never get escape codes. NO_COLOR wins. */
+const colorsOn = (stream) =>
+  !process.env.NO_COLOR && (Boolean(process.env.FORCE_COLOR) || Boolean(stream.isTTY));
+
+/** Longer commands put their description on the next line instead of widening every row. */
+const HELP_COLUMN = 36;
+
+const renderHelp = (stream, intro = HELP_INTRO, helpSections = HELP_SECTIONS) => {
+  const on = colorsOn(stream);
+  const paint = (code, text) => (on ? `\x1b[${code}m${text}\x1b[0m` : text);
+  const command = (text) =>
+    text.replace(/(^|\s)(--?[\w-]+)/g, (_, space, flag) => space + paint("36", flag));
+  const head = intro.replace(/^Usage:/, paint("1", "Usage:"));
+  const fitting = helpSections.flatMap(([, rows]) => rows.map(([left]) => left.length));
+  const width = Math.min(
+    HELP_COLUMN,
+    Math.max(...fitting.filter((length) => length <= HELP_COLUMN)),
+  );
+  const sections = helpSections.map(([title, rows]) => {
+    const lines = rows.map(([left, right]) =>
+      left.length > width
+        ? `  ${command(left)}\n  ${" ".repeat(width)}  ${paint("2", right)}`
+        : `  ${command(left)}${" ".repeat(width - left.length)}  ${paint("2", right)}`,
+    );
+    return [paint("1;33", title), ...lines].join("\n");
+  });
+  return [head, ...sections].join("\n\n");
+};
 
 const TEXT_MIME = "text/plain; charset=utf-8";
 /** As on the server. */
@@ -2249,16 +2315,35 @@ const plainRequest = async ({ url }, options) => {
 // only the segments each request needs, as public/sw.js does for pages. The
 // random token keeps other local programs out; the key never leaves.
 
-const MEDIA_USAGE = `Usage:
-  node k.mjs serve [--port <n>] <item link>
-  node k.mjs play [--player <command>] <item link> [-- <player options>]
+const MEDIA_HELP_INTRO = `Usage: node k.mjs serve [--port <n>] <item link>
+       node k.mjs play [--player <command>] <item link> [-- <player options>]
 
-The item link is one item's: <site>/e#<name>/<item>, <site>/i/<token>#<key>
-or <site>/<namespace>/<item>. serve prints a local address for it (on
-127.0.0.1) and answers there until stopped; play opens that address in a
-player, mpv unless --player or KUROBAKO_PLAYER says another, and stops when
-the player does. Items that are deleted once read cannot be served: each
-seek would read them again. Save those with -o instead.`;
+Players seek, which a pipe cannot do: serve answers on 127.0.0.1 until
+stopped, and play opens that address in a player and stops with it. Items
+deleted once read cannot be served, since every seek reads again: save those
+with -o.`;
+
+const MEDIA_HELP_SECTIONS = [
+  [
+    "Item links",
+    [
+      ["<site>/e#<name>/<item>", "an encrypted namespace's item"],
+      ["<site>/i/<token>#<key>", "a shared item"],
+      ["<site>/<namespace>/<item>", "a plain namespace's item"],
+    ],
+  ],
+  [
+    "Options",
+    [
+      ["--port <n>", "serve on this port (any free one by default)"],
+      ["--player <command>", "play with this (mpv, or KUROBAKO_PLAYER)"],
+      ["-- <player options>", "passed on to the player"],
+      ["-h, --help", "this help"],
+    ],
+  ],
+];
+
+const mediaHelp = (stream) => renderHelp(stream, MEDIA_HELP_INTRO, MEDIA_HELP_SECTIONS);
 
 /** A player reads many times. */
 const refuseLimited = (item) => {
@@ -2438,11 +2523,12 @@ const parseMediaArgs = (args) => {
     }
     if (arg === "--port") options.port = Number(next());
     else if (arg === "--player") options.player = next();
-    else if (arg.startsWith("-")) throw new Error(`Unknown option ${arg}.\n\n${MEDIA_USAGE}`);
+    else if (arg.startsWith("-"))
+      throw new Error(`Unknown option ${arg}.\n\n${mediaHelp(process.stderr)}`);
     else if (link === null) link = arg;
     else throw new Error(`Unexpected "${arg}": one link, then -- before the player's options.`);
   }
-  if (!link) throw new Error(MEDIA_USAGE);
+  if (!link) throw new Error(mediaHelp(process.stderr));
   if (!Number.isInteger(options.port) || options.port < 0 || options.port > 65_535) {
     throw new Error("--port takes a number from 0 to 65535.");
   }
@@ -2485,17 +2571,18 @@ const mediaCommand = async (command, args) => {
 // ============================================================================
 
 const main = async (args) => {
-  // Asking for help is not an error.
-  if (!args.length || args.includes("-h") || args.includes("--help")) {
-    console.log(USAGE);
+  // Asking for help is not an error. After "--", arguments are the player's.
+  const own = args.includes("--") ? args.slice(0, args.indexOf("--")) : args;
+  const media = args[0] === "serve" || args[0] === "play";
+  if (!args.length || own.includes("-h") || own.includes("--help")) {
+    console.log(media ? mediaHelp(process.stdout) : renderHelp(process.stdout));
     return;
   }
   try {
-    if (args[0] === "serve" || args[0] === "play")
-      return await mediaCommand(args[0], args.slice(1));
+    if (media) return await mediaCommand(args[0], args.slice(1));
     const parsed = parseArgs(args);
     if (!parsed) {
-      console.error(USAGE);
+      console.error(renderHelp(process.stderr));
       process.exitCode = 2;
       return;
     }
