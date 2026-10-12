@@ -92,7 +92,8 @@ export const SharedViewPage = ({
               <button
                 type="button"
                 aria-haspopup="dialog"
-                aria-controls="clone-e2ee-dialog"
+                command="show-modal"
+                commandfor="clone-e2ee-dialog"
                 title="End-to-end encryption: items are encrypted before they reach the server."
               >
                 E2EE

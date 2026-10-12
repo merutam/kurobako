@@ -55,7 +55,8 @@ export const SharePage = ({ site }: { site: SiteView }) => (
             <button
               type="button"
               aria-haspopup="dialog"
-              aria-controls="share-e2ee-dialog"
+              command="show-modal"
+              commandfor="share-e2ee-dialog"
               title="End-to-end encryption: items are encrypted before they reach the server."
             >
               E2EE

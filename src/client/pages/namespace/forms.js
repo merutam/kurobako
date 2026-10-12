@@ -66,15 +66,6 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   expiresInput.addEventListener("change", showSettings);
   // A page brought back from history may keep what was picked before.
   showSettings();
-  // Closes on Escape or a click elsewhere, as a menu does.
-  document.addEventListener("click", (event) => {
-    if (settingsBox.open && !settingsBox.contains(event.target)) settingsBox.open = false;
-  });
-  settingsBox.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !settingsBox.open) return;
-    settingsBox.open = false;
-    settingsBox.querySelector("summary").focus();
-  });
   const sendSettings = () => ({
     burn: burnInput.checked,
     expiresIn: expiresInput.value || null,

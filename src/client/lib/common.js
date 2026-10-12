@@ -32,7 +32,6 @@ export const setupNamespaceField = (field, hint, config, onModeChange = () => {}
   const input = field.querySelector('input[type="text"]');
   const encrypted = field.querySelector('.e2ee-control input[type="checkbox"]');
   const prefix = field.querySelector(".namespace-prefix");
-  const help = field.querySelector('[aria-haspopup="dialog"]');
   const update = () => {
     const sealed = encrypted.checked;
     input.placeholder = sealed ? "a long secret name" : "myns";
@@ -56,9 +55,6 @@ export const setupNamespaceField = (field, hint, config, onModeChange = () => {}
     encrypted.checked = true;
     update();
   });
-  help?.addEventListener("click", () =>
-    document.getElementById(help.getAttribute("aria-controls")).showModal(),
-  );
   update();
 };
 

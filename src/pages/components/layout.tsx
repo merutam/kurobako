@@ -123,6 +123,15 @@ export const Layout = ({
               theme: <span id="theme-name">auto</span>
             </button>
           </header>
+          {scripts.length ? (
+            <noscript>
+              <p class="noscript">
+                This page needs JavaScript. Without it, plain namespaces work with curl, as{" "}
+                <a href={`${basePath}/k/protocol`}>the protocol</a> shows, and encrypted ones with{" "}
+                <a href={`${basePath}/k.mjs`}>k.mjs</a>, its command-line client.
+              </p>
+            </noscript>
+          ) : null}
           {decrypting ? (
             <div id="page-loading" class="page-loading" role="status" aria-live="polite">
               <span>{decrypting}</span>

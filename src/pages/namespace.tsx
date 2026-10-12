@@ -67,25 +67,41 @@ export const NamespacePage = ({
       <section id="send-section" class="stack" aria-labelledby="send-title">
         <div class="section-heading">
           <h2 id="send-title">Send</h2>
-          <details id="send-settings" class="send-settings">
-            <summary>
-              settings
-              <span id="settings-state" />
-            </summary>
-            <div class="settings-popup">
-              <label class="checkbox-label setting-check">
-                <input id="burn" type="checkbox" /> Delete after first open
-              </label>
-              <div class="expiry-setting">
-                <label for="expires-in">Expires after</label>
-                <select id="expires-in">
-                  {expiryOptions(ttlSeconds).map(([label, value]) => (
-                    <option value={value}>{label}</option>
-                  ))}
-                </select>
-              </div>
+          <button
+            id="send-settings"
+            type="button"
+            class="row-action"
+            popovertarget="settings-popup"
+          >
+            settings
+            <span id="settings-state" />
+          </button>
+          <div
+            id="settings-popup"
+            class="dialog settings-popup"
+            // Explicit: Hono writes a bare popover as "true", which browsers read as manual.
+            popover="auto"
+            role="dialog"
+            aria-labelledby="settings-title"
+          >
+            <h2 id="settings-title">Send settings</h2>
+            <label class="checkbox-label setting-check">
+              <input id="burn" type="checkbox" /> Delete after first open
+            </label>
+            <div class="expiry-setting">
+              <label for="expires-in">Expires after</label>
+              <select id="expires-in">
+                {expiryOptions(ttlSeconds).map(([label, value]) => (
+                  <option value={value}>{label}</option>
+                ))}
+              </select>
             </div>
-          </details>
+            <p class="dialog-actions">
+              <button type="button" popovertarget="settings-popup" popovertargetaction="hide">
+                Done
+              </button>
+            </p>
+          </div>
         </div>
         {/* forms.js decides how a send goes, by what it holds. */}
         {/* A send may be texts, files or both, which native validation cannot express. */}

@@ -55,7 +55,8 @@ export const HomePage = ({ site, config }: { site: SiteView; config: AppConfig }
                   id="e2ee-help"
                   type="button"
                   aria-haspopup="dialog"
-                  aria-controls="e2ee-dialog"
+                  command="show-modal"
+                  commandfor="e2ee-dialog"
                   title="End-to-end encryption: items are encrypted before they reach the server."
                 >
                   E2EE

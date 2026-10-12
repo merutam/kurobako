@@ -24,8 +24,18 @@
   /* biome-ignore lint/complexity/noImportantStyles: the attribute must win over every component's display. */
   display: none !important;
 }
-main[data-loading] > :not(.site-header, #page-loading) {
+main[data-loading] > :not(.site-header, #page-loading, noscript) {
   display: none;
+}
+/* Without scripts nothing decrypts: the noscript notice says what to use instead. */
+@media (scripting: none) {
+  #page-loading {
+    display: none;
+  }
+}
+.noscript {
+  padding: var(--space-2) var(--gap);
+  border: 1px solid var(--border);
 }
 /* Keep the footer below the viewport until the first complete render. */
 main[data-loading] {
@@ -1968,31 +1978,6 @@ summary::before {
   color: var(--err);
 }
 
-/* "[settings]" beside the Send heading: a details that opens a small panel
-   over the page, below it and to its right. */
-.send-settings {
-  position: relative;
-  border: 0;
-}
-.send-settings > summary {
-  gap: 0;
-  min-height: var(--hit);
-  padding: 0;
-  border: 0;
-  color: var(--accent);
-  font-size: var(--text-small);
-}
-.send-settings > summary::before {
-  content: "[" / "";
-  color: var(--muted);
-}
-.send-settings > summary::after {
-  content: "]" / "";
-  color: var(--muted);
-}
-.send-settings > summary:hover {
-  color: var(--accent-hover);
-}
 #settings-state {
   color: var(--fg);
 }
@@ -2000,20 +1985,16 @@ summary::before {
   content: "\00a0·\00a0";
   color: var(--muted);
 }
-.send-settings > .settings-popup {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 5;
+/* A popover, centered like the other dialogs; only open may it set display. */
+.settings-popup {
+  width: min(24rem, calc(100% - 2 * var(--page-gutter)));
+}
+.settings-popup:popover-open {
   display: grid;
   gap: var(--space-3);
-  width: max-content;
-  max-width: calc(100vw - 2 * var(--page-gutter));
-  margin: var(--space-1) 0 0;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--fg);
+}
+.settings-popup .dialog-actions {
+  margin: 0;
 }
 .settings-popup label.checkbox-label {
   margin: 0;
