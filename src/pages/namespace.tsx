@@ -126,7 +126,6 @@ export const NamespacePage = ({
             <div id="text-panel" role="tabpanel">
               <textarea
                 id="text"
-                name="text"
                 rows={8}
                 aria-label="Text"
                 maxlength={maxTextBytes}
@@ -149,13 +148,7 @@ export const NamespacePage = ({
               </div>
             </div>
             <div id="files-panel" role="tabpanel" hidden>
-              <FileField
-                id="file"
-                name="file"
-                multiple
-                labelledBy="files-tab"
-                describedBy="file-limit"
-              />
+              <FileField id="file" multiple labelledBy="files-tab" describedBy="file-limit" />
               <ul id="file-list" class="file-list" aria-label="Files to send" hidden />
               <p id="file-limit" class="hint">
                 {fileLimitText(maxFilesAtOnce(config), fileLimit)}
@@ -166,7 +159,8 @@ export const NamespacePage = ({
               <button id="cancel-edit" type="button" hidden>
                 Cancel
               </button>
-              <button id="send-button" type="submit" class="primary">
+              {/* Enabled by the script: sent natively, the text would be lost in the URL. */}
+              <button id="send-button" type="submit" class="primary" disabled>
                 Send
               </button>
             </div>

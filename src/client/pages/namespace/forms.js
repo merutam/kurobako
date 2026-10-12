@@ -919,6 +919,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   return {
     setMode(value) {
       mode = value;
+      sendButton.disabled = false;
     },
     setConfig(value) {
       config = value;

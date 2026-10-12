@@ -33,7 +33,6 @@ export const HomePage = ({ site, config }: { site: SiteView; config: AppConfig }
               </span>
               <input
                 id="namespace"
-                name="namespace"
                 type="text"
                 placeholder="a long secret name"
                 maxlength={256}
@@ -47,7 +46,6 @@ export const HomePage = ({ site, config }: { site: SiteView; config: AppConfig }
               <div class="e2ee-control">
                 <input
                   id="encrypted"
-                  name="encrypted"
                   type="checkbox"
                   aria-label="Enable end-to-end encryption"
                   aria-describedby="namespace-hint"
@@ -72,7 +70,8 @@ export const HomePage = ({ site, config }: { site: SiteView; config: AppConfig }
               <button id="random-name" type="button">
                 Random name
               </button>
-              <button type="submit" class="primary">
+              {/* Enabled by the script: sent natively, a secret name would land in the URL. */}
+              <button type="submit" class="primary" disabled>
                 Open
               </button>
             </p>

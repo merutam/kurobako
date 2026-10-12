@@ -113,6 +113,7 @@ try {
     reserved: new Set(config.namespace.reserved),
   };
   setupNamespaceField(element("#namespace-field"), hint, config, modeChanged);
+  form.querySelector("button[type=submit]").disabled = false;
 } catch (error) {
   form.querySelector("button[type=submit]").disabled = true;
   status.error(`Could not load settings: ${error.message}`);
