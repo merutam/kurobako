@@ -1,21 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Kurobako contributors
 #
-# The self-hosted server, as the container image runs it, the command-line
-# client for encrypted namespaces, and a shell to work on Kurobako:
-#
-#   nix run github:merutam/kurobako     # the server; settings from the environment
+#   nix run github:merutam/kurobako               # the server; settings from the environment
 #   nix run github:merutam/kurobako#with-garage   # the server and Garage together
-#   nix build                           # ./result/bin/kurobako
-#   nix run github:merutam/kurobako#k   # k.mjs, the client for encrypted namespaces
-#   nix run github:merutam/kurobako#ksync   # clipboard sync for a Linux desktop
-#   nix develop                         # bun, node and Garage
+#   nix run github:merutam/kurobako#k             # k.mjs, the client for encrypted namespaces
+#   nix run github:merutam/kurobako#ksync         # clipboard sync for a Linux desktop
+#   nix develop                                   # bun, node and Garage
 #
-# The server needs an S3-compatible store (S3_ENDPOINT, S3_BUCKET, S3_REGION,
-# S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY; see README.md). Its defaults:
-#   HOST      127.0.0.1
-#   PORT      3000
-#   DATA_DIR  $XDG_DATA_HOME/kurobako (~/.local/share/kurobako), where it keeps its SQLite files.
+# Each package is in nix/packages/; this file only wires them together.
 {
   description = "Kurobako, a web clipboard: the self-hosted server, its clients and a development shell";
 
@@ -24,188 +16,31 @@
   outputs =
     { self, nixpkgs }:
     let
+      inherit (nixpkgs) lib;
+      # Where the server's Bun runs.
       systems = [
         "x86_64-linux"
         "aarch64-linux"
         "aarch64-darwin"
       ];
-      inherit (nixpkgs) lib;
       forAllSystems = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-      version = (builtins.fromJSON (builtins.readFile ./package.json)).version;
+      version = (lib.importJSON ./package.json).version;
     in
     {
       packages = forAllSystems (
         pkgs:
         let
-          # The production dependencies, as `bun install --production` lays
-          # them out. Fetched from the network, so pinned by their hash: after
-          # changing bun.lock, set it to lib.fakeHash, build, and copy the
-          # hash Nix reports.
-          nodeModules = pkgs.stdenvNoCC.mkDerivation {
-            pname = "kurobako-node-modules";
-            inherit version;
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions [
-                ./package.json
-                ./bun.lock
-              ];
-            };
-            nativeBuildInputs = [
-              pkgs.bun
-              pkgs.cacert
-            ];
-            dontConfigure = true;
-            buildPhase = ''
-              runHook preBuild
-              export HOME=$TMPDIR
-              bun install --production --frozen-lockfile --ignore-scripts --no-progress
-              runHook postBuild
-            '';
-            installPhase = ''
-              runHook preInstall
-              rm -rf node_modules/.cache
-              cp -r node_modules $out
-              runHook postInstall
-            '';
-            dontFixup = true;
-            outputHashMode = "recursive";
-            outputHashAlgo = "sha256";
-            outputHash = "sha256-y4TUBK6g05oJMFWknyHdBsldH+6h0Nw3uG+aD4iw9ow=";
-          };
+          nodeModules = pkgs.callPackage ./nix/packages/node-modules.nix { inherit version; };
+          server = pkgs.callPackage ./nix/packages/server.nix { inherit version nodeModules; };
         in
         {
-          # The command-line client for encrypted namespaces: public/k.mjs on
-          # Node, so neither has to be installed.
-          k = pkgs.stdenvNoCC.mkDerivation {
-            pname = "kurobako-k";
-            inherit version;
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = ./public/k.mjs;
-            };
-            nativeBuildInputs = [ pkgs.makeWrapper ];
-            dontConfigure = true;
-            dontBuild = true;
-            installPhase = ''
-              runHook preInstall
-              install -Dm444 public/k.mjs $out/lib/kurobako/k.mjs
-              makeWrapper ${lib.getExe pkgs.nodejs-slim} $out/bin/k \
-                --add-flags $out/lib/kurobako/k.mjs
-              runHook postInstall
-            '';
-            meta = {
-              description = "Kurobako's command-line client for encrypted namespaces";
-              license = lib.licenses.agpl3Plus;
-              mainProgram = "k";
-            };
-          };
-
-          default = pkgs.stdenvNoCC.mkDerivation {
-            pname = "kurobako";
-            inherit version;
-            # What the image copies: the server's code, the pages it serves
-            # and package.json (it reads its own version there).
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions [
-                ./package.json
-                ./src
-                ./public
-              ];
-            };
-            nativeBuildInputs = [ pkgs.makeWrapper ];
-            dontConfigure = true;
-            dontBuild = true;
-            installPhase = ''
-              runHook preInstall
-              mkdir -p $out/lib/kurobako $out/bin
-              cp -r package.json src public $out/lib/kurobako/
-              ln -s ${nodeModules} $out/lib/kurobako/node_modules
-              # Settings come from the environment alone, as in the image: Bun
-              # would otherwise read a .env in whatever directory it runs from.
-              makeWrapper ${lib.getExe pkgs.bun} $out/bin/kurobako \
-                --add-flags "--no-env-file $out/lib/kurobako/src/runtime/bun/server.ts" \
-                --set-default HOST 127.0.0.1 \
-                --set-default PORT 3000 \
-                --run 'export DATA_DIR="''${DATA_DIR:-''${XDG_DATA_HOME:-$HOME/.local/share}/kurobako}"'
-              runHook postInstall
-            '';
-            meta = {
-              description = "Kurobako, a web clipboard: the self-hosted server";
-              license = lib.licenses.agpl3Plus;
-              mainProgram = "kurobako";
-            };
-          };
-
-          # The server with a single-node Garage next to it, in one command.
-          with-garage = pkgs.writeShellApplication {
-            name = "kurobako-with-garage";
-            runtimeInputs = [
-              pkgs.garage_2
-              pkgs.coreutils
-              self.packages.${pkgs.stdenv.hostPlatform.system}.default
-            ];
-            text = builtins.readFile ./ops/garage/local.sh;
-            meta = {
-              description = "The Kurobako server with a single-node Garage for its files";
-              license = lib.licenses.agpl3Plus;
-            };
-          };
+          default = server;
+          k = pkgs.callPackage ./nix/packages/k.nix { inherit version; };
+          with-garage = pkgs.callPackage ./nix/packages/with-garage.nix { inherit server; };
         }
-        # The desktop's clipboard and a namespace in step (clients/ksync): Wayland
-        # or X11, so Linux only.
+        # Wayland or X11 only.
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          ksync = pkgs.rustPlatform.buildRustPackage {
-            pname = "ksync";
-            version = (lib.importTOML ./clients/ksync/Cargo.toml).package.version;
-            src = lib.fileset.toSource {
-              root = ./clients/ksync;
-              fileset = lib.fileset.unions [
-                ./clients/ksync/Cargo.toml
-                ./clients/ksync/Cargo.lock
-                ./clients/ksync/src
-              ];
-            };
-            cargoLock.lockFile = ./clients/ksync/Cargo.lock;
-            meta = {
-              description = "Keeps a Linux desktop's clipboard and a Kurobako namespace in step";
-              license = lib.licenses.agpl3Plus;
-              platforms = lib.platforms.linux;
-              mainProgram = "ksync";
-            };
-          };
-        }
-      );
-
-      apps = forAllSystems (
-        pkgs:
-        let
-          packages = self.packages.${pkgs.stdenv.hostPlatform.system};
-        in
-        {
-          default = {
-            type = "app";
-            program = lib.getExe packages.default;
-            meta.description = "Run the Kurobako server";
-          };
-          with-garage = {
-            type = "app";
-            program = lib.getExe packages.with-garage;
-            meta.description = "Run the Kurobako server with a single-node Garage";
-          };
-          k = {
-            type = "app";
-            program = lib.getExe packages.k;
-            meta.description = "Kurobako's client for encrypted namespaces, like curl";
-          };
-        }
-        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          ksync = {
-            type = "app";
-            program = lib.getExe packages.ksync;
-            meta.description = "Keep this desktop's clipboard and a Kurobako namespace in step";
-          };
+          ksync = pkgs.callPackage ./nix/packages/ksync.nix { };
         }
       );
 
@@ -213,13 +48,13 @@
         default = pkgs.mkShell {
           packages = [
             pkgs.bun
-            # k.mjs runs on Node too, and wrangler needs it.
+            # Wrangler needs it.
             pkgs.nodejs
-            # A local S3-compatible store for the server, as compose.yaml runs.
+            # A local S3-compatible store, as compose.yaml runs.
             pkgs.garage_2
-            # For ksync rust daemon.
+            # clients/ksync.
             pkgs.cargo
-            # For ops scripts
+            # ops/icons.sh.
             pkgs.imagemagick
           ];
           shellHook = ''
@@ -230,7 +65,7 @@
 
       nixosModules.default = import ./nix/module.nix { inherit self; };
 
-      # NixOS tests in virtual machines, where they can run.
+      # VM tests need KVM, so only on Linux.
       checks = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (
         system:
         import ./nix/tests.nix {

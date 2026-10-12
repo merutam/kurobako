@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Kurobako contributors
 
 # The server and a single-node Garage for its files, outside of containers
-# for `nix run .#with-garage` (flake.nix puts garage and kurobako on PATH).
+# for `nix run .#with-garage` (nix/packages/with-garage.nix puts garage and kurobako on PATH).
 # Everything lives in DATA_DIR: the server's SQLite files,
 # and Garage's in DATA_DIR/garage, with the keys it was given the
 # first time. Garage's own log goes to DATA_DIR/garage/garage.log.
