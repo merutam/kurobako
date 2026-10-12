@@ -6,7 +6,7 @@ import { icon } from "../shared/icons.js";
 // The textarea keeps selection, forms and accessibility; a copy below only paints colors.
 
 import { highlighter, withHighlighter } from "./highlight.js";
-import { highlightedCode, lineNumbers, MAX_HIGHLIGHT_CHARACTERS } from "./items.js";
+import { highlightedCode, MAX_HIGHLIGHT_CHARACTERS } from "./items.js";
 
 const PREFERRED_EXTENSIONS = {
   bash: "sh",
@@ -125,6 +125,8 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   const emptySelection = h("div", { class: "text-editor-selection", "aria-hidden": "true" });
   let lineCount = 0;
   let lineStarts = [0];
+  let wrapping = false;
+  let gutterWrapped = false;
   let colorTimer = null;
   let frame = null;
   /** Large texts color only when typing pauses. */
@@ -138,9 +140,34 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     if (code) code.style.transform = `translate(${-x}px, ${-y}px)`;
   };
   const updateWrapping = () => {
-    const markdown = /\.(?:md|markdown)$/i.test(title());
-    editor.classList.toggle("markdown", markdown);
-    textarea.setAttribute("wrap", markdown ? "soft" : "off");
+    wrapping = /\.(?:md|markdown)$/i.test(title());
+    editor.classList.toggle("markdown", wrapping);
+    textarea.setAttribute("wrap", wrapping ? "soft" : "off");
+  };
+  // Wrapped lines carry a hidden copy of their text, so each number's row grows
+  // as tall as the line it numbers.
+  const renderGutter = () => {
+    const text = textarea.value;
+    const rows = lineStarts.map((start, index) => {
+      const end = index + 1 < lineStarts.length ? lineStarts[index + 1] - 1 : text.length;
+      return h(
+        "span",
+        { class: "text-editor-line" },
+        h("span", {}, String(index + 1)),
+        wrapping ? h("span", { class: "text-editor-line-text" }, text.slice(start, end)) : null,
+      );
+    });
+    gutterText.replaceChildren(...rows);
+    gutterWrapped = wrapping;
+  };
+  // The textarea's scrollbar narrows its text, so the copies wrap at its width.
+  const measureTextWidth = () => {
+    const style = getComputedStyle(textarea);
+    const width =
+      textarea.clientWidth -
+      Number.parseFloat(style.paddingLeft) -
+      Number.parseFloat(style.paddingRight);
+    editor.style.setProperty("--text-width", `${width}px`);
   };
 
   const paint = (colored) => {
@@ -174,8 +201,11 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     const count = starts.length;
     if (count !== lineCount) {
       lineCount = count;
-      gutterText.textContent = lineNumbers(textarea.value);
       editor.style.setProperty("--line-number-width", `${Math.max(3, String(count).length)}ch`);
+    }
+    if (wrapping) measureTextWidth();
+    if (wrapping || gutterWrapped || gutterText.childElementCount !== count) {
+      renderGutter();
       syncScroll();
     }
     clearTimeout(colorTimer);
@@ -198,6 +228,16 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     updatePosition();
   };
 
+  const lineAt = (offset) => {
+    let low = 0;
+    let high = lineStarts.length;
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (lineStarts[middle] <= offset) low = middle;
+      else high = middle;
+    }
+    return low;
+  };
   const position = h("span", { class: "text-editor-position", "aria-hidden": "true" });
   let positionFrame = null;
   const showEmptySelection = () => {
@@ -213,16 +253,14 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
       Number.parseFloat(style.borderLeftWidth) +
       Number.parseFloat(style.paddingLeft) -
       textarea.scrollLeft;
-    const first = Math.max(0, Math.floor((textarea.scrollTop - topOffset) / lineHeight));
-    const last = Math.min(
-      lineStarts.length - 2,
-      Math.ceil((textarea.scrollTop + textarea.clientHeight - topOffset) / lineHeight),
-    );
+    const rows = gutterText.children;
     const markers = [];
-    for (let row = first; row <= last; row += 1) {
+    for (let row = lineAt(start); row <= Math.min(lineAt(end), lineStarts.length - 2); row += 1) {
       const newline = lineStarts[row];
       if (lineStarts[row + 1] !== newline + 1 || newline < start || newline >= end) continue;
-      const top = topOffset + row * lineHeight - textarea.scrollTop;
+      // Rows stand in the gutter as tall as their wrapped lines.
+      const top = topOffset + rows[row].offsetTop - rows[0].offsetTop - textarea.scrollTop;
+      if (top + lineHeight < 0 || top > textarea.clientHeight) continue;
       const marker = h("span", { class: "text-editor-selected-empty-line" });
       marker.style.top = `${top}px`;
       marker.style.left = `${left}px`;
@@ -235,15 +273,9 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
     positionFrame = null;
     const { selectionStart: start, selectionEnd: end } = textarea;
     const caret = textarea.selectionDirection === "backward" ? start : end;
-    let low = 0;
-    let high = lineStarts.length;
-    while (low + 1 < high) {
-      const middle = Math.floor((low + high) / 2);
-      if (lineStarts[middle] <= caret) low = middle;
-      else high = middle;
-    }
-    const line = low + 1;
-    const column = caret - lineStarts[low] + 1;
+    const index = lineAt(caret);
+    const line = index + 1;
+    const column = caret - lineStarts[index] + 1;
     const selected = end - start;
     position.textContent = `${line}:${column}${selected ? ` (${selected})` : ""}`;
     position.title = `Line ${line}, column ${column}${selected ? `, ${selected} selected` : ""}`;
@@ -259,6 +291,10 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   textarea.spellcheck = false;
   updateWrapping();
   textarea.addEventListener("input", () => refresh());
+  // A new width rewraps every line, and the scrollbar coming or going changes it.
+  new ResizeObserver(() => {
+    if (wrapping) refresh();
+  }).observe(textarea);
   textarea.addEventListener("scroll", () => {
     syncScroll();
     updatePosition();

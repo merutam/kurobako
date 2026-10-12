@@ -1329,8 +1329,13 @@ button.media-preview:hover img {
   pointer-events: none;
 }
 .text-editor-highlight code,
-.text-editor-lines > span {
+.text-editor-lines > span,
+.text-editor-line {
   display: block;
+}
+.text-editor-line-text {
+  visibility: hidden;
+  text-align: left;
 }
 .text-editor-highlight code {
   padding: 0;
@@ -1748,9 +1753,24 @@ summary::before {
 
 /* Markdown source wraps visually; the textarea still stores its original newlines. */
 .text-editor.markdown > :is(textarea, pre.text-editor-highlight),
-.text-editor.markdown .text-editor-highlight code {
+.text-editor.markdown .text-editor-highlight code,
+.text-editor.markdown .text-editor-line-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* `--text-width` is the textarea's, less its scrollbar (see createTextEditor):
+   the colored copy and the gutter's hidden copies wrap where it does. */
+.text-editor.markdown .text-editor-highlight code {
+  width: var(--text-width);
+}
+.text-editor.markdown > pre.text-editor-lines {
+  overflow: visible clip;
+}
+.text-editor.markdown .text-editor-line {
+  display: grid;
+  grid-template-columns: 100% var(--text-width);
+  /* The copy starts where the textarea's text does, past its left padding. */
+  column-gap: calc(2 * var(--space-2) + 1px);
 }
 
 /* --- Tabs, the composer and bundles ------------------------------------------ */
