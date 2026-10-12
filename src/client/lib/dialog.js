@@ -8,8 +8,10 @@ import { h } from "../shared/dom.js";
 let dialogs = 0;
 
 /** Cancel has the focus on destructive actions, so Enter alone never deletes. */
+/** `subject`, the item's own words, sits apart from the fixed message so the two never blur. */
 export const confirmAction = ({
   title,
+  subject = "",
   message = "",
   confirm = "OK",
   cancel = "Cancel",
@@ -17,6 +19,7 @@ export const confirmAction = ({
 }) =>
   new Promise((resolve) => {
     const titleId = `dialog-title-${++dialogs}`;
+    const subjectId = `${titleId}-subject`;
     const messageId = `${titleId}-message`;
     const cancelButton = h("button", { type: "submit", value: "cancel" }, cancel);
     const confirmButton = h(
@@ -30,9 +33,11 @@ export const confirmAction = ({
         class: "dialog",
         role: "alertdialog",
         "aria-labelledby": titleId,
-        "aria-describedby": message ? messageId : null,
+        "aria-describedby":
+          [subject && subjectId, message && messageId].filter(Boolean).join(" ") || null,
       },
       h("h2", { id: titleId }, title),
+      subject && h("p", { id: subjectId, class: "dialog-subject", title: subject }, subject),
       message && h("p", { id: messageId }, message),
       h("form", { method: "dialog", class: "dialog-actions" }, cancelButton, confirmButton),
     );

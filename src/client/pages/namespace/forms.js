@@ -730,8 +730,9 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
       (editing || holding) &&
       !(await confirmAction({
         title: "Open this item in the composer?",
+        subject: editing ? editing.entry.info.title : "",
         message: editing
-          ? `Your changes to ${editing.entry.info.title} are dropped.`
+          ? "Your changes to it are dropped."
           : "What the composer holds now is dropped.",
         confirm: "Open",
         destructive: true,

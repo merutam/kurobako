@@ -605,6 +605,17 @@ select {
 .dialog p {
   color: var(--dim);
 }
+/* The item's own words, apart from the fixed message: literal text, as names show. */
+.dialog .dialog-subject {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  padding: var(--space-1) var(--space-2);
+  background: var(--chip);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
 .dialog-actions {
   display: flex;
   flex-wrap: wrap;

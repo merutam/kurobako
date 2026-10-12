@@ -157,7 +157,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     const { item, info } = entry;
     const deleting = await confirmAction({
       title: "Delete this item?",
-      message: `${info.title} is deleted for everyone, and its share link stops working.`,
+      subject: info.title,
+      message: "It is deleted for everyone, and its share link stops working.",
       confirm: "Delete",
       destructive: true,
     });
