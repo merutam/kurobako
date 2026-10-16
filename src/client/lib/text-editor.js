@@ -7,6 +7,7 @@ import { icon } from "../shared/icons.js";
 
 import { highlighter, withHighlighter } from "./highlight.js";
 import { highlightedCode, MAX_HIGHLIGHT_CHARACTERS } from "./items.js";
+import { addressAt, markAddresses } from "./links.js";
 
 const PREFERRED_EXTENSIONS = {
   bash: "sh",
@@ -173,13 +174,15 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   const paint = (colored) => {
     const text = textarea.value;
     const source = title();
+    const small = text.length <= MAX_HIGHLIGHT_CHARACTERS;
     let code;
-    if (colored && source && text.length <= MAX_HIGHLIGHT_CHARACTERS) {
+    if (colored && source && small) {
       const started = performance.now();
-      code = highlightedCode(text, source);
+      code = highlightedCode(text, source, markAddresses);
       slow = performance.now() - started > 12;
     } else {
       code = h("code", { class: "hljs" }, text);
+      if (small) markAddresses(code);
     }
     // Keeps the last empty line visible when the textarea scrolls to the bottom.
     if (text.endsWith("\n")) code.append(" ");
@@ -326,6 +329,16 @@ export const createTextEditor = (textarea, { title = () => "" } = {}) => {
   textarea.addEventListener("click", alignOnTouch);
   document.addEventListener("selectionchange", () => {
     if (document.activeElement === textarea) updatePosition();
+  });
+  // As in code editors: a plain click must still place the caret.
+  textarea.addEventListener("click", (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    const caret = textarea.selectionStart;
+    const start = lineStarts[lineAt(caret)];
+    const end = textarea.value.indexOf("\n", start);
+    const line = textarea.value.slice(start, end === -1 ? undefined : end);
+    const href = addressAt(line, caret - start);
+    if (href) window.open(href, "_blank", "noopener,noreferrer");
   });
   textarea.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {

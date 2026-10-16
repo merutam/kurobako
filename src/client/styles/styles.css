@@ -824,6 +824,13 @@ fieldset .status {
 .hljs-link {
   color: var(--accent);
 }
+/* An address in the editor's colored copy: Ctrl or Cmd and a click open it. */
+.text-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
 .hljs-string,
 .hljs-addition {
   color: var(--ok);

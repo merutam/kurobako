@@ -7,6 +7,7 @@ import { describePlain, itemSummary, limitedItem } from "../shared/item-row.js";
 import { isShownImage, objectAddress } from "./addresses.js";
 import { asPng, HIDDEN_TITLE, SITE } from "./common.js";
 import { highlighter, loadHighlighter } from "./highlight.js";
+import { linkAddresses } from "./links.js";
 
 export { describePlain, itemSummary, limitedItem };
 
@@ -16,15 +17,19 @@ export const extensionOf = (title) => /\.([A-Za-z0-9_+-]+)$/.exec(title)?.[1]?.t
 export const MAX_HIGHLIGHT_CHARACTERS = 100_000;
 
 /** Without a known extension, no guessing: it colors ordinary words as code. */
-export const highlightedCode = (text, title) => {
+/** `mark` runs again after coloring, which replaces the contents. */
+export const highlightedCode = (text, title, mark = () => {}) => {
   const code = h("code", { class: "hljs" }, text);
-  if (text.length > MAX_HIGHLIGHT_CHARACTERS || !extensionOf(title)) return code;
+  if (text.length > MAX_HIGHLIGHT_CHARACTERS) return code;
+  mark(code);
+  if (!extensionOf(title)) return code;
   const color = (hljs) => {
     const extension = extensionOf(title);
     const language = hljs.getLanguage(extension) && extension;
     if (!language) return;
     code.innerHTML = hljs.highlight(text, { language }).value;
     code.className = `hljs language-${language}`;
+    mark(code);
   };
   const hljs = highlighter();
   if (hljs) color(hljs);
@@ -49,7 +54,7 @@ export const highlightedText = (text, title) =>
     "div",
     { class: "numbered-text" },
     h("pre", { class: "line-numbers", "aria-hidden": "true" }, lineNumbers(text)),
-    h("pre", {}, highlightedCode(text, title)),
+    h("pre", {}, highlightedCode(text, title, linkAddresses)),
   );
 
 export const describeOpened = (metadata) => ({
