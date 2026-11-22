@@ -1,64 +1,64 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { defaultTextName, textDownloadName } from "../../../../sdk/k.mjs";
-import { objectAddress, SVG_TYPE, svgAddress } from "../../lib/addresses.js";
+// The queue as rows: rendered once per change, keeping unchanged rows (and
+// the server's, at first) with their previews and open state.
 import { bundleView } from "../../lib/bundle-view.js";
-import {
-  choiceGroup,
-  compactText,
-  copyText,
-  element,
-  formatAge,
-  formatExpiry,
-  HIDDEN_TITLE,
-  request,
-  storage,
-} from "../../lib/common.js";
-import { confirmAction } from "../../lib/dialog.js";
+import { copyText, element, formatAge, formatExpiry } from "../../lib/common.js";
 import {
   audioPlayer,
   canCopyImages,
-  copyImage,
-  downloadBlob,
-  forgetStream,
   highlightedText,
   limitedItem,
-  streamAddress,
   videoPlayer,
 } from "../../lib/items.js";
 import { createMediaFeed } from "../../lib/media-feed.js";
 import { h } from "../../shared/dom.js";
 import { isMedia, itemRow, localizeDates, rowHash, rowState } from "../../shared/item-row.js";
+import { createExpansion } from "./expansion.js";
+import { createItemActions } from "./item-actions.js";
+import { createRenamer } from "./item-rename.js";
 
 export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) => {
   const itemsList = element("#items");
   const emptyMessage = element("#empty");
   const itemCount = element("#item-count");
   const openMediaLink = element("#open-media");
-  const expandModeChoices = element("#expand-mode");
   const { canWrite, writeHeaders } = access;
   let config = null;
-  const expandedItems = new Set();
-  const closedItems = new Set();
-  /** Remembered on this device. */
-  const EXPAND_MODES = ["one", "several", "all"];
-  const EXPAND_MODE_KEY = "kurobako-expand";
-  let expandMode = EXPAND_MODES.includes(storage.get(EXPAND_MODE_KEY))
-    ? storage.get(EXPAND_MODE_KEY)
-    : "one";
-  const isExpanded = (id) => (expandMode === "all" ? !closedItems.has(id) : expandedItems.has(id));
-  const itemOpeners = new Map();
+  let mode = null;
   let renderedSignature = "";
   let renderToken = 0;
   /** Unchanged rows are kept as they are, open or closed, previews loaded. */
   let rows = new Map();
-  /** Freed when the row goes. */
-  const objectUrls = new Map();
-  const freeObjectUrls = (id) => {
-    for (const url of objectUrls.get(id) ?? []) URL.revokeObjectURL(url);
-    objectUrls.delete(id);
-  };
+
+  /* `opened` keeps a burn-after-reading item read here, after the server deletes it. */
+  const opened = new Map();
+  let serverItems = [];
+  let itemsShown = false;
+
+  const expansion = createExpansion({
+    choices: element("#expand-mode"),
+    order: () => serverItems.map((item) => item.id),
+  });
+  const actions = createItemActions({
+    status,
+    mode: () => mode,
+    writeHeaders,
+    refreshUnlessLive,
+    onOpened: async (entry) => {
+      opened.set(entry.item.id, entry);
+      expansion.keepOpen(entry.item.id);
+      await renderItems(serverItems, { force: true });
+    },
+    onDeleted: (id) => expansion.forget(id),
+  });
+  const renamer = createRenamer({
+    status,
+    rename: (item, name) => mode.rename(item, name),
+    onCancel: () => renderItems(serverItems),
+    onRenamed: refreshUnlessLive,
+  });
 
   // Only once it changes: the list itself comes from the server.
   const updateExpiries = () => {
@@ -73,61 +73,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     }
   };
 
-  const objectUrl = (blob, id) => {
-    const url = objectAddress(blob);
-    objectUrls.set(id, [...(objectUrls.get(id) ?? []), url]);
-    return url;
-  };
-
-  let mode = null;
-
-  /* `opened` keeps a burn-after-reading item read here, after the server deletes it. */
-  const opened = new Map();
-  let serverItems = [];
-  let itemsShown = false;
-
-  const textOf = (entry) => (entry.opened ? entry.opened.text : mode.loadText(entry.item));
-  const blobOf = (entry) => (entry.opened ? entry.opened.blob : mode.loadBlob(entry.item));
-
-  const copyItem = async (entry) => {
-    try {
-      if (entry.info.kind === "text") {
-        await copyText(await textOf(entry));
-      } else {
-        await copyImage(await blobOf(entry));
-      }
-      status.success("Copied.");
-    } catch (error) {
-      status.error(error.message);
-    }
-  };
-
-  /** Burn-after-reading items must be read whole, once. */
-  const partsAddress = async (entry) =>
-    mode.streamOf && !entry.opened && !limitedItem(entry.item)
-      ? streamAddress(await mode.streamOf(entry.item))
-      : null;
-
-  /** Decrypted video, audio and SVG go through the Service Worker, which serves them sandboxed. */
-  const mediaAddress = async (entry, { preview = false } = {}) => {
-    const { item, info } = entry;
-    if (!entry.opened && item.kind !== "sealed" && !limitedItem(item)) {
-      return {
-        src: mode.mediaUrl?.(item) ?? `${mode.basePath}/${encodeURIComponent(item.id)}`,
-        revoke: null,
-      };
-    }
-    const isSvg = info.mime === SVG_TYPE;
-    const streamed = info.isVideo || info.isAudio || isSvg ? await partsAddress(entry) : null;
-    if (streamed) return { src: streamed, revoke: () => forgetStream(streamed) };
-    const blob = await blobOf(entry);
-    if (isSvg) return { src: svgAddress(new Uint8Array(await blob.arrayBuffer())), revoke: null };
-    if (preview) return { src: objectUrl(blob, item.id), revoke: null };
-    const src = objectAddress(blob);
-    return { src, revoke: () => URL.revokeObjectURL(src) };
-  };
-
-  const mediaFeed = createMediaFeed(mediaAddress);
+  const mediaFeed = createMediaFeed(actions.mediaAddress);
   openMediaLink.addEventListener("click", (event) => {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
       return;
@@ -135,153 +81,45 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     mediaFeed.open();
   });
 
-  const downloadItem = async (entry) => {
-    try {
-      // Never whole in this page's memory.
-      const address = await partsAddress(entry);
-      if (address) {
-        window.location.assign(`${address}?download`);
-        return;
-      }
-      if (entry.info.kind === "text") {
-        const name = textDownloadName(entry.opened ? "" : entry.info.title, entry.item.id);
-        downloadBlob(new Blob([await textOf(entry)], { type: "text/plain;charset=utf-8" }), name);
-      } else {
-        downloadBlob(await blobOf(entry), entry.info.filename);
-      }
-    } catch (error) {
-      status.error(error.message);
-    }
-  };
-
-  const deleteItem = async (entry) => {
-    const { item, info } = entry;
-    const deleting = await confirmAction({
-      title: "Delete this item?",
-      subject: info.title,
-      message: "It is deleted for everyone, and its share link stops working.",
-      confirm: "Delete",
-      destructive: true,
-    });
-    if (!deleting) return;
-    try {
-      await request(`${mode.basePath}/${encodeURIComponent(item.id)}`, {
-        method: "DELETE",
-        headers: writeHeaders(),
-      });
-      expandedItems.delete(item.id);
-      status.success("Deleted.");
-      await refreshUnlessLive();
-    } catch (error) {
-      status.error(error.message);
-    }
-  };
-
-  /** Encrypted items add their own key after the #, which opens this item only. */
-  const shareItem = async (item) => {
-    try {
-      const response = await request(`${mode.basePath}/${encodeURIComponent(item.id)}/s`, {
-        method: "POST",
-        headers: writeHeaders(),
-      });
-      // The server may not know the address this page was opened at.
-      const { pathname } = new URL((await response.text()).trim());
-      const key = await mode.shareKey(item);
-      const link = `${window.location.origin}${pathname}${key ? `#${key}` : ""}`;
-      try {
-        await copyText(link);
-        status.success(`Share link copied: ${link}`);
-      } catch {
-        status.success(`Share link: ${link}`);
-      }
-    } catch (error) {
-      status.error(error.message);
-    }
-  };
-
-  /** Each open uses a read: a second click while the first loads must not. */
-  const opening = new Set();
-  const openOnce = async (entry) => {
-    const { item, info } = entry;
-    if (opening.has(item.id)) return;
-    opening.add(item.id);
-    try {
-      const content =
-        info.kind === "text"
-          ? { text: await mode.loadText(item) }
-          : { blob: await mode.loadBlob(item) };
-      const title = content.text === undefined ? info.title : compactText(content.text);
-      opened.set(item.id, { item, info: { ...info, title }, ...content });
-      expandedItems.add(item.id);
-      status.success(
-        item.burn || item.readsLeft === 1
-          ? "Opened and deleted from the server."
-          : "Opened; one read used.",
-      );
-      await renderItems(serverItems, { force: true });
-    } catch (error) {
-      status.error(
-        error.message === "Item not found." ? "Someone else already opened it." : error.message,
-      );
-      await refreshUnlessLive();
-    } finally {
-      opening.delete(item.id);
-    }
-  };
-
   const dismiss = (id) => {
     opened.delete(id);
-    expandedItems.delete(id);
+    expansion.forget(id);
     void renderItems(serverItems, { force: true });
   };
 
-  /** Live updates wait until it is done. */
-  let renaming = false;
-
-  const renameItem = (entry, title) => {
-    const holder = title.closest(".item-toggle") ?? title.parentElement;
-    const input = h("input", { type: "text", class: "rename-input", "aria-label": "New name" });
-    // Keeping the default name changes nothing.
-    const named = entry.info.kind !== "text" || Boolean(entry.item.name);
-    const current = entry.info.title === HIDDEN_TITLE ? "" : entry.info.title;
-    const initial = named ? current : defaultTextName(current);
-    input.value = initial;
-    renaming = true;
-    holder.hidden = true;
-    holder.before(input);
-    input.focus();
-    input.select();
-
-    let finished = false;
-    const finish = async (save) => {
-      if (finished) return;
-      finished = true;
-      const name = input.value.trim();
-      input.remove();
-      holder.hidden = false;
-      renaming = false;
-      if (!save || name === initial) {
-        await renderItems(serverItems);
-        return;
+  /** What an open row shows, loaded on its first opening. */
+  const showPreview = async (preview, entry) => {
+    const { item, info } = entry;
+    if (info.kind === "text") {
+      preview.replaceChildren(highlightedText(await actions.textOf(entry), info.title));
+    } else if (info.isBundle) {
+      const bytes = new Uint8Array(await (await actions.blobOf(entry)).arrayBuffer());
+      preview.replaceChildren(
+        bundleView(bytes, { objectUrl: (blob) => actions.objectUrl(blob, item.id) }),
+      );
+    } else {
+      // Plain media streams from the server; encrypted video through the Service Worker.
+      const { src } = await actions.mediaAddress(entry, { preview: true });
+      if (info.isVideo) {
+        preview.replaceChildren(videoPlayer(src));
+      } else if (info.isAudio) {
+        preview.replaceChildren(audioPlayer(src));
+      } else {
+        const image = h("img", { alt: info.title, src: src, draggable: "false" });
+        const open = h(
+          "button",
+          {
+            type: "button",
+            class: "media-preview",
+            "aria-label": `Open ${info.title} in media feed`,
+            title: "Open media feed",
+          },
+          image,
+        );
+        open.addEventListener("click", () => mediaFeed.open(entry));
+        preview.replaceChildren(open);
       }
-      try {
-        await mode.rename(entry.item, name);
-        status.success("Renamed.");
-      } catch (error) {
-        status.error(error.message);
-      }
-      await refreshUnlessLive();
-    };
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        void finish(true);
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        void finish(false);
-      }
-    });
-    input.addEventListener("blur", () => void finish(true));
+    }
   };
 
   const rowOf = (entry, position) => ({
@@ -300,50 +138,20 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     const on = (action, handler) =>
       listItem.querySelector(`[data-action="${action}"]`)?.addEventListener("click", handler);
     const toggle = listItem.querySelector("button.item-toggle");
-    const preview = listItem.querySelector(".item-preview");
 
     // Opening a burn-after-reading item reads it: only its own button does that.
     if (toggle) {
       const body = listItem.querySelector(".item-body");
       const title = listItem.querySelector(".item-title");
-      const previewable =
-        info.kind === "text" || info.isImage || info.isVideo || info.isAudio || info.isBundle;
+      const preview = listItem.querySelector(".item-preview");
+      const previewable = info.kind === "text" || isMedia(info) || info.isBundle;
 
       let loaded = false;
       const load = async () => {
         if (loaded || !previewable) return;
         loaded = true;
         try {
-          if (info.kind === "text") {
-            preview.replaceChildren(highlightedText(await textOf(entry), info.title));
-          } else if (info.isBundle) {
-            const bytes = new Uint8Array(await (await blobOf(entry)).arrayBuffer());
-            preview.replaceChildren(
-              bundleView(bytes, { objectUrl: (blob) => objectUrl(blob, item.id) }),
-            );
-          } else {
-            // Plain media streams from the server; encrypted video through the Service Worker.
-            const { src } = await mediaAddress(entry, { preview: true });
-            if (info.isVideo) {
-              preview.replaceChildren(videoPlayer(src));
-            } else if (info.isAudio) {
-              preview.replaceChildren(audioPlayer(src));
-            } else {
-              const image = h("img", { alt: info.title, src: src, draggable: "false" });
-              const open = h(
-                "button",
-                {
-                  type: "button",
-                  class: "media-preview",
-                  "aria-label": `Open ${info.title} in media feed`,
-                  title: "Open media feed",
-                },
-                image,
-              );
-              open.addEventListener("click", () => mediaFeed.open(entry));
-              preview.replaceChildren(open);
-            }
-          }
+          await showPreview(preview, entry);
         } catch (error) {
           loaded = false;
           status.error(error.message);
@@ -357,23 +165,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
         listItem.classList.toggle("open", open);
         if (open) void load();
       };
-      itemOpeners.set(item.id, setOpen);
-      const toggleOpen = () => {
-        const open = !isExpanded(item.id);
-        if (expandMode === "all") {
-          if (open) closedItems.delete(item.id);
-          else closedItems.add(item.id);
-        } else if (open) {
-          if (expandMode === "one") {
-            for (const id of expandedItems) itemOpeners.get(id)?.(false);
-            expandedItems.clear();
-          }
-          expandedItems.add(item.id);
-        } else {
-          expandedItems.delete(item.id);
-        }
-        setOpen(open);
-      };
+      expansion.register(item.id, setOpen);
+      const toggleOpen = () => setOpen(expansion.toggle(item.id));
       // The second click of a double-click (a rename) leaves the row as it was.
       toggle.addEventListener("click", (event) => {
         if (event.detail <= 1) toggleOpen();
@@ -382,20 +175,20 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
         title.addEventListener("dblclick", (event) => {
           event.preventDefault();
           toggleOpen();
-          renameItem(entry, title);
+          renamer.start(entry, title);
         });
       }
-      setOpen(isExpanded(item.id));
+      setOpen(expansion.isExpanded(item.id));
     }
 
-    on("open-once", () => openOnce(entry));
+    on("open-once", () => actions.openOnce(entry));
     on("media", () => mediaFeed.open(entry));
     on("edit", () => onEdit(entry));
-    on("copy", () => copyItem(entry));
-    on("download", () => downloadItem(entry));
-    on("share", () => shareItem(item));
+    on("copy", () => actions.copy(entry));
+    on("download", () => actions.download(entry));
+    on("share", () => actions.share(item));
     on("dismiss", () => dismiss(item.id));
-    on("delete", () => deleteItem(entry));
+    on("delete", () => actions.remove(entry));
   };
 
   const renderItem = (entry, position) => {
@@ -420,23 +213,39 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     return node;
   };
 
-  choiceGroup(expandModeChoices, expandMode, (picked) => {
-    expandMode = picked;
-    storage.set(EXPAND_MODE_KEY, expandMode);
-    closedItems.clear();
-    if (expandMode === "one" && expandedItems.size > 1) {
-      const keep = serverItems.find((item) => expandedItems.has(item.id))?.id;
-      expandedItems.clear();
-      if (keep) expandedItems.add(keep);
+  /** Server items, then items read once here that the server no longer lists. */
+  const entriesOf = async (items, openedOnly) => {
+    const infos = await Promise.all(items.map((item) => mode.describe(item)));
+    return [
+      ...items.map((item, index) => {
+        const openedEntry = opened.get(item.id);
+        return openedEntry
+          ? { item, info: openedEntry.info, opened: openedEntry }
+          : { item, info: infos[index] };
+      }),
+      ...openedOnly.map((entry) => ({ item: entry.item, info: entry.info, opened: entry })),
+    ].sort((a, b) => b.item.createdAt.localeCompare(a.item.createdAt));
+  };
+
+  const showMedia = (entries) => {
+    const mediaEntries = entries.filter(
+      (entry) => isMedia(entry.info) && (!limitedItem(entry.item) || Boolean(entry.opened)),
+    );
+    mediaFeed.update(mediaEntries);
+    openMediaLink.hidden = mediaEntries.length === 0;
+    if (mediaEntries.length) {
+      const params = new URLSearchParams(window.location.search);
+      params.set("media", mediaEntries[0].item.id);
+      const href = `?${params}${window.location.hash}`;
+      if (openMediaLink.getAttribute("href") !== href) openMediaLink.setAttribute("href", href);
     }
-    for (const [id, setOpen] of itemOpeners) setOpen(isExpanded(id));
-  });
+  };
 
   const renderItems = async (items, { force = false } = {}) => {
     serverItems = items;
     itemsShown = true;
     // Rebuilding would drop the name being edited.
-    if (renaming) return;
+    if (renamer.active()) return;
     const serverIds = new Set(items.map((item) => item.id));
     const openedOnly = [...opened.values()].filter((entry) => !serverIds.has(entry.item.id));
     const count = config?.maxItems ? `${items.length}/${config.maxItems}` : String(items.length);
@@ -451,30 +260,9 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
 
     // Describing encrypted items is async; drop a render overtaken by a newer one.
     const token = ++renderToken;
-    const infos = await Promise.all(items.map((item) => mode.describe(item)));
+    const entries = await entriesOf(items, openedOnly);
     if (token !== renderToken) return;
-
-    const entries = [
-      ...items.map((item, index) => {
-        const openedEntry = opened.get(item.id);
-        return openedEntry
-          ? { item, info: openedEntry.info, opened: openedEntry }
-          : { item, info: infos[index] };
-      }),
-      ...openedOnly.map((entry) => ({ item: entry.item, info: entry.info, opened: entry })),
-    ].sort((a, b) => b.item.createdAt.localeCompare(a.item.createdAt));
-
-    const mediaEntries = entries.filter(
-      (entry) => isMedia(entry.info) && (!limitedItem(entry.item) || Boolean(entry.opened)),
-    );
-    mediaFeed.update(mediaEntries);
-    openMediaLink.hidden = mediaEntries.length === 0;
-    if (mediaEntries.length) {
-      const params = new URLSearchParams(window.location.search);
-      params.set("media", mediaEntries[0].item.id);
-      const href = `?${params}${window.location.hash}`;
-      if (openMediaLink.getAttribute("href") !== href) openMediaLink.setAttribute("href", href);
-    }
+    showMedia(entries);
 
     // So a busy queue neither reloads previews nor opens and closes them.
     const positions = new Map(items.map((item, index) => [item.id, index + 1]));
@@ -489,7 +277,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
         next.set(id, kept);
         continue;
       }
-      if (kept) freeObjectUrls(id);
+      if (kept) actions.freeObjectUrls(id);
       const served = serverRows.get(id);
       next.set(id, {
         made,
@@ -501,8 +289,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     }
     for (const id of rows.keys()) {
       if (next.has(id)) continue;
-      freeObjectUrls(id);
-      itemOpeners.delete(id);
+      actions.freeObjectUrls(id);
+      expansion.unregister(id);
     }
     rows = next;
     // Later renders have fresher ages and expiries than the server's.
@@ -530,13 +318,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
       status.error("That item is gone.");
       return;
     }
-    if (expandMode === "one") {
-      for (const open of expandedItems) itemOpeners.get(open)?.(false);
-      expandedItems.clear();
-    }
-    expandedItems.add(id);
-    closedItems.delete(id);
-    itemOpeners.get(id)?.(true);
+    expansion.reveal(id);
     // Reading it would use it up.
     if (limitedItem(item)) return;
     const info = await mode.describe(item);
