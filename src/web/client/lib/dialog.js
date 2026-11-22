@@ -41,8 +41,10 @@ export const confirmAction = ({
       message && h("p", { id: messageId }, message),
       h("form", { method: "dialog", class: "dialog-actions" }, cancelButton, confirmButton),
     );
-    // Outside the dialog's box is its backdrop.
+    // Outside the dialog's box is its backdrop. Only clicks on the dialog itself:
+    // a button pressed with Enter or Space reports its click at (0, 0).
     dialog.addEventListener("click", (event) => {
+      if (event.target !== dialog) return;
       const box = dialog.getBoundingClientRect();
       const inside =
         event.clientX >= box.left &&

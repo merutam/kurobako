@@ -186,8 +186,13 @@ const show = (overview, namespaces) => {
 };
 
 let loading = false;
+/** A search or page asked for during a load runs right after it, not never. */
+let again = false;
 const load = async () => {
-  if (loading) return;
+  if (loading) {
+    again = true;
+    return;
+  }
   loading = true;
   refreshButton.disabled = true;
   try {
@@ -202,6 +207,10 @@ const load = async () => {
   } finally {
     loading = false;
     refreshButton.disabled = false;
+    if (again) {
+      again = false;
+      void load();
+    }
   }
 };
 

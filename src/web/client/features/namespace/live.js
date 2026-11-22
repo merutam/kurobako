@@ -87,7 +87,9 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
     liveStatus.classList.toggle("offline", !live && !pausedWhileHidden);
   };
 
+  let started = false;
   const connectLive = () => {
+    started = true;
     clearTimeout(reconnectTimer);
     clearInterval(pingTimer);
     pausedWhileHidden = false;
@@ -109,7 +111,13 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
     });
     current.addEventListener("message", (event) => {
       if (event.data === config.live.pong) return;
-      const message = JSON.parse(event.data);
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        // Not ours (a proxy's page, a truncated frame): the next change reconciles.
+        return;
+      }
       if (message.type === "ready") {
         const unchanged = message.revision === pageRevision;
         pageRevision = null;
@@ -134,6 +142,8 @@ export const createLive = ({ status, renderItems, isItemsShown, onReady, onError
     });
   };
   document.addEventListener("visibilitychange", () => {
+    // Until the page has connected once (or if it failed to start), nothing to resume.
+    if (!started) return;
     if (document.visibilityState === "hidden") {
       hiddenTimer = setTimeout(() => {
         pausedWhileHidden = true;

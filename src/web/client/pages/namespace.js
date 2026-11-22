@@ -120,7 +120,8 @@ try {
       key: mode.pushKey,
       basePath: mode.basePath,
       url: mode.shareUrl,
-      title: mode.title,
+      // Shown on the lock screen: an encrypted namespace's title is its secret name.
+      title: mode.label ? "Encrypted namespace" : mode.title,
       publicKey: config.push.publicKey,
     };
     show(await following(mode.pushKey).catch(() => false));

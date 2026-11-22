@@ -199,9 +199,12 @@ export const createMediaFeed = (sourceOf) => {
     applyFilter();
   };
 
+  /** Opened at ?media=<id> before the items arrived: chosen once they do. */
+  let awaitingSelection = false;
   const show = () => {
     render();
     const selected = new URL(window.location.href).searchParams.get("media");
+    awaitingSelection = Boolean(selected) && !cards.has(selected) && !entries.length;
     const first = cards.get(selected) ?? cards.values().next().value;
     if (selected) first?.figure.scrollIntoView();
     if (first) void load(first);
@@ -232,10 +235,17 @@ export const createMediaFeed = (sourceOf) => {
     }
   };
 
+  /** Whether this page pushed the feed's history entry, so Back can return to it. */
+  let pushed = false;
   const open = (entry = entries[0]) => {
     if (!entry) return;
-    if (page.hidden) returnScroll = window.scrollY;
-    window.history.pushState(null, "", mediaUrl(entry.item.id));
+    if (page.hidden) {
+      returnScroll = window.scrollY;
+      window.history.pushState(null, "", mediaUrl(entry.item.id));
+      pushed = true;
+    } else {
+      window.history.replaceState(null, "", mediaUrl(entry.item.id));
+    }
     sync();
   };
 
@@ -243,18 +253,34 @@ export const createMediaFeed = (sourceOf) => {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
       return;
     event.preventDefault();
-    window.history.pushState(null, "", mediaUrl(null));
+    if (pushed) {
+      // popstate syncs and returns to where the list was.
+      pushed = false;
+      window.history.back();
+      return;
+    }
+    // Opened directly at the feed: there is no list entry to go back to.
+    window.history.replaceState(null, "", mediaUrl(null));
     sync();
     window.scrollTo(0, returnScroll);
   });
-  window.addEventListener("popstate", sync);
+  window.addEventListener("popstate", () => {
+    const wasOpen = !page.hidden;
+    sync();
+    if (wasOpen && page.hidden) {
+      pushed = false;
+      window.scrollTo(0, returnScroll);
+    }
+  });
 
   const update = (nextEntries) => {
     const changed =
       JSON.stringify(nextEntries.map(({ item, info }) => [item, info])) !==
       JSON.stringify(entries.map(({ item, info }) => [item, info]));
     entries = nextEntries;
-    if (changed && !page.hidden) render();
+    if (page.hidden) return;
+    if (awaitingSelection) show();
+    else if (changed) render();
   };
 
   sync();

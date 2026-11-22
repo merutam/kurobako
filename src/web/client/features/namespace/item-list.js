@@ -21,6 +21,7 @@ import {
   canCopyImages,
   copyImage,
   downloadBlob,
+  forgetStream,
   highlightedText,
   limitedItem,
   streamAddress,
@@ -118,7 +119,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     }
     const isSvg = info.mime === SVG_TYPE;
     const streamed = info.isVideo || info.isAudio || isSvg ? await partsAddress(entry) : null;
-    if (streamed) return { src: streamed, revoke: null };
+    if (streamed) return { src: streamed, revoke: () => forgetStream(streamed) };
     const blob = await blobOf(entry);
     if (isSvg) return { src: svgAddress(new Uint8Array(await blob.arrayBuffer())), revoke: null };
     if (preview) return { src: objectUrl(blob, item.id), revoke: null };
@@ -198,8 +199,12 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     }
   };
 
+  /** Each open uses a read: a second click while the first loads must not. */
+  const opening = new Set();
   const openOnce = async (entry) => {
     const { item, info } = entry;
+    if (opening.has(item.id)) return;
+    opening.add(item.id);
     try {
       const content =
         info.kind === "text"
@@ -219,6 +224,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
         error.message === "Item not found." ? "Someone else already opened it." : error.message,
       );
       await refreshUnlessLive();
+    } finally {
+      opening.delete(item.id);
     }
   };
 

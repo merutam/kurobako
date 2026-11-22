@@ -61,3 +61,54 @@ test("production SSR respects CSP and live updates do not consume limited reads"
   const fill = await page.locator(".logo-front").evaluate((el) => getComputedStyle(el).fill);
   expect(fill).not.toBe("rgb(0, 0, 0)");
 });
+
+test("confirming a dialog with the keyboard confirms", async ({ page, request }) => {
+  const ns = `dialog${Date.now()}`;
+  await request.post(`${production}/${ns}/new`, {
+    headers: { "Content-Type": "text/plain" },
+    data: "to delete",
+  });
+  await page.goto(`${production}/${ns}`);
+  await expect(page.locator("#items > li")).toHaveCount(1);
+  await page.locator('[data-action="delete"]').click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  // Destructive: Cancel has the focus, so move to the delete button and press Enter.
+  await dialog.getByRole("button").last().focus();
+  await page.keyboard.press("Enter");
+  await expect(dialog).toBeHidden();
+  await expect(page.locator("#items > li")).toHaveCount(0);
+});
+
+test("a double click on open once spends one read", async ({ page, request }) => {
+  const ns = `once${Date.now()}`;
+  await request.post(`${production}/${ns}/new`, {
+    headers: { "Content-Type": "text/plain", Reads: "3" },
+    data: "read me",
+  });
+  await page.goto(`${production}/${ns}`);
+  await page.locator('[data-action="open-once"]').dblclick();
+  await expect(page.locator("#items")).toContainText("read me");
+  const listing = await (await request.get(`${production}/${ns}/ls`)).json();
+  expect(listing[0].readsLeft).toBe(2);
+});
+
+test("leaving the media feed goes back instead of adding history", async ({ page, request }) => {
+  const ns = `media${Date.now()}`;
+  // A 1×1 PNG.
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await request.put(`${production}/${ns}/dot.png`, {
+    headers: { "Content-Type": "image/png" },
+    data: png,
+  });
+  await page.goto(`${production}/${ns}`);
+  const before = await page.evaluate(() => history.length);
+  await page.locator('[data-action="media"]').click();
+  await expect(page).toHaveURL(/media=/);
+  await page.locator("#media-feed-back").click();
+  await expect(page).not.toHaveURL(/media=/);
+  expect(await page.evaluate(() => history.length)).toBe(before + 1);
+});

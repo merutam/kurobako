@@ -162,6 +162,19 @@ const attachment = (filename) => {
 const answer = async (request, clientId, token, download) => {
   const stream = await streamOf(token, clientId);
   if (!stream) return new Response("This page no longer holds that item's key.", { status: 404 });
+  // Nothing to fetch or open: a Range of bytes=0--1 would be malformed.
+  if (stream.size === 0) {
+    return new Response(null, {
+      headers: {
+        "Content-Type": stream.mime || "application/octet-stream",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Length": "0",
+        "Cache-Control": "no-store",
+        ...(download ? { "Content-Disposition": attachment(stream.filename || "file") } : {}),
+      },
+    });
+  }
   const range = rangeOf(request.headers.get("range"), stream.size);
   if (!range) {
     return new Response(null, {
@@ -276,8 +289,10 @@ const notify = async (message) => {
         ?.json()
         .catch(() => null)
     : null;
+  // Followed before titles were made generic: an encrypted one's title is its secret name.
+  const title = followed?.title?.startsWith("/e#") ? "Encrypted namespace" : followed?.title;
   // Browsers insist a push shows something, even for a namespace no longer followed.
-  await self.registration.showNotification(followed?.title ?? "Kurobako", {
+  await self.registration.showNotification(title ?? "Kurobako", {
     body: message?.preview ?? (message?.kind === "file" ? "New file" : "New item"),
     // One per namespace: a newer send replaces it.
     tag: key || "kurobako",
@@ -302,7 +317,9 @@ self.addEventListener("notificationclick", (event) => {
   if (id) target.searchParams.set("copy", id);
   event.waitUntil(
     (async () => {
-      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      // Only a page this worker controls can be navigated (to copy the item);
+      // an uncontrolled one would just be focused without it, so open a new one.
+      const windows = await self.clients.matchAll({ type: "window" });
       // Rather than another copy of the page.
       const open = windows.find((client) => {
         const shown = new URL(client.url);

@@ -151,6 +151,13 @@ const startStreaming = () => {
   return streaming;
 };
 
+/** Once nothing plays it: the worker and this page drop the item's key. */
+export const forgetStream = (address) => {
+  const token = address.slice(address.lastIndexOf("/") + 1);
+  streams.delete(token);
+  navigator.serviceWorker?.controller?.postMessage({ type: "forget", token });
+};
+
 /** Null without a worker. */
 export const streamAddress = async (stream) => {
   if (!(await startStreaming())) return null;

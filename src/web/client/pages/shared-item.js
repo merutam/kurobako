@@ -189,7 +189,11 @@ async function showItem(item) {
       actions.replaceChildren(
         button(
           item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once",
-          async () => {
+          async (event) => {
+            // Each open uses a read: a second click while the first loads must not.
+            const control = event.currentTarget;
+            if (control.disabled) return;
+            control.disabled = true;
             try {
               const content = await loadContent(item, info);
               describeMeta(item, info, true);
@@ -201,6 +205,7 @@ async function showItem(item) {
               );
             } catch (error) {
               status.error(error.message === "Item not found." ? GONE : error.message);
+              control.disabled = false;
             }
           },
           "primary",

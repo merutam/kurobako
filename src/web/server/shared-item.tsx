@@ -57,18 +57,22 @@ const SharedItemContent = ({
             <audio src={`${url}/c`} controls preload="metadata" />
           ) : null}
         </div>
-        <p id="item-actions" class="actions">
+        <div id="item-actions" class="actions">
+          {/* Without JavaScript the item still opens: a form, so neither link
+              prefetching nor crawlers spend its reads. The script replaces it. */}
           {limited ? (
-            <button type="button" id="open-limited-item" class="primary">
-              {item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once"}
-            </button>
+            <form id="open-limited-item" class="primary" method="get" action={`${url}/d`}>
+              <button type="submit" class="primary">
+                {item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once"}
+              </button>
+            </form>
           ) : null}
           {!limited ? (
             <a class="button primary" href={`${url}/d`}>
               Save
             </a>
           ) : null}
-        </p>
+        </div>
       </section>
     </>
   );

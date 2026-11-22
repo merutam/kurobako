@@ -44,6 +44,8 @@ export const startPilot = async ({
   };
   const app = new Hono();
   app.get("/", (c) => c.redirect("/pilot/example"));
+  // Browsers ask for it; a 404 shows up as a console error in the browser tests.
+  app.get("/favicon.ico", (c) => c.body(null, 204));
   app.get("/pilot-assets/*", async (c) => {
     const name = c.req.path.slice("/pilot-assets/".length);
     if (!/^[a-zA-Z0-9_./-]+$/.test(name) || name.split("/").includes("..")) return c.notFound();
