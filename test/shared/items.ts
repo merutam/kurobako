@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import type { AccessLogEntry } from "../../src/domain/visits";
+import { writeBundle } from "../../src/protocol/bundle.js";
 import { defined, type FileItem, type Item, type SharedItem } from "../support";
 import type { Harness } from "./index";
 import { parse, png, type Tools } from "./tools";
@@ -114,6 +115,57 @@ export const itemsTests = (harness: Harness, tools: Tools) => {
       );
       expect(new Uint8Array(await winner.arrayBuffer())).toEqual(png);
       expect(await storedFiles(`plain/${ns}/`)).toHaveLength(0);
+    });
+
+    test("revalidates an unchanged file instead of sending it again", async () => {
+      const ns = fresh();
+      const bundle = (text: string) =>
+        writeBundle({
+          main: "notes.md",
+          entries: [
+            {
+              path: "notes.md",
+              type: "text/markdown",
+              text: true,
+              bytes: new TextEncoder().encode(text),
+            },
+          ],
+        });
+      const file = await json<FileItem>(`/${ns}/notes`, { method: "PUT", body: bundle("one") });
+      const first = await call(`/${ns}/${file.id}`);
+      expect(first.headers.get("cache-control")).toBe("private, no-cache");
+      const etag = defined(first.headers.get("etag"), "an ETag");
+      await first.arrayBuffer();
+
+      const again = await call(`/${ns}/${file.id}`, { headers: { "if-none-match": etag } });
+      expect(again.status).toBe(304);
+      expect(again.headers.get("etag")).toBe(etag);
+
+      const edited = await parse<FileItem>(
+        call(`/${ns}/${file.id}/e`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/octet-stream",
+            "if-match": JSON.stringify(file.createdAt),
+          },
+          body: bundle("two"),
+        }),
+      );
+      const changed = await call(`/${ns}/${edited.id}`, { headers: { "if-none-match": etag } });
+      expect(changed.status).toBe(200);
+      expect(changed.headers.get("etag")).not.toBe(etag);
+      expect(new Uint8Array(await changed.arrayBuffer())).toEqual(bundle("two"));
+
+      const limited = await json<FileItem>(`/${ns}/new`, {
+        method: "POST",
+        headers: { Reads: "2" },
+        body: png,
+      });
+      const read = await call(`/${ns}/${limited.id}`, { headers: { "if-none-match": "*" } });
+      expect(read.status).toBe(200);
+      expect(read.headers.get("etag")).toBeNull();
+      expect(read.headers.get("cache-control")).toBe("no-store");
+      await read.arrayBuffer();
     });
 
     test("streams a multi-chunk file through unchanged", async () => {

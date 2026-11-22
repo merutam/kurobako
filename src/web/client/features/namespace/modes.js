@@ -89,9 +89,9 @@ export const plainMode = (namespace, writeHeaders) => {
     },
     describe: async (item) => describePlain(item),
     loadText: async (item) =>
-      item.text ?? (await request(`${basePath}/${item.id}`, { cache: "no-store" })).text(),
+      item.text ?? (await request(`${basePath}/${item.id}`, { cache: "no-cache" })).text(),
     loadBlob: async (item) =>
-      (await request(`${basePath}/${item.id}`, { cache: "no-store" })).blob(),
+      (await request(`${basePath}/${item.id}`, { cache: "no-cache" })).blob(),
     downloadUrl: (item) => `${basePath}/${item.id}/d`,
     shareKey: async () => null,
     sendText: (text, settings) =>
@@ -168,7 +168,7 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
   const loadBytes = async (item) => {
     const opened = await openItem(item);
     if (!opened) throw new Error("This item could not be decrypted.");
-    const response = await request(`${basePath}/${item.id}`, { cache: "no-store" });
+    const response = await request(`${basePath}/${item.id}`, { cache: "no-cache" });
     return opened.open(await response.arrayBuffer());
   };
   const send = async (bytes, metadata, settings) => {

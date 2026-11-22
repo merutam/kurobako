@@ -47,6 +47,24 @@ const requestedRange = (
   return end < offset ? "unsatisfiable" : { offset, length: end - offset + 1 };
 };
 
+/**
+ * An unlimited item's contents change only with its version, so a browser may
+ * keep them and ask again with If-None-Match: a 304 instead of the whole body.
+ * A limited read is never kept: it must reach the server to be counted.
+ */
+const etagOf = (item: ObjectItem): string | null =>
+  readLimitedItem(item) ? null : `"${item.id}.${item.updatedAt ?? item.createdAt}"`;
+
+const cacheHeaders = (etag: string | null): Record<string, string> =>
+  etag ? { ETag: etag, "Cache-Control": "private, no-cache" } : { "Cache-Control": "no-store" };
+
+const matchesEtag = (header: string | undefined, etag: string) =>
+  header !== undefined &&
+  header.split(",").some((tag) => {
+    const trimmed = tag.trim();
+    return trimmed === "*" || trimmed.replace(/^W\//, "") === etag;
+  });
+
 const contentTypeOf = (item: ObjectItem) =>
   item.kind === "sealed" ? "application/octet-stream" : item.mime;
 
@@ -81,7 +99,7 @@ const objectResponse = (
         : {}),
       ...(readLimitedItem(item) ? {} : { "Accept-Ranges": "bytes" }),
       "Content-Disposition": disposition,
-      "Cache-Control": "no-store",
+      ...cacheHeaders(etagOf(item)),
       "Content-Security-Policy": "default-src 'none'; sandbox",
     },
   });
@@ -104,6 +122,10 @@ export const createContents = (api: Api) => {
     const ns = namespace(ref);
     let item = preview;
     const { blobs } = platform;
+    const etag = etagOf(item);
+    if (etag && matchesEtag(c.req.header("if-none-match"), etag)) {
+      return new Response(null, { status: 304, headers: cacheHeaders(etag) });
+    }
     // Players ask for ranges to start and to seek.
     const range = readLimitedItem(item) ? null : requestedRange(c.req.header("range"), item.size);
     if (range === "unsatisfiable") {
