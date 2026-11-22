@@ -95,6 +95,62 @@ const readBody = async (c: AppContext, limit: number) => {
   return bytes;
 };
 
+const NOT_UTF8 = "Text must be UTF-8. Send files as application/octet-stream.";
+
+/**
+ * A text's body, for a send or an edit alike: kept inline when short, stored
+ * as an object otherwise. A long declared body streams to storage and is
+ * checked as it goes (`validate`); a short or undeclared one is read first.
+ */
+type TextBody =
+  | { inline: { kind: "text"; text: string; size: number; sha256: string } }
+  | {
+      upload: Upload;
+      /** Its preview fills in as the body streams: named in place, never copied before. */
+      input: { kind: "text"; preview: string; name?: string };
+      validate?: () => void;
+    };
+
+const readTextBody = async (
+  c: AppContext,
+  { maxTextBytes, inlineTextBytes }: { maxTextBytes: number; inlineTextBytes: number },
+): Promise<TextBody | Response> => {
+  const declared = Number(c.req.header("content-length") ?? Number.NaN);
+  if (Number.isSafeInteger(declared) && declared > maxTextBytes) {
+    return jsonError(c, 413, `The limit is ${maxTextBytes} bytes.`);
+  }
+  if (Number.isSafeInteger(declared) && declared > inlineTextBytes) {
+    const upload = await streamedBody(c, maxTextBytes);
+    if (upload instanceof Response) return upload;
+    return validatedText(upload);
+  }
+  const bytes = await readBody(c, maxTextBytes);
+  if (bytes instanceof Response) return bytes;
+  let text: string;
+  try {
+    text = strictUtf8().decode(bytes);
+  } catch {
+    return jsonError(c, 415, NOT_UTF8);
+  }
+  if (bytes.byteLength > inlineTextBytes) {
+    return {
+      upload: { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
+      input: { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS) },
+    };
+  }
+  return { inline: { kind: "text", text, size: bytes.byteLength, sha256: sha256Of(bytes) } };
+};
+
+/** A streamed text found not to be UTF-8 while it was stored. */
+const refusingInvalidUtf8 = async (c: AppContext, store: () => Promise<Response>) => {
+  try {
+    return await store();
+  } catch (error) {
+    if (error instanceof InvalidUtf8Error) return jsonError(c, 415, NOT_UTF8);
+    throw error;
+  }
+};
+
 /** 200 when the same contents were already there, now moved to the top. */
 const sentResponse = (c: AppContext, saved: Saved) =>
   saved.existing
@@ -165,65 +221,18 @@ export const createUploads = (api: Api) => {
       return jsonError(c, 400, "A limited-read text cannot have a public name.");
     }
 
-    const declared = Number(c.req.header("content-length") ?? Number.NaN);
-    if (Number.isSafeInteger(declared) && declared > config.maxTextBytes) {
-      return jsonError(c, 413, `The limit is ${config.maxTextBytes} bytes.`);
-    }
-    if (Number.isSafeInteger(declared) && declared > config.inlineTextBytes) {
-      const upload = await streamedBody(c, config.maxTextBytes);
-      if (upload instanceof Response) return upload;
-      const external = validatedText(upload);
-      try {
-        const saved = await items.saveObject(
-          ref,
-          external.upload,
-          { ...external.input, ...(name ? { name } : {}) },
-          await sendOptions(c, expiresIn, reads),
-          defer(c),
-          external.validate,
-        );
-        record(c, "sentText");
-        return sentResponse(c, saved);
-      } catch (error) {
-        if (error instanceof InvalidUtf8Error) {
-          return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
-        }
-        throw error;
-      }
-    }
-
-    const bytes = await readBody(c, config.maxTextBytes);
-    if (bytes instanceof Response) return bytes;
-    let text: string;
-    try {
-      text = strictUtf8().decode(bytes);
-    } catch {
-      return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
-    }
-    let saved: Saved;
-    if (bytes.byteLength > config.inlineTextBytes) {
-      saved = await items.saveObject(
-        ref,
-        { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
-        { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS), ...(name ? { name } : {}) },
-        await sendOptions(c, expiresIn, reads),
-        defer(c),
-      );
-    } else {
-      saved = await items.save(
-        ref,
-        {
-          kind: "text",
-          text,
-          size: bytes.byteLength,
-          sha256: sha256Of(bytes),
-          ...(name ? { name } : {}),
-        },
-        await sendOptions(c, expiresIn, reads),
-      );
-    }
-    record(c, "sentText");
-    return sentResponse(c, saved);
+    const body = await readTextBody(c, config);
+    if (body instanceof Response) return body;
+    if (name && "input" in body) body.input.name = name;
+    return refusingInvalidUtf8(c, async () => {
+      const options = await sendOptions(c, expiresIn, reads);
+      const saved: Saved =
+        "inline" in body
+          ? await items.save(ref, { ...body.inline, ...(name ? { name } : {}) }, options)
+          : await items.saveObject(ref, body.upload, body.input, options, defer(c), body.validate);
+      record(c, "sentText");
+      return sentResponse(c, saved);
+    });
   };
 
   const uploadSealed = async (c: AppContext, ref: NamespaceRef) => {
@@ -299,63 +308,26 @@ export const createUploads = (api: Api) => {
         ),
       );
     }
-    const declared = Number(c.req.header("content-length") ?? Number.NaN);
-    if (Number.isSafeInteger(declared) && declared > config.maxTextBytes) {
-      return jsonError(c, 413, `The limit is ${config.maxTextBytes} bytes.`);
-    }
-    if (Number.isSafeInteger(declared) && declared > config.inlineTextBytes) {
-      const upload = await streamedBody(c, config.maxTextBytes);
-      if (upload instanceof Response) return upload;
-      const external = validatedText(upload);
-      try {
-        return editResponse(
-          c,
-          await items.replaceObject(
-            ref,
-            item,
-            expected,
-            external.upload,
-            external.input,
-            await editOptions(c),
-            defer(c),
-            external.validate,
-          ),
-        );
-      } catch (error) {
-        if (error instanceof InvalidUtf8Error) {
-          return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
-        }
-        throw error;
-      }
-    }
-
-    const bytes = await readBody(c, config.maxTextBytes);
-    if (bytes instanceof Response) return bytes;
-    let text: string;
-    try {
-      text = strictUtf8().decode(bytes);
-    } catch {
-      return jsonError(c, 415, "Text must be UTF-8. Send files as application/octet-stream.");
-    }
-    const result =
-      bytes.byteLength > config.inlineTextBytes
-        ? await items.replaceObject(
-            ref,
-            item,
-            expected,
-            { body: new Blob([bytes]).stream(), size: bytes.byteLength, head: new Uint8Array() },
-            { kind: "text", preview: text.slice(0, TEXT_PREVIEW_CHARS) },
-            await editOptions(c),
-            defer(c),
-          )
-        : await items.replace(
-            ref,
-            item,
-            expected,
-            { kind: "text", text, size: bytes.byteLength, sha256: sha256Of(bytes) },
-            await editOptions(c),
-          );
-    return editResponse(c, result);
+    const body = await readTextBody(c, config);
+    if (body instanceof Response) return body;
+    return refusingInvalidUtf8(c, async () => {
+      const options = await editOptions(c);
+      return editResponse(
+        c,
+        "inline" in body
+          ? await items.replace(ref, item, expected, body.inline, options)
+          : await items.replaceObject(
+              ref,
+              item,
+              expected,
+              body.upload,
+              body.input,
+              options,
+              defer(c),
+              body.validate,
+            ),
+      );
+    });
   };
 
   return { editText, uploadFile, uploadPlain, uploadSealed };

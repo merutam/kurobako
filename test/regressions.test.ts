@@ -688,3 +688,34 @@ test("restoring merges by change date: names, texts, and never older changes", a
   expect(edited?.item).toMatchObject({ text: "after", name: "notes.md", updatedAt: at(5) });
   expect(edited?.usesUpload).toBe(true);
 });
+
+test("a long text streamed to storage keeps its preview, sent or edited", async () => {
+  await withServer({}, async (base) => {
+    const long = `first words ${"x".repeat(70_000)}`;
+    const sent = await fetch(`${base}/longtext/new`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain", "Content-Length": String(long.length) },
+      body: long,
+    });
+    expect(sent.status).toBe(201);
+    const [item] = (await (await fetch(`${base}/longtext/ls`)).json()) as {
+      id: string;
+      preview: string;
+      createdAt: string;
+    }[];
+    expect(item?.preview.startsWith("first words")).toBe(true);
+    const edited = `edited words ${"y".repeat(70_000)}`;
+    const reply = await fetch(`${base}/longtext/${item?.id}/e`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        "Content-Length": String(edited.length),
+        "If-Match": JSON.stringify(item?.createdAt),
+      },
+      body: edited,
+    });
+    expect(reply.status).toBe(200);
+    const [after] = (await (await fetch(`${base}/longtext/ls`)).json()) as { preview: string }[];
+    expect(after?.preview.startsWith("edited words")).toBe(true);
+  });
+});
