@@ -29,16 +29,18 @@ const buildApp = async (env: Env) => {
   return { app, basePath: config.basePath };
 };
 
-// Config, assets and bindings only change with a new deployment.
-let app: ReturnType<typeof buildApp> | null = null;
+// Config, assets and bindings only change with a new deployment, so the built
+// app is kept. The app, never the promise that builds it: a Worker may not
+// await a promise that another, finished request created
+// (handle_cross_request_promise_resolution, on since the 2026-10-03
+// compatibility date), so concurrent cold requests each build and the last
+// one to finish is kept. A failed build is not kept at all.
+let app: Awaited<ReturnType<typeof buildApp>> | null = null;
 
 export default {
   async fetch(request, env, ctx) {
-    app ??= buildApp(env).catch((error: unknown) => {
-      app = null;
-      throw error;
-    });
-    const { app: built, basePath } = await app;
+    app ??= await buildApp(env);
+    const { app: built, basePath } = app;
     // Under a base path, asset URLs (/k/k/assets/…) find no asset and land here; so do the tests.
     const inside = sitePath(basePath, new URL(request.url).pathname);
     if (inside && (isFixedFile(inside) || isAssetPath(inside))) {

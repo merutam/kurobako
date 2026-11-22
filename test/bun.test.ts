@@ -232,6 +232,9 @@ describe("bun server", () => {
     expect((await call("/")).status).toBe(200);
     expect((await call("/k.mjs")).headers.get("content-type")).toContain("javascript");
     expect((await call("/favicon.ico")).headers.get("content-type")).toBe("image/x-icon");
+    const favicon = await call("/favicon.svg");
+    expect(favicon.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await favicon.text()).toContain('viewBox="0 0 120 120"');
     expect((await call("/apple-touch-icon.png")).status).toBe(200);
   });
 

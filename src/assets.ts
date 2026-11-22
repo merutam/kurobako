@@ -34,6 +34,7 @@ export const FIXED_FILES = ["sw.js", "k.mjs"];
 /** Browsers and iOS ask for these at fixed paths. */
 export const ICON_FILES = [
   "favicon.ico",
+  "favicon.svg",
   "apple-touch-icon.png",
   "logo.png",
   "icon-192.png",

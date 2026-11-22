@@ -23,6 +23,7 @@ const CONTENT_TYPES: Record<string, string> = {
   mjs: "text/javascript; charset=utf-8",
   ico: "image/x-icon",
   png: "image/png",
+  svg: "image/svg+xml",
 };
 const ONE_DAY_SECONDS = 86_400;
 

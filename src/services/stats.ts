@@ -7,24 +7,18 @@ import type { Deps } from "./deps";
 export const STATS_TTL_MS = 30_000;
 
 export const createStats = ({ hub }: Pick<Deps, "hub">) => {
-  let cache: { expires: number; body: Promise<Record<string, unknown>> } | null = null;
+  // The figures, never the promise that reads them: on Cloudflare a request
+  // may not await a promise another, finished request created
+  // (handle_cross_request_promise_resolution). Requests that arrive while a
+  // read is in flight read too; a failed read is not cached.
+  let cache: { expires: number; body: Record<string, unknown> } | null = null;
 
-  const current = () => {
-    if (!cache || cache.expires < Date.now()) {
-      const entry = {
-        expires: Date.now() + STATS_TTL_MS,
-        // An RPC result must not outlive its request.
-        body: hub()
-          .stats()
-          .then((stats) => ({ ...stats })),
-      };
-      cache = entry;
-      // A failed read must not be served from the cache.
-      entry.body.catch(() => {
-        if (cache === entry) cache = null;
-      });
-    }
-    return cache.body;
+  const current = async () => {
+    if (cache && cache.expires >= Date.now()) return cache.body;
+    // A plain copy: an RPC result must not outlive its request.
+    const body = { ...(await hub().stats()) };
+    cache = { expires: Date.now() + STATS_TTL_MS, body };
+    return body;
   };
 
   return { current };

@@ -295,18 +295,11 @@ p {
 .site-name a:hover {
   color: var(--accent);
 }
-/* The logo's strokes in the accent, whatever the theme: logo.png is only
-   its shape. The path is from this file, in <base>/k/assets/, to <base>/. */
+/* K3 follows the text color; its marked edge follows the theme's accent. */
 .site-logo {
   flex: none;
   width: 32px;
   height: 32px;
-  background: var(--accent);
-  -webkit-mask: url("../../logo.png") center / contain no-repeat;
-  mask: url("../../logo.png") center / contain no-repeat;
-}
-.site-name a:hover .site-logo {
-  background: var(--accent-hover);
 }
 .theme-toggle {
   font-size: var(--text-small);

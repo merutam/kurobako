@@ -3,7 +3,7 @@
 
 import type { Child } from "hono/jsx";
 import { ASSETS_PATH, type Manifest, STYLES } from "../../assets";
-import { Icon } from "./icons";
+import { Icon, KurobakoMark } from "./icons";
 
 export type SiteView = {
   basePath: string;
@@ -79,6 +79,7 @@ export const Layout = ({
         {/* Before the first paint, so the theme never flashes. */}
         <script src={assetUrl(site, entryOf(site, "site").file)} />
         <link rel="icon" href={`${basePath}/favicon.ico`} sizes="any" />
+        <link rel="icon" href={`${basePath}/favicon.svg`} type="image/svg+xml" />
         <link rel="apple-touch-icon" href={`${basePath}/apple-touch-icon.png`} />
         <link rel="manifest" href={`${basePath}/manifest.webmanifest`} />
         {noIndex ? <meta name="robots" content="noindex" /> : null}
@@ -104,8 +105,7 @@ export const Layout = ({
           <header class="site-header">
             <p class="site-name">
               <a href={`${basePath}/`}>
-                {/* A mask, so it takes the theme's accent. */}
-                <span class="site-logo" aria-hidden="true" />
+                <KurobakoMark />
                 kurobako
               </a>
             </p>

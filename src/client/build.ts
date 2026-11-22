@@ -94,7 +94,7 @@ export const bundle = async (): Promise<Bundle> => {
   const styles = await Bun.build({
     entrypoints: [join(CLIENT_DIR, "styles", "site.css")],
     minify: true,
-    // Served from the site (the logo), not bundled.
+    // Keep public image URLs stable rather than bundling or renaming them.
     external: ["*.png"],
   });
   if (!styles.success) throw new AggregateError(styles.logs, "The styles did not build.");
