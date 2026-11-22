@@ -22,7 +22,8 @@ export const highlightedCode = (text, title, mark = () => {}) => {
   const code = h("code", { class: "hljs" }, text);
   if (text.length > MAX_HIGHLIGHT_CHARACTERS) return code;
   mark(code);
-  if (!extensionOf(title)) return code;
+  // Nothing to color yet: an empty composer must not load highlight.js.
+  if (!text || !extensionOf(title)) return code;
   const color = (hljs) => {
     const extension = extensionOf(title);
     const language = hljs.getLanguage(extension) && extension;

@@ -31,6 +31,32 @@ const outputName = (path: string) => path.replace(/^\.\//, "");
 const contentHash = (body: Uint8Array | string) =>
   createHash("sha256").update(body).digest("hex").slice(0, 12);
 
+/** What a page's module and the chunks it imports may weigh, minified, before lazy imports. */
+export const PAGE_JS_BUDGET = 100_000;
+
+/** Bytes each page downloads before anything lazy: its module and chunks, and the styles. */
+export const pageSizes = ({ manifest, files }: Bundle) => {
+  const sizeOf = (name: string) => files.get(name)?.body.byteLength ?? 0;
+  const gzipOf = (name: string) => {
+    const body = files.get(name)?.body;
+    return body ? Bun.gzipSync(new Uint8Array(body)).byteLength : 0;
+  };
+  const styles = manifest.files[STYLES]?.file ?? "";
+  return Object.entries(manifest.files)
+    .filter(([, entry]) => entry.kind === "module")
+    .map(([name, entry]) => {
+      const scripts = [entry.file, ...entry.preload];
+      return {
+        name,
+        js: scripts.reduce((sum, file) => sum + sizeOf(file), 0),
+        jsGzip: scripts.reduce((sum, file) => sum + gzipOf(file), 0),
+        css: sizeOf(styles),
+        cssGzip: gzipOf(styles),
+      };
+    })
+    .sort((a, b) => b.js - a.js);
+};
+
 export const bundle = async (): Promise<Bundle> => {
   const files = new Map<string, BuiltFile>();
   const manifest: Manifest = { build: "", themes: {}, files: {} };
@@ -117,6 +143,15 @@ export const bundle = async (): Promise<Bundle> => {
     .filter((name) => name.endsWith(".css"))
     .sort()) {
     manifest.themes[name] = await Bun.file(join(themesDir, name)).text();
+  }
+
+  const over = pageSizes({ manifest, files }).filter((page) => page.js > PAGE_JS_BUDGET);
+  if (over.length) {
+    throw new Error(
+      `Over the ${PAGE_JS_BUDGET} byte budget for a page's first JavaScript: ${over
+        .map((page) => `${page.name} (${page.js})`)
+        .join(", ")}. Load what the page does not need at once with import().`,
+    );
   }
 
   manifest.build = contentHash(

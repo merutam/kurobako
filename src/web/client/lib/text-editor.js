@@ -58,7 +58,11 @@ export const fillLanguages = (select, selected) => {
     select.value = value;
   };
   fill();
-  if (!highlighter()) withHighlighter(fill);
+  if (highlighter()) return;
+  // The whole list needs highlight.js: loaded once someone opens the picker,
+  // not with every page. Until then it holds Plain text and the chosen language.
+  const load = () => withHighlighter(fill);
+  for (const type of ["focus", "pointerdown"]) select.addEventListener(type, load, { once: true });
 };
 
 export const withExtension = (title, extension) => {

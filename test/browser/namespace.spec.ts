@@ -112,3 +112,17 @@ test("leaving the media feed goes back instead of adding history", async ({ page
   await expect(page).not.toHaveURL(/media=/);
   expect(await page.evaluate(() => history.length)).toBe(before + 1);
 });
+
+test("highlight.js loads only once there is code to color", async ({ page }) => {
+  const highlighters: string[] = [];
+  page.on("response", async (response) => {
+    if (!/\/k\/assets\/chunk-[a-z0-9]+\.js$/.test(response.url())) return;
+    if ((await response.text()).includes("registerLanguage")) highlighters.push(response.url());
+  });
+  await page.goto(`${production}/hl${Date.now()}`);
+  await expect(page.locator("#qr")).toHaveAttribute("src", /^data:/);
+  await page.waitForTimeout(1500);
+  expect(highlighters).toEqual([]);
+  await page.locator("#text").fill("# A heading");
+  await expect.poll(() => highlighters.length).toBe(1);
+});

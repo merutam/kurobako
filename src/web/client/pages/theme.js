@@ -4,7 +4,6 @@
 // Preview is off on opening, so a theme that hides the page can always be mended here.
 import { copyText, element, storage } from "../lib/common.js";
 import { confirmAction } from "../lib/dialog.js";
-import { loadHighlighter } from "../lib/highlight.js";
 import { createStatus } from "../lib/status.js";
 import { createTextEditor } from "../lib/text-editor.js";
 
@@ -122,7 +121,6 @@ try {
   show(saved ?? defaults);
   form.hidden = false;
   if (!sheet) status.error("This browser cannot use themes: it is too old for them.");
-  (window.requestIdleCallback ?? setTimeout)(() => void loadHighlighter().catch(() => {}));
 } catch (error) {
   status.error(error.message);
 }

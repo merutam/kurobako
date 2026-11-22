@@ -17,7 +17,7 @@ import {
   STATIC_PAGES,
   siteViewOf,
 } from "../src/assets";
-import { bundle } from "../src/web/client/build";
+import { bundle, pageSizes } from "../src/web/client/build";
 import { STATIC_PAGE_RENDERERS } from "../src/web/server/documents";
 
 const root = join(import.meta.dir, "..");
@@ -40,7 +40,16 @@ if (!(await distributedSdk.exists()) || (await distributedSdk.text()) !== sdk) {
   await Bun.write(distributedSdk, sdk);
 }
 
-const { manifest, files } = await bundle();
+const built = await bundle();
+const { manifest, files } = built;
+const kB = (bytes: number) => `${(bytes / 1000).toFixed(1)} kB`;
+console.log("First download per page (JS: module and chunks; CSS: shared), minified / gzip:");
+for (const page of pageSizes(built)) {
+  console.log(
+    `  ${page.name.padEnd(12)} JS ${kB(page.js).padStart(9)} / ${kB(page.jsGzip).padStart(8)}` +
+      `   CSS ${kB(page.css)} / ${kB(page.cssGzip)}`,
+  );
+}
 for (const [name, file] of files) await write(join(assetsDir, name), file.body);
 // Last, so a server reading it finds every file it names.
 await write(join(assetsDir, MANIFEST_FILE), JSON.stringify(manifest));

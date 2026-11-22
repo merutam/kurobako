@@ -9,7 +9,6 @@ import { createLive } from "../features/namespace/live.js";
 import { plainMode, sealedMode } from "../features/namespace/modes.js";
 // Each feature owns its DOM and state; this only wires them together.
 import { copyText, element, ignoreStrayDrops, readConfig, SITE, setBusy } from "../lib/common.js";
-import { loadHighlighter } from "../lib/highlight.js";
 import { follow, following, pushAvailable, unfollow } from "../lib/push.js";
 import { rememberNamespace } from "../lib/recent.js";
 import { dropShare, readShare } from "../lib/shares.js";
@@ -181,8 +180,6 @@ try {
     }
   });
   await live.showInitial();
-  // The send form colors as you type.
-  (window.requestIdleCallback ?? setTimeout)(() => void loadHighlighter().catch(() => {}));
   // Before any /ls, so changes during that fetch are buffered.
   live.connectLive();
   // After the queue shows, which for an encrypted one comes after connecting.
