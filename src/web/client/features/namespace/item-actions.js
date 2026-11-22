@@ -7,13 +7,8 @@ import { textDownloadName } from "../../../../sdk/k.mjs";
 import { objectAddress, SVG_TYPE, svgAddress } from "../../lib/addresses.js";
 import { compactText, copyText, request } from "../../lib/common.js";
 import { confirmAction } from "../../lib/dialog.js";
-import {
-  copyImage,
-  downloadBlob,
-  forgetStream,
-  limitedItem,
-  streamAddress,
-} from "../../lib/items.js";
+import { copyWithStatus, openedMessage, openFailure } from "../../lib/item-ops.js";
+import { downloadBlob, forgetStream, limitedItem, streamAddress } from "../../lib/items.js";
 
 /**
  * An entry is { item, info, opened? }; `opened` holds the contents of an
@@ -43,18 +38,8 @@ export const createItemActions = ({
   const textOf = (entry) => (entry.opened ? entry.opened.text : mode().loadText(entry.item));
   const blobOf = (entry) => (entry.opened ? entry.opened.blob : mode().loadBlob(entry.item));
 
-  const copy = async (entry) => {
-    try {
-      if (entry.info.kind === "text") {
-        await copyText(await textOf(entry));
-      } else {
-        await copyImage(await blobOf(entry));
-      }
-      status.success("Copied.");
-    } catch (error) {
-      status.error(error.message);
-    }
-  };
+  const copy = (entry) =>
+    copyWithStatus(status, entry.info.kind === "text" ? textOf(entry) : blobOf(entry));
 
   /** Burn-after-reading items must be read whole, once. */
   const partsAddress = async (entry) =>
@@ -157,16 +142,10 @@ export const createItemActions = ({
           ? { text: await mode().loadText(item) }
           : { blob: await mode().loadBlob(item) };
       const title = content.text === undefined ? info.title : compactText(content.text);
-      status.success(
-        item.burn || item.readsLeft === 1
-          ? "Opened and deleted from the server."
-          : "Opened; one read used.",
-      );
+      status.success(openedMessage(item));
       await onOpened({ item, info: { ...info, title }, ...content });
     } catch (error) {
-      status.error(
-        error.message === "Item not found." ? "Someone else already opened it." : error.message,
-      );
+      status.error(openFailure(error, "Someone else already opened it."));
       await refreshUnlessLive();
     } finally {
       opening.delete(item.id);

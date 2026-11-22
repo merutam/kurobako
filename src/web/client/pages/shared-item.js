@@ -5,11 +5,11 @@ import { openSharedItem, textDownloadName } from "../../../sdk/k.mjs";
 import { objectAddress, SVG_TYPE, svgAddress } from "../lib/addresses.js";
 import { bundleView } from "../lib/bundle-view.js";
 // Encrypted items carry their own key after the #, so the link leads to nothing else.
-import { button, compactText, copyText, element, request } from "../lib/common.js";
+import { button, compactText, element, request } from "../lib/common.js";
+import { copyWithStatus, openedMessage, openFailure } from "../lib/item-ops.js";
 import {
   audioPlayer,
   canCopyImages,
-  copyImage,
   describeOpened,
   describePlain,
   downloadBlob,
@@ -77,18 +77,7 @@ const showContent = (item, info, content) => {
   actions.replaceChildren();
   if (content.text !== undefined) {
     actions.append(
-      button(
-        "Copy",
-        async () => {
-          try {
-            await copyText(content.text);
-            status.success("Copied.");
-          } catch (error) {
-            status.error(error.message);
-          }
-        },
-        undefined,
-      ),
+      button("Copy", () => copyWithStatus(status, content.text)),
       button(
         "Save",
         () =>
@@ -101,20 +90,7 @@ const showContent = (item, info, content) => {
     );
   }
   if (info.isImage && canCopyImages()) {
-    actions.append(
-      button(
-        "Copy",
-        async () => {
-          try {
-            await copyImage(content.blob);
-            status.success("Copied.");
-          } catch (error) {
-            status.error(error.message);
-          }
-        },
-        undefined,
-      ),
-    );
+    actions.append(button("Copy", () => copyWithStatus(status, content.blob)));
   }
   if (content.blob) {
     actions.append(button("Save", () => downloadBlob(content.blob, info.filename), "primary"));
@@ -149,38 +125,23 @@ async function showItem(item) {
         const displayed = body.textContent;
         body.replaceChildren(highlightedText(displayed, info.title));
         actions.prepend(
-          button(
-            "Copy",
-            async () => {
-              try {
-                // HTML parsing may normalize line endings, so copies read the original bytes.
-                const text =
-                  item.text ?? (await (await request(`${here}/c`, { cache: "no-store" })).text());
-                await copyText(text);
-                status.success("Copied.");
-              } catch (error) {
-                status.error(error.message);
-              }
-            },
-            undefined,
+          // HTML parsing may normalize line endings, so copies read the original bytes.
+          button("Copy", () =>
+            copyWithStatus(
+              status,
+              item.text ?? request(`${here}/c`, { cache: "no-store" }).then((r) => r.text()),
+            ),
           ),
         );
       } else if (info.isBundle) {
         body.replaceChildren(bundleView(await fetchBytes(`${here}/c`, info)));
       } else if (info.isImage && canCopyImages()) {
         actions.prepend(
-          button(
-            "Copy",
-            async () => {
-              try {
-                const blob = new Blob([await fetchBytes(`${here}/c`, info)], { type: info.mime });
-                await copyImage(blob);
-                status.success("Copied.");
-              } catch (error) {
-                status.error(error.message);
-              }
-            },
-            undefined,
+          button("Copy", () =>
+            copyWithStatus(
+              status,
+              fetchBytes(`${here}/c`, info).then((bytes) => new Blob([bytes], { type: info.mime })),
+            ),
           ),
         );
       }
@@ -199,13 +160,9 @@ async function showItem(item) {
               const content = await loadContent(item, info);
               describeMeta(item, info, true);
               showContent(item, info, content);
-              status.success(
-                item.burn || item.readsLeft === 1
-                  ? "Opened and deleted from the server."
-                  : "Opened; one read used.",
-              );
+              status.success(openedMessage(item));
             } catch (error) {
-              status.error(error.message === "Item not found." ? GONE : error.message);
+              status.error(openFailure(error, GONE));
               control.disabled = false;
             }
           },
