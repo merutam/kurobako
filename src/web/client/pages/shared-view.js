@@ -3,13 +3,13 @@
 
 import {
   normalizeSecretName,
-  openSealedSpace,
   openSharedItem,
   openViewEntry,
   secretNameProblem,
 } from "../../../sdk/k.mjs";
 import { createItemList } from "../features/namespace/item-list.js";
-import { element, readConfig, request, SITE, setupNamespaceField } from "../lib/common.js";
+import { plainMode, sealedMode } from "../features/namespace/modes.js";
+import { element, readConfig, request, setupNamespaceField } from "../lib/common.js";
 import { describeOpened, describePlain, limitedItem, sealedStream } from "../lib/items.js";
 import { createStatus } from "../lib/status.js";
 import { failUnlocking, finishUnlocking } from "../lib/unlocking.js";
@@ -142,10 +142,16 @@ const clone = async (event) => {
       const problem = secretNameProblem(name, cloneConfig.sealed.maxNameLength);
       if (problem) throw new Error(problem);
     }
-    const space = encrypted ? await openSealedSpace(name) : null;
-    destination = encrypted ? `${SITE}/e/${space.id}` : `${SITE}/${encodeURIComponent(name)}`;
-    const headers = space ? { "Write-Key": space.writeKey } : {};
-    const existing = await (await request(`${destination}/views`, { headers })).json();
+    // Sent as the namespace page sends: the destination's own mode.
+    let target = null;
+    const writeHeaders = () => (target?.writeKey ? { "Write-Key": target.writeKey } : {});
+    target = encrypted
+      ? await sealedMode({ secretName: name }, writeHeaders)
+      : plainMode(name, writeHeaders);
+    destination = target.basePath;
+    const existing = await (
+      await request(`${destination}/views`, { headers: writeHeaders() })
+    ).json();
     if (existing.items.length || existing.views.length) {
       throw new Error("Choose a new, empty destination namespace.");
     }
@@ -173,53 +179,21 @@ const clone = async (event) => {
           continue;
         }
       }
-      const isText = info.kind === "text";
-      const cloneTitle = isText && limitedItem(before) ? "" : info.title;
-      let saved;
-      if (space) {
-        const metadata = isText
-          ? { kind: "text", title: cloneTitle, size: bytes.byteLength }
-          : {
-              kind: "file",
-              title: info.title,
-              filename: info.filename,
-              mime: info.mime,
-              size: bytes.byteLength,
-            };
-        const sent = await space.sealItem(bytes, metadata);
-        saved = await request(`${destination}/new`, {
-          method: "POST",
-          headers: {
-            ...headers,
-            "Content-Type": "application/octet-stream",
-            "X-Sealed-Metadata": sent.header,
-          },
-          body: sent.body,
-        });
-      } else if (isText) {
-        saved = await request(`${destination}/new`, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain; charset=utf-8", "No-Dedup": "1" },
-          body: bytes,
-        });
-        const item = await saved.json();
-        if (!limitedItem(before) && info.title && info.title !== item.name) {
-          await request(`${destination}/${item.id}/n`, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-            body: info.title,
-          });
-        }
+      // A copy is new: no limits, no expiry chosen, and kept even if the same contents are there.
+      const settings = { deduplicate: false };
+      if (info.kind === "text") {
+        // Only a name given by hand: a text named by its start is named so again.
+        const named = limitedItem(before)
+          ? undefined
+          : before.kind === "sealed"
+            ? info.title
+            : before.name;
+        await target.sendText(new TextDecoder().decode(bytes), { ...settings, name: named });
       } else {
-        saved = await request(`${destination}/new`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "X-Filename": encodeURIComponent(info.filename || "file"),
-            "No-Dedup": "1",
-          },
-          body: bytes,
+        const file = new File([bytes], info.filename || "file", {
+          type: info.mime || "application/octet-stream",
         });
+        await target.sendFile(file, settings);
       }
       copied += 1;
     }

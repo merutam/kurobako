@@ -15,9 +15,11 @@ import { describeOpened, describePlain, limitedItem, sealedStream } from "../../
 import { pushSkipHeaders } from "../../lib/push.js";
 
 const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
-const sendHeaders = ({ burn, expiresIn }) => ({
+/** `deduplicate: false` keeps a copy even if the same contents are there (a clone). */
+const sendHeaders = ({ burn, expiresIn, deduplicate = true }) => ({
   ...burnHeaders(burn),
   ...(expiresIn ? { "Expires-In": expiresIn } : {}),
+  ...(deduplicate ? {} : { "No-Dedup": "1" }),
   ...pushSkipHeaders(),
 });
 const versionOf = (item) => item.updatedAt ?? item.createdAt;

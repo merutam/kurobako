@@ -177,9 +177,10 @@ an edit can update a shared item without detaching its metadata from its body.
 
 Server and CLI tests cover view creation, source-name/key non-disclosure,
 active and frozen membership, concurrent rotation, multi-server routing,
-cleanup and encrypted write authorization. The browser clone still needs
-end-to-end tests for both destination modes, partial copies and changed
-source items. Encrypted backup import into a namespace
+cleanup and encrypted write authorization. Browser tests clone into both a
+plain and an encrypted destination (the clone sends through the destination's
+own mode, as the namespace page does); partial copies and changed source items
+still need theirs. Encrypted backup import into a namespace
 with an active view currently returns 409: it cannot invent envelopes for
 imported item keys. A client-side import that reseals view entries is needed
 before those imports can join an active encrypted view.
