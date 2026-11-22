@@ -4,7 +4,7 @@
 import type { ByteRange } from "../domain/host";
 import { safeTextFileName } from "../domain/media";
 import {
-  hasObject,
+  type InlineTextItem,
   lastRead,
   type NamespaceRef,
   type ObjectItem,
@@ -97,13 +97,11 @@ export const createContents = (api: Api) => {
   const serveObject = async (
     c: AppContext,
     ref: NamespaceRef,
-    selector: ItemRef,
+    preview: ObjectItem,
     inline: boolean,
     unnamed: (id: string) => string,
   ): Promise<Response | null> => {
     const ns = namespace(ref);
-    const preview = await ns.peek(selector, visit(c));
-    if (!preview || !hasObject(preview)) return null;
     let item = preview;
     const { blobs } = platform;
     // Players ask for ranges to start and to seek.
@@ -118,16 +116,19 @@ export const createContents = (api: Api) => {
     if (!object) {
       return null;
     }
-    try {
-      const claimed = await ns.claimObject(item.id, undefined, item.object);
-      if (!claimed) {
-        await object.body.cancel();
-        return null;
+    // Only a limited read must be claimed, atomically, once storage opened it.
+    if (readLimitedItem(item)) {
+      try {
+        const claimed = await ns.claimObject(item.id, undefined, item.object);
+        if (!claimed) {
+          await object.body.cancel();
+          return null;
+        }
+        item = claimed;
+      } catch (error) {
+        await object.body.cancel().catch(() => {});
+        throw error;
       }
-      item = claimed;
-    } catch (error) {
-      await object.body.cancel().catch(() => {});
-      throw error;
     }
     noteRead(c, item);
     if (lastRead(item)) {
@@ -153,23 +154,27 @@ export const createContents = (api: Api) => {
     inline: boolean,
     unnamed: (id: string) => string = (id) => id,
   ): Promise<Response | null> => {
-    const text = await namespace(ref).readText(selector, visit(c));
-    if (text) {
-      noteRead(c, text);
-      return c.body(text.text, 200, {
-        "Content-Type": text.mime,
-        "Cache-Control": "no-store",
-        "Content-Security-Policy": "default-src 'none'; sandbox",
-        ...(inline
-          ? {}
-          : {
-              "Content-Disposition": attachment(
-                text.name ? safeTextFileName(text.name) : `text-${unnamed(text.id)}.txt`,
-              ),
-            }),
-      });
-    }
-    return serveObject(c, ref, selector, inline, unnamed);
+    // One call: an object then opens from storage, a text is already here.
+    const opened = (await namespace(ref).openItem(selector, visit(c))) as
+      | { text: InlineTextItem }
+      | { object: ObjectItem }
+      | null;
+    if (!opened) return null;
+    if ("object" in opened) return serveObject(c, ref, opened.object, inline, unnamed);
+    const { text } = opened;
+    noteRead(c, text);
+    return c.body(text.text, 200, {
+      "Content-Type": text.mime,
+      "Cache-Control": "no-store",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      ...(inline
+        ? {}
+        : {
+            "Content-Disposition": attachment(
+              text.name ? safeTextFileName(text.name) : `text-${unnamed(text.id)}.txt`,
+            ),
+          }),
+    });
   };
 
   return { serveItem };

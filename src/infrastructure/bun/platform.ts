@@ -136,7 +136,8 @@ export const createBunPlatform = (options: BunOptions) => {
       if (open.lastUsed <= idleBefore) open.close();
     }
     for (const [key, entry] of namespaces) {
-      if (!entry.hasStorage() && !entry.sockets.size && entry.alarm.at === null)
+      // The file check last: a stored namespace always has an alarm, so it rarely runs.
+      if (!entry.sockets.size && entry.alarm.at === null && !entry.hasStorage())
         namespaces.delete(key);
     }
   };

@@ -191,11 +191,28 @@ const encryptMessage = async (
 };
 
 /** Under the 24 hours RFC 8292 allows. */
+/** Valid 12 hours; reused for 6, so a burst of sends signs once per push service. */
+const VAPID_TTL_S = 12 * 60 * 60;
+const VAPID_REUSE_MS = 6 * 60 * 60 * 1000;
+const vapidCache = new Map<string, { header: string; until: number }>();
+
 const vapidAuthorization = async (endpoint: string, config: PushConfig, now = Date.now()) => {
+  const audience = new URL(endpoint).origin;
+  const cacheKey = `${audience} ${config.publicKey} ${config.subject}`;
+  const cached = vapidCache.get(cacheKey);
+  if (cached && cached.until > now) return cached.header;
+  const header = await signVapid(audience, config, now);
+  // A handful of push services exist; the bound only guards against misuse.
+  if (vapidCache.size > 100) vapidCache.clear();
+  vapidCache.set(cacheKey, { header, until: now + VAPID_REUSE_MS });
+  return header;
+};
+
+const signVapid = async (audience: string, config: PushConfig, now: number) => {
   const json = (value: unknown) => toBase64Url(encoder.encode(JSON.stringify(value)));
   const unsigned = `${json({ typ: "JWT", alg: "ES256" })}.${json({
-    aud: new URL(endpoint).origin,
-    exp: Math.floor(now / 1000) + 12 * 60 * 60,
+    aud: audience,
+    exp: Math.floor(now / 1000) + VAPID_TTL_S,
     sub: config.subject,
   })}`;
   const point = fromBase64Url(config.publicKey);

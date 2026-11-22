@@ -570,3 +570,70 @@ test("a manifest with a non-numeric size is refused", async () => {
     expect((await fetch(`${base}/one/import`, { method: "POST", body })).status).toBe(400);
   });
 });
+
+test("the hub's stored total follows reports, replacements and forgotten namespaces", async () => {
+  const db = openDatabase(":memory:");
+  try {
+    const hub = new HubCore(loadConfig({ MAX_STORAGE_BYTES: "100" }), {
+      sql: sqlOf(db),
+      ensureAlarm: async () => {},
+      setAlarm: async () => {},
+      cleanUpNamespace: async () => {},
+    });
+    const counts = (bytes: number) => ({ items: 1, bytes, connections: 0 });
+    await hub.reportNamespace({ space: "plain", name: "a" }, counts(30));
+    await hub.reportNamespace({ space: "plain", name: "b" }, counts(20));
+    await hub.reportNamespace({ space: "plain", name: "a" }, counts(10));
+    expect(await hub.storedBytes()).toBe(30);
+    expect(await hub.reserveStorage("one", 70)).toBe(true);
+    expect(await hub.reserveStorage("two", 1)).toBe(false);
+    await hub.reportNamespace({ space: "plain", name: "b" }, counts(20), ["one"]);
+    await hub.forgetNamespace({ space: "plain", name: "a" });
+    expect(await hub.storedBytes()).toBe(20);
+    expect(await hub.reserveStorage("three", 80)).toBe(true);
+    // Recounted from the tables on start.
+    const restarted = new HubCore(loadConfig({ MAX_STORAGE_BYTES: "100" }), {
+      sql: sqlOf(db),
+      ensureAlarm: async () => {},
+      setAlarm: async () => {},
+      cleanUpNamespace: async () => {},
+    });
+    expect(await restarted.storedBytes()).toBe(20);
+    expect(await restarted.reserveStorage("four", 1)).toBe(false);
+  } finally {
+    db.close();
+  }
+});
+
+test("a deleted item's share link and view membership never reach a later item", async () => {
+  const { core, hub, close } = await coreHarness();
+  try {
+    const first = await core.save(ref, { kind: "text", text: "secret", size: 6 }, false);
+    const token = await hub.createShare(ref, first.item.id, null);
+    expect(await hub.resolveShare(token)).not.toBeNull();
+    await core.remove(first.item.id, undefined, write);
+    await Bun.sleep(0);
+    expect(await hub.resolveShare(token)).toBeNull();
+  } finally {
+    close();
+  }
+});
+
+test("new items never take an ID a frozen view still lists", async () => {
+  const { Queue } = await import("../src/domain/namespace/queue");
+  const db = openDatabase(":memory:");
+  try {
+    const { QUEUE_SCHEMA } = await import("../src/domain/namespace/queue");
+    db.run(QUEUE_SCHEMA);
+    const queue = new Queue(() => sqlOf(db));
+    const seen: string[] = [];
+    const id = queue.freshId((candidate) => {
+      seen.push(candidate);
+      return seen.length < 3;
+    });
+    expect(seen).toHaveLength(3);
+    expect(id).toBe(seen[2] as string);
+  } finally {
+    db.close();
+  }
+});

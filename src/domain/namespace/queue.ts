@@ -94,9 +94,10 @@ export class Queue {
     return row ? Date.parse((JSON.parse(row.data) as StoredItem).createdAt) : 0;
   }
 
-  freshId(): string {
+  /** `taken`: IDs used elsewhere (a frozen view's members), which a new item must not reuse. */
+  freshId(taken: (id: string) => boolean = () => false): string {
     let id = newItemId();
-    while (this.find(id)) id = newItemId();
+    while (this.find(id) || taken(id)) id = newItemId();
     return id;
   }
 

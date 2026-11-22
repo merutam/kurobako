@@ -42,6 +42,7 @@ export const HUB_METHODS = [
   "extendShare",
   "resolveShare",
   "forgetShare",
+  "forgetItemShares",
   "registerView",
   "resolveView",
   "forgetView",
@@ -122,6 +123,35 @@ export class HubCore {
         name TEXT NOT NULL
       )`,
     );
+    this.sql.exec(
+      "CREATE INDEX IF NOT EXISTS namespace_views_by_namespace ON namespace_views (space, name)",
+    );
+    this.sql.exec("CREATE INDEX IF NOT EXISTS item_shares_by_expiry ON item_shares (expires_at)");
+    // Every send reserves storage against these totals: kept by triggers rather
+    // than summed over every namespace each time. Recounted on start, so they
+    // can never drift for long.
+    this.sql.exec(
+      "CREATE TABLE IF NOT EXISTS totals (key TEXT PRIMARY KEY, value INTEGER NOT NULL)",
+    );
+    for (const [table, key] of [
+      ["namespaces", "stored_bytes"],
+      ["storage_reservations", "reserved_bytes"],
+    ] as const) {
+      this.sql.exec(
+        `INSERT OR REPLACE INTO totals (key, value)
+         VALUES ('${key}', (SELECT COALESCE(SUM(bytes), 0) FROM ${table}))`,
+      );
+      this.sql.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_added AFTER INSERT ON ${table}
+        BEGIN UPDATE totals SET value = value + NEW.bytes WHERE key = '${key}'; END`);
+      this.sql.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_removed AFTER DELETE ON ${table}
+        BEGIN UPDATE totals SET value = value - OLD.bytes WHERE key = '${key}'; END`);
+      this.sql.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_resized AFTER UPDATE OF bytes ON ${table}
+        BEGIN UPDATE totals SET value = value + NEW.bytes - OLD.bytes WHERE key = '${key}'; END`);
+    }
+  }
+
+  private total(key: "stored_bytes" | "reserved_bytes"): number {
+    return this.count("SELECT value AS total FROM totals WHERE key = ?", key);
   }
 
   private count(query: string, ...params: SqlValue[]): number {
@@ -137,9 +167,13 @@ export class HubCore {
     counts: { items: number; bytes: number; connections: number },
     completedReservations: string[] = [],
   ): Promise<void> {
+    // An upsert, not INSERT OR REPLACE: a replace deletes without firing the
+    // triggers that keep the stored total.
     this.sql.exec(
-      `INSERT OR REPLACE INTO namespaces (space, name, items, bytes, connections, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO namespaces (space, name, items, bytes, connections, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (space, name) DO UPDATE SET items = excluded.items, bytes = excluded.bytes,
+         connections = excluded.connections, updated_at = excluded.updated_at`,
       ref.space,
       ref.name,
       counts.items,
@@ -158,10 +192,8 @@ export class HubCore {
     if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("Invalid storage reservation.");
     if (this.sql.exec("SELECT 1 FROM storage_reservations WHERE token = ?", token).length)
       return true;
-    const used = this.count("SELECT COALESCE(SUM(bytes), 0) AS total FROM namespaces");
-    const reserved = this.count(
-      "SELECT COALESCE(SUM(bytes), 0) AS total FROM storage_reservations",
-    );
+    const used = this.total("stored_bytes");
+    const reserved = this.total("reserved_bytes");
     if (
       this.config.maxStorageBytes !== null &&
       bytes > this.config.maxStorageBytes - used - reserved
@@ -243,14 +275,19 @@ export class HubCore {
   }
 
   /** Sharing the same item twice gives the same link. */
-  private createShareRow(ref: NamespaceRef, itemId: string, expiresAt: string | null): string {
+  /** `created`: a new row, which the housekeeping alarm must eventually expire. */
+  private createShareRow(
+    ref: NamespaceRef,
+    itemId: string,
+    expiresAt: string | null,
+  ): { token: string; created: boolean } {
     const existing = this.sql.exec<{ token: string }>(
       "SELECT token FROM item_shares WHERE space = ? AND name = ? AND item_id = ?",
       ref.space,
       ref.name,
       itemId,
     )[0];
-    if (existing) return existing.token;
+    if (existing) return { token: existing.token, created: false };
 
     const bytes = crypto.getRandomValues(new Uint8Array(SHARE_TOKEN_BYTES));
     const token =
@@ -267,23 +304,23 @@ export class HubCore {
       itemId,
       expiresAt ? Date.parse(expiresAt) : null,
     );
-    return token;
+    return { token, created: true };
   }
 
   async createShare(ref: NamespaceRef, itemId: string, expiresAt: string | null): Promise<string> {
-    const token = this.createShareRow(ref, itemId, expiresAt);
-    await this.ensureAlarm();
+    const { token, created } = this.createShareRow(ref, itemId, expiresAt);
+    if (created) await this.ensureAlarm();
     return token;
   }
 
-  /** One RPC instead of one per item. */
+  /** One RPC instead of one per item; reading a view again only looks its links up. */
   async createShares(
     ref: NamespaceRef,
     items: { id: string; expiresAt: string | null }[],
   ): Promise<string[]> {
-    const tokens = items.map((item) => this.createShareRow(ref, item.id, item.expiresAt));
-    if (tokens.length) await this.ensureAlarm();
-    return tokens;
+    const rows = items.map((item) => this.createShareRow(ref, item.id, item.expiresAt));
+    if (rows.some((row) => row.created)) await this.ensureAlarm();
+    return rows.map((row) => row.token);
   }
 
   /** An item sent again lives longer, and so does its link. */
@@ -306,6 +343,18 @@ export class HubCore {
     }>("SELECT space, name, item_id, expires_at FROM item_shares WHERE token = ?", token)[0];
     if (!row || (row.expires_at !== null && row.expires_at <= Date.now())) return null;
     return { ref: { space: row.space, name: row.name }, itemId: row.item_id };
+  }
+
+  /** Their items are gone: a later item drawing the same ID must not inherit the links. */
+  async forgetItemShares(ref: NamespaceRef, itemIds: string[]): Promise<void> {
+    for (const id of itemIds) {
+      this.sql.exec(
+        "DELETE FROM item_shares WHERE space = ? AND name = ? AND item_id = ?",
+        ref.space,
+        ref.name,
+        id,
+      );
+    }
   }
 
   async forgetShare(token: string): Promise<void> {
@@ -446,7 +495,7 @@ export class HubCore {
   }
 
   async storedBytes(): Promise<number> {
-    return this.count("SELECT COALESCE(SUM(bytes), 0) AS total FROM namespaces");
+    return this.total("stored_bytes");
   }
 
   /** Plain and encrypted: what a full backup covers. */

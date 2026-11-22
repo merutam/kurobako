@@ -81,7 +81,7 @@ export const NAMESPACE_METHODS = [
   "list",
   "listState",
   "save",
-  "readText",
+  "openItem",
   "claimObject",
   "findObject",
   "peek",
@@ -138,7 +138,7 @@ export class NamespaceCore {
     if (!this.schemaReady) {
       sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
       sql.exec(QUEUE_SCHEMA);
-      sql.exec(ACCESS_LOG_SCHEMA);
+      for (const statement of ACCESS_LOG_SCHEMA) sql.exec(statement);
       for (const statement of VIEW_SCHEMA) sql.exec(statement);
       sql.exec(PUSH_SCHEMA);
       this.schemaReady = true;
@@ -271,6 +271,8 @@ export class NamespaceCore {
       const before = (previous ? JSON.parse(previous) : []) as ReturnType<typeof summaryItem>[];
       const old = new Map(before.map((item) => [item.id, JSON.stringify(item)]));
       const next = new Set(current.map((item) => item.id));
+      const removed = before.filter((item) => !next.has(item.id)).map((item) => item.id);
+      if (removed.length) this.forgetItems(ref, removed);
       const revision = this.revision() + 1;
       this.sql.exec(
         "INSERT OR REPLACE INTO meta (key, value) VALUES ('live_revision', ?), ('live_snapshot', ?)",
@@ -281,7 +283,7 @@ export class NamespaceCore {
         type: "change",
         revision,
         upserts: current.filter((item) => old.get(item.id) !== JSON.stringify(item)),
-        removed: before.filter((item) => !next.has(item.id)).map((item) => item.id),
+        removed,
         order: current.map((item) => item.id),
       });
       for (const socket of this.host.sockets()) {
@@ -294,6 +296,18 @@ export class NamespaceCore {
     }
     await this.scheduleAlarm(items);
     await this.reportCommitted(items);
+  }
+
+  /**
+   * IDs can be drawn again once their item is gone (see Queue.freshId). The
+   * active view drops them, so it never grows past the live items, and their
+   * share links go, so a later item with the same ID is never reached by them.
+   * Frozen views keep theirs: freshId avoids those IDs.
+   */
+  private forgetItems(ref: NamespaceRef, ids: string[]): void {
+    const active = this.views.active();
+    if (active) this.views.drop(active.token, ids);
+    this.host.later(this.host.hub().forgetItemShares(ref, ids));
   }
 
   /** One alarm: the next expiry or, once empty, the cleanup. */
@@ -614,7 +628,7 @@ export class NamespaceCore {
     }
 
     const item = newItem(
-      this.queue.freshId(),
+      this.queue.freshId((id) => this.views.lists(id)),
       input,
       burn,
       new Date(now).toISOString(),
@@ -812,15 +826,30 @@ export class NamespaceCore {
   }
 
   /** A burn-after-reading text is deleted by this read. */
-  async readText(ref: ItemRef, visit?: AccessEvent): Promise<InlineTextItem | null> {
+  /**
+   * What a download needs in one call: an inline text, read (and claimed if
+   * limited), or an object item, only looked at: its bytes are claimed with
+   * claimObject once storage has opened them.
+   */
+  async openItem(
+    ref: ItemRef,
+    visit?: AccessEvent,
+  ): Promise<{ text: InlineTextItem } | { object: ObjectItem } | null> {
     if (!this.exists()) return null;
     await this.enter(visit);
     const item = this.queue.find(ref);
-    if (item?.kind !== "text" || hasObject(item)) return null;
+    if (!item) return null;
+    if (hasObject(item)) return { object: item };
+    if (item.kind !== "text") return null;
+    const text = this.claimText(item);
+    if (readLimitedItem(item)) await this.changed();
+    return { text };
+  }
+
+  private claimText(item: InlineTextItem): InlineTextItem {
     if (readLimitedItem(item)) {
       if (!lastRead(item)) this.queue.update({ ...item, readsLeft: (item.readsLeft ?? 1) - 1 });
       else this.queue.remove(item.id);
-      await this.changed();
     }
     return item;
   }

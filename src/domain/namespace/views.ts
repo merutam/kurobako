@@ -17,6 +17,7 @@ export const VIEW_SCHEMA = [
   envelope TEXT,
   PRIMARY KEY (token, item_id)
 )`,
+  "CREATE INDEX IF NOT EXISTS view_entries_by_item ON view_entries (item_id)",
 ];
 
 export type ViewEntry = { id: string; envelope?: string };
@@ -94,6 +95,17 @@ export class Views {
       ordinal - 1,
       envelope ?? null,
     );
+  }
+
+  /** For the active view: its items that are gone. */
+  drop(token: string, ids: string[]): void {
+    for (const id of ids)
+      this.sql().exec("DELETE FROM view_entries WHERE token = ? AND item_id = ?", token, id);
+  }
+
+  /** Whether any view, frozen ones included, lists this ID. */
+  lists(id: string): boolean {
+    return this.sql().exec("SELECT 1 FROM view_entries WHERE item_id = ? LIMIT 1", id).length > 0;
   }
 
   /** Frozen views never change. */

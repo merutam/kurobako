@@ -6,11 +6,15 @@ import type { AccessEvent, AccessLogEntry } from "../visits";
 
 const MAX_ENTRIES = 5_000;
 
-export const ACCESS_LOG_SCHEMA = `CREATE TABLE IF NOT EXISTS access_log (
+export const ACCESS_LOG_SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS access_log (
   ip TEXT PRIMARY KEY,
   last_seen INTEGER NOT NULL,
   data TEXT NOT NULL
-)`;
+)`,
+  // The cap evicts, and the log lists, by recency.
+  "CREATE INDEX IF NOT EXISTS access_log_by_last_seen ON access_log (last_seen)",
+];
 
 export class AccessLog {
   constructor(private readonly sql: () => Sql) {}
