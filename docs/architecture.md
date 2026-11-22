@@ -118,6 +118,26 @@ these behaviors and a measured maintenance benefit, not just a successful
 SSR build. Client bundle sizes printed by Vite include the framework and the
 prototype but are not a production performance comparison.
 
+### Decision: the composer stays without a framework (2026-11-22)
+
+After the composer was split (`forms.js` and its modules, about 1,060 lines in
+seven files, each with one job and browser tests), Solid was weighed for it as
+a client-only island. It was not adopted:
+
+- Solid's runtime alone is 18.1 kB minified (7 kB gzip). The namespace page's
+  first JavaScript is 85.3 kB, so it would pass the build's 100 kB budget
+  (`PAGE_JS_BUDGET` in `src/web/client/build.ts`).
+- Bun.build does not compile Solid's JSX: the assets would need Vite or a Babel
+  plugin, a second toolchain for one feature.
+- SSR already exists (Hono JSX and the shared `item-row.js` template with row
+  adoption), and encrypted namespaces cannot be rendered on the server anyway.
+- What remains imperative is mostly `composer-text.js` (tabs and the editor),
+  about 25 DOM updates, now behind a small API.
+
+Revisit if the namespace page's JavaScript drops well under the budget, or if
+the composer grows enough state that the imperative updates become the
+maintenance cost.
+
 ## Verification
 
 Tests: `test/shared/` runs against both the Worker and Bun; `test/bun/` is the
