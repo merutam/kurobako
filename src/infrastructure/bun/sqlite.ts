@@ -20,9 +20,14 @@ export const sqlOf = (db: Database): Sql => ({
 /** setTimeout cannot wait longer than this. */
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
+/** As Cloudflare retries a failed alarm: from 2 s, doubling, six times. */
+const RETRY_BASE_MS = 2_000;
+const MAX_RETRIES = 6;
+
 /** Like a Durable Object alarm, but not kept across restarts. */
 export class Alarm {
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private retries = 0;
   at: number | null = null;
 
   constructor(private readonly run: () => Promise<void>) {}
@@ -41,7 +46,21 @@ export class Alarm {
         if (delay > MAX_TIMEOUT_MS) return this.arm();
         this.timer = null;
         this.at = null;
-        this.run().catch((error: unknown) => logError("Alarm failed", error));
+        this.run().then(
+          () => {
+            this.retries = 0;
+          },
+          (error: unknown) => {
+            logError("Alarm failed", error);
+            // A run that planned its own next alarm already retries.
+            if (this.at !== null || this.retries >= MAX_RETRIES) {
+              this.retries = 0;
+              return;
+            }
+            this.set(Date.now() + RETRY_BASE_MS * 2 ** this.retries);
+            this.retries += 1;
+          },
+        );
       },
       Math.min(delay, MAX_TIMEOUT_MS),
     );

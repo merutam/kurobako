@@ -534,6 +534,8 @@ async function* readZip(
   }
 }
 
+const MAX_PAX_BYTES = 64 * 1024;
+
 async function* readTar(input: ByteReader): AsyncGenerator<ReadEntry> {
   let pax: Record<string, string> = {};
   for (;;) {
@@ -544,7 +546,11 @@ async function* readTar(input: ByteReader): AsyncGenerator<ReadEntry> {
       decoder.decode(header.subarray(at, at + length)).replace(/\0.*$/s, "");
     const type = field(156, 1) || "0";
     const size = pax.size ? Number(pax.size) : Number.parseInt(field(124, 12).trim() || "0", 8);
+    if (!Number.isSafeInteger(size) || size < 0)
+      throw new Error("A tar entry has an invalid size.");
     if (type === "x" || type === "g") {
+      // Read whole into memory: only paths and sizes are expected here.
+      if (size > MAX_PAX_BYTES) throw new Error("A tar extended header is too large.");
       const records = decoder.decode(await input.read(size));
       await input.skip(padding(size).byteLength);
       if (type === "x") {

@@ -29,6 +29,20 @@ export type EditOptions = Pick<SendOptions, "visitor" | "verifier">;
 
 export type ReplaceResult = { item: StoredItem } | { error: string; conflict?: true } | null;
 
+/**
+ * Domain refusals raised before a namespace changes anything: the blob uploaded
+ * for the write is certainly unused. Transport and infrastructure failures may
+ * follow a committed write, so their blobs are kept.
+ */
+const PRECOMMIT_REFUSALS = new Set([
+  "write_denied",
+  "view_changed",
+  "storage_full",
+  "view_envelopes_required",
+]);
+export const isPrecommitRefusal = (error: unknown) =>
+  error instanceof DomainError && PRECOMMIT_REFUSALS.has(error.code);
+
 const contentTypeOf = (input: ObjectInput) =>
   input.kind === "sealed"
     ? "application/octet-stream"
@@ -97,10 +111,7 @@ export const createItems = ({ namespace, platform }: Pick<Deps, "namespace" | "p
     } catch (error) {
       // These domain refusals occur before inserting an item; transport and
       // infrastructure failures still have an ambiguous commit outcome.
-      if (
-        error instanceof DomainError &&
-        ["write_denied", "view_changed", "storage_full"].includes(error.code)
-      ) {
+      if (isPrecommitRefusal(error)) {
         defer(discard(object));
         throw error;
       }
@@ -148,8 +159,15 @@ export const createItems = ({ namespace, platform }: Pick<Deps, "namespace" | "p
       defer(discard(object));
       throw error;
     }
-    const result = await replace(ref, item, expected, stored, options);
-    // null or an error: nothing committed. A thrown RPC may have committed, so the blob stays.
+    let result: ReplaceResult;
+    try {
+      result = await replace(ref, item, expected, stored, options);
+    } catch (error) {
+      // Any other thrown RPC may have committed, so its blob stays.
+      if (isPrecommitRefusal(error)) defer(discard(object));
+      throw error;
+    }
+    // null or an error: nothing committed.
     if (!result || "error" in result) defer(discard(object));
     return result;
   };

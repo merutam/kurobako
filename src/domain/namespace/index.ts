@@ -5,6 +5,7 @@ import type { AppConfig } from "../../config";
 import { DomainError } from "../errors";
 import type { BlobStore, LiveSocket, Remote, Sql } from "../host";
 import type { HubApi } from "../hub";
+import { logError } from "../log";
 import {
   hasObject,
   type InlineTextItem,
@@ -54,6 +55,9 @@ const sealedIdOfVerifier = (verifier: string): string | null => {
 };
 
 export type Saved = { item: StoredItem; existing: boolean };
+
+/** Explicit, so a new caller cannot skip the write check by leaving it out. */
+export type RestoreAccess = "admin" | { verifier: string | null };
 
 export type Restored = {
   input: SaveInput;
@@ -186,14 +190,47 @@ export class NamespaceCore {
     throw new DomainError("write_denied", 403, "Write access denied.");
   }
 
+  /** The admin restores the whole instance; anyone else needs write access. */
+  private async assertRestore(ref: NamespaceRef, access: RestoreAccess): Promise<void> {
+    if (access !== "admin") await this.assertWrite(ref, access.verifier);
+  }
+
   private expiryFrom(now: number, expiresInSeconds: number | null = null): string | null {
     const duration = expiresInSeconds === null ? this.config.itemTtlMs : expiresInSeconds * 1000;
     return duration ? new Date(now + duration).toISOString() : null;
   }
 
+  /**
+   * Called once the items' rows are gone. The keys are journaled in the same
+   * synchronous step, so a failed delete is retried by the alarm instead of
+   * leaving an object no row points to.
+   */
   private async deleteFiles(items: StoredItem[]): Promise<void> {
     const keys = items.filter(hasObject).map((item) => item.object);
-    if (keys.length) await this.host.blobs.delete(keys);
+    if (!keys.length) return;
+    for (const key of keys)
+      this.sql.exec("INSERT OR IGNORE INTO meta (key, value) VALUES (?, '')", `delete:${key}`);
+    await this.flushDeletes(keys);
+  }
+
+  /** True when no journaled delete is left. Never throws: the alarm retries. */
+  private async flushDeletes(keys = this.pendingDeletes()): Promise<boolean> {
+    if (!keys.length) return true;
+    try {
+      await this.host.blobs.delete(keys);
+    } catch (error) {
+      logError("Deleting objects failed; retrying from the alarm", error);
+      await this.host.setAlarm(Date.now() + 30_000);
+      return false;
+    }
+    for (const key of keys) this.sql.exec("DELETE FROM meta WHERE key = ?", `delete:${key}`);
+    return true;
+  }
+
+  private pendingDeletes(): string[] {
+    return this.sql
+      .exec<{ key: string }>("SELECT key FROM meta WHERE key LIKE 'delete:%'")
+      .map(({ key }) => key.slice(7));
   }
 
   private async expire(): Promise<boolean> {
@@ -256,16 +293,19 @@ export class NamespaceCore {
       }
     }
     await this.scheduleAlarm(items);
-    await this.report(items);
+    await this.reportCommitted(items);
   }
 
   /** One alarm: the next expiry or, once empty, the cleanup. */
   private async scheduleAlarm(items: StoredItem[]): Promise<void> {
-    if (!items.length) {
-      await this.host.setAlarm(Date.now() + this.config.emptyNamespaceTtlMs);
-      return;
-    }
-    await this.host.setAlarm(this.queue.nextExpiry());
+    const planned = items.length
+      ? this.queue.nextExpiry()
+      : Date.now() + this.config.emptyNamespaceTtlMs;
+    // Failed object deletes are retried soon, whatever else is planned.
+    const retry = this.pendingDeletes().length ? Date.now() + 30_000 : null;
+    await this.host.setAlarm(
+      retry !== null && (planned === null || retry < planned) ? retry : planned,
+    );
   }
 
   /** `closing` may still be listed among the sockets. */
@@ -293,7 +333,20 @@ export class NamespaceCore {
       this.activeReservations.delete(token);
       // Report committed state before releasing the reservation. On failure the
       // journal remains for the next report/alarm, rather than undercounting use.
-      await this.report();
+      await this.reportCommitted();
+    }
+  }
+
+  /**
+   * After a mutation settled: its outcome stands even if the hub misses the
+   * report. report() has already persisted a retry alarm, and the journal keeps
+   * the reservation counted until a later report succeeds.
+   */
+  private async reportCommitted(known?: StoredItem[]): Promise<void> {
+    try {
+      await this.report(known);
+    } catch (error) {
+      logError("Namespace report failed; retrying from the alarm", error);
     }
   }
 
@@ -331,7 +384,10 @@ export class NamespaceCore {
       await this.host.setAlarm(Date.now() + 30_000);
       return;
     }
-    if (this.exists()) await this.report();
+    if (this.exists()) {
+      await this.report();
+      if (!(await this.flushDeletes())) return;
+    }
     // If that empties the namespace, changed() plans its cleanup for later.
     if (await this.expire()) {
       await this.changed();
@@ -358,7 +414,20 @@ export class NamespaceCore {
   }
 
   private async cleanUp(ref: NamespaceRef): Promise<void> {
+    // The delete journal lives in this storage: dropping it would orphan objects.
+    if (!(await this.flushDeletes())) return;
     await this.host.hub().forgetNamespace(ref);
+    // Other requests run during each await: a send, a reservation or a viewer may
+    // have arrived. Deleting now would drop an item its sender saw saved.
+    if (
+      this.activeReservations.size ||
+      this.host.sockets().length ||
+      this.queue.all().length ||
+      this.pendingDeletes().length
+    ) {
+      await this.changed();
+      return;
+    }
     await this.host.deleteStorage();
     this.schemaReady = false;
   }
@@ -618,7 +687,9 @@ export class NamespaceCore {
       this.host.later(
         sendPush(target, message, push).then((result) => {
           // The browser dropped it: nothing will arrive there again.
-          if (result === "gone") {
+          // Not through this.sql once the namespace is gone: its getter would
+          // recreate the storage that cleanup just deleted.
+          if (result === "gone" && this.exists()) {
             this.sql.exec("DELETE FROM push_subscriptions WHERE endpoint = ?", target.endpoint);
           }
         }),
@@ -632,7 +703,7 @@ export class NamespaceCore {
    * uploaded files not kept, for the caller to delete.
    */
   async restore(...args: Parameters<NamespaceCore["restoreUnbudgeted"]>) {
-    if (args[2] !== undefined) await this.assertWrite(args[0], args[2]);
+    await this.assertRestore(args[0], args[2]);
     this.remember(args[0]);
     return this.withStorageBudget(
       args[1].reduce((sum, item) => sum + item.input.size, 0),
@@ -643,9 +714,9 @@ export class NamespaceCore {
   private async restoreUnbudgeted(
     ref: NamespaceRef,
     items: Restored[],
-    verifier?: string | null,
+    access: RestoreAccess,
   ): Promise<{ restored: number; skipped: string[] }> {
-    if (verifier !== undefined) await this.assertWrite(ref, verifier);
+    await this.assertRestore(ref, access);
     this.remember(ref);
     await this.expire();
     const active = this.views.active();
@@ -859,11 +930,11 @@ export class NamespaceCore {
 
   async remove(
     ref: ItemRef,
-    visit?: AccessEvent,
-    write?: { ref: NamespaceRef; verifier: string | null },
+    visit: AccessEvent | undefined,
+    write: { ref: NamespaceRef; verifier: string | null },
   ): Promise<boolean> {
     if (!this.exists()) return false;
-    if (write) await this.assertWrite(write.ref, write.verifier);
+    await this.assertWrite(write.ref, write.verifier);
     this.recordVisit(visit);
     const item = this.queue.find(ref);
     if (!item) return false;

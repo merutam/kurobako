@@ -35,8 +35,9 @@ import {
   type StoredItem,
   sealedName,
 } from "../domain/model";
-import type { Restored, SaveInput } from "../domain/namespace";
+import type { RestoreAccess, Restored, SaveInput } from "../domain/namespace";
 import type { Deps } from "./deps";
+import { isPrecommitRefusal } from "./items";
 import { storageRefusal } from "./storage";
 
 const MANIFEST = "manifest.json";
@@ -488,8 +489,18 @@ export const createBackups = ({
 
     let restored = 0;
     let skipped = 0;
-    for (const { ref, items } of read.batches) {
-      const result = await namespace(ref).restore(ref, items, into ? verifier : undefined);
+    const access: RestoreAccess = into ? { verifier } : "admin";
+    for (const [index, { ref, items }] of read.batches.entries()) {
+      let result: Awaited<ReturnType<ReturnType<typeof namespace>["restore"]>>;
+      try {
+        result = await namespace(ref).restore(ref, items, access);
+      } catch (error) {
+        // Later namespaces never received theirs; a refused one kept none of its own.
+        const unused = read.batches.slice(isPrecommitRefusal(error) ? index : index + 1);
+        const keys = unused.flatMap((batch) => batch.items.flatMap(objectOf));
+        if (keys.length) await blobs.delete(keys);
+        throw error;
+      }
       restored += result.restored;
       skipped += items.length - result.restored;
       if (result.skipped.length) await blobs.delete(result.skipped);
@@ -499,6 +510,8 @@ export const createBackups = ({
 
   return { backup, restore };
 };
+
+const objectOf = ({ input }: Restored) => ("object" in input ? [input.object] : []);
 
 export type RestoreResult =
   | { restored: number; skipped: number; rejected: number; namespaces: number }
@@ -523,9 +536,22 @@ const isManifest = (value: unknown): value is Manifest => {
     manifest?.kurobako === "backup" &&
     manifest.version === 1 &&
     Array.isArray(manifest.namespaces) &&
-    manifest.namespaces.every((ns) => Array.isArray(ns?.items))
+    manifest.namespaces.every((ns) => Array.isArray(ns?.items) && ns.items.every(isManifestItem))
   );
 };
+
+const ITEM_KINDS = new Set(["text", "image", "file", "sealed"]);
+
+/** Sizes feed the quota total and the archive reader: they must be real byte counts. */
+const isManifestItem = (item: ManifestItem) =>
+  typeof item === "object" &&
+  item !== null &&
+  typeof item.id === "string" &&
+  typeof item.path === "string" &&
+  typeof item.createdAt === "string" &&
+  ITEM_KINDS.has(item.kind) &&
+  Number.isSafeInteger(item.size) &&
+  item.size >= 0;
 
 /** Encrypted items only open with their own namespace's key, so they never move. */
 const targetOf = (

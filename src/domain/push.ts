@@ -223,6 +223,8 @@ export const vapidAuthorization = async (
   return `vapid t=${unsigned}.${toBase64Url(signature)}, k=${config.publicKey}`;
 };
 
+const PUSH_TIMEOUT_MS = 10_000;
+
 /** "gone": the browser dropped the subscription, so it can be forgotten. */
 export const sendPush = async (
   target: PushTarget,
@@ -241,6 +243,8 @@ export const sendPush = async (
       Urgency: "high",
     },
     body: await encryptMessage(target, encoder.encode(JSON.stringify(message))),
+    // A stalled push service must not hold background work open indefinitely.
+    signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
   });
   await response.body?.cancel();
   if (response.status === 404 || response.status === 410) return "gone";

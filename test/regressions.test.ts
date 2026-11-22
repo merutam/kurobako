@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Deps } from "../src/application/deps";
-import type { SendOptions } from "../src/application/items";
+import type { EditOptions, SendOptions } from "../src/application/items";
 import { createItems } from "../src/application/items";
 import { loadConfig } from "../src/config";
 import { DomainError } from "../src/domain/errors";
@@ -232,13 +232,13 @@ test("a restarted namespace reconciles a reservation after a committed write los
       throw new Error("Hub temporarily down");
     };
     const original = new NamespaceCore(settings, host);
-    await expect(
-      original.save(
-        { space: "plain", name: "one" },
-        { kind: "text", text: "12345678", size: 8 },
-        false,
-      ),
-    ).rejects.toThrow("Hub temporarily down");
+    // Committed: the sender is told so, though the hub missed the report.
+    const saved = await original.save(
+      { space: "plain", name: "one" },
+      { kind: "text", text: "12345678", size: 8 },
+      false,
+    );
+    expect(saved.item.size).toBe(8);
     expect(alarm).not.toBeNull();
     expect((alarm ?? Infinity) - Date.now()).toBeLessThanOrEqual(30_000);
     expect(await hub.reserveStorage("too-big", 3)).toBe(false);
@@ -333,4 +333,240 @@ test("rebuilding unchanged SDK assets does not retrigger the public directory wa
   const before = statSync(sdk, { bigint: true }).mtimeNs;
   await build();
   expect(statSync(sdk, { bigint: true }).mtimeNs).toBe(before);
+});
+
+/** A namespace core on in-memory databases, with hooks into its hub and timers. */
+const coreHarness = async (settings: Parameters<typeof loadConfig>[0] = {}) => {
+  const { NamespaceCore } = await import("../src/domain/namespace");
+  const hubDb = openDatabase(":memory:");
+  const nsDb = openDatabase(":memory:");
+  const config = loadConfig(settings);
+  const hub = new HubCore(config, {
+    sql: sqlOf(hubDb),
+    ensureAlarm: async () => {},
+    setAlarm: async () => {},
+    cleanUpNamespace: async () => {},
+  });
+  const blobs = memoryStore();
+  const state = { alarm: null as number | null, deleted: false };
+  const host = {
+    hasStorage: () => !state.deleted,
+    sql: () => sqlOf(nsDb),
+    deleteStorage: async () => {
+      state.deleted = true;
+    },
+    setAlarm: async (time: number | null) => {
+      state.alarm = time;
+    },
+    sockets: () => [],
+    blobs,
+    hub: () => hub as unknown as ReturnType<Deps["hub"]>,
+    later: (work: Promise<unknown>) => {
+      void work.catch(() => {});
+    },
+  };
+  return {
+    core: new NamespaceCore(config, host),
+    hub,
+    blobs,
+    state,
+    close: () => {
+      hubDb.close();
+      nsDb.close();
+    },
+  };
+};
+
+const ref = { space: "plain", name: "one" } as const;
+const write = { ref, verifier: null };
+
+test("a send that arrives while cleanup waits for the hub is not deleted", async () => {
+  const { core, hub, state, close } = await coreHarness();
+  try {
+    const first = await core.save(ref, { kind: "text", text: "first", size: 5 }, false);
+    expect(await core.remove(first.item.id, undefined, write)).toBe(true);
+    let release = () => {};
+    const forget = hub.forgetNamespace.bind(hub);
+    hub.forgetNamespace = async (target) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await forget(target);
+    };
+    const cleanup = core.alarm();
+    await Bun.sleep(0);
+    const saved = core.save(ref, { kind: "text", text: "second", size: 6 }, false);
+    await Bun.sleep(0);
+    release();
+    await Promise.all([cleanup, saved]);
+    expect(state.deleted).toBe(false);
+    expect((await core.list()).map((item) => "text" in item && item.text)).toEqual(["second"]);
+  } finally {
+    close();
+  }
+});
+
+test("a failed object delete is journaled and retried by the alarm", async () => {
+  const { core, blobs, state, close } = await coreHarness();
+  try {
+    await blobs.put("objects/a", new Blob(["file"]).stream(), 4, "application/octet-stream");
+    const saved = await core.save(
+      ref,
+      {
+        kind: "file",
+        mime: "application/octet-stream",
+        filename: "a",
+        object: "objects/a",
+        size: 4,
+      },
+      false,
+    );
+    const remove = blobs.delete;
+    blobs.delete = async () => {
+      throw new Error("Storage temporarily down");
+    };
+    // The item is gone for its sender even though its object is still stored.
+    expect(await core.remove(saved.item.id, undefined, write)).toBe(true);
+    expect(await core.list()).toEqual([]);
+    expect((state.alarm ?? Infinity) - Date.now()).toBeLessThanOrEqual(30_000);
+    expect(await blobs.get("objects/a")).not.toBeNull();
+    blobs.delete = remove;
+    await core.alarm();
+    expect(await blobs.get("objects/a")).toBeNull();
+  } finally {
+    close();
+  }
+});
+
+test("a known refusal of an edit discards its unused uploaded blob", async () => {
+  let deleted = false;
+  const store = memoryStore();
+  store.delete = async () => {
+    deleted = true;
+  };
+  const items = createItems({
+    platform: { blobs: store },
+    namespace: () => ({
+      replace: async () => {
+        throw new DomainError("storage_full", 507, "Full.");
+      },
+    }),
+  } as unknown as Pick<Deps, "platform" | "namespace">);
+  await expect(
+    items.replaceObject(
+      ref,
+      "1",
+      new Date().toISOString(),
+      { body: new Blob(["text"]).stream(), size: 4, head: new Uint8Array() },
+      { kind: "text", preview: "text" },
+      { visitor: undefined, verifier: null } as unknown as EditOptions,
+      (work) => void work,
+    ),
+  ).rejects.toThrow("Full.");
+  expect(deleted).toBe(true);
+});
+
+test("a restore refused by its namespace leaves no uploaded blobs", async () => {
+  const { createBackups } = await import("../src/application/backups");
+  const { writeArchive } = await import("../src/domain/archive");
+  const store = memoryStore();
+  const stored = new Set<string>();
+  const put = store.put;
+  store.put = async (key, ...rest) => {
+    stored.add(key);
+    await put(key, ...rest);
+  };
+  const remove = store.delete;
+  store.delete = async (keys) => {
+    for (const key of keys) stored.delete(key);
+    await remove(keys);
+  };
+  const body = new TextEncoder().encode("x".repeat(100_000));
+  const manifest = new TextEncoder().encode(
+    JSON.stringify({
+      kurobako: "backup",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      namespaces: [
+        {
+          space: "plain",
+          name: "one",
+          items: [
+            {
+              id: "abcdef",
+              kind: "file",
+              createdAt: new Date().toISOString(),
+              expiresAt: null,
+              size: body.byteLength,
+              path: "one/a.bin",
+              filename: "a.bin",
+              mime: "application/octet-stream",
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  const archive = writeArchive("tar", [
+    {
+      path: "manifest.json",
+      size: manifest.byteLength,
+      modified: new Date(),
+      open: async () => new Blob([manifest]).stream(),
+    },
+    {
+      path: "one/a.bin",
+      size: body.byteLength,
+      modified: new Date(),
+      open: async () => new Blob([body]).stream(),
+    },
+  ]);
+  const backups = createBackups({
+    config: loadConfig({}),
+    platform: { blobs: store },
+    blobs: store,
+    hub: () => ({ storedBytes: async () => 0 }),
+    namespace: () => ({
+      restore: async () => {
+        throw new DomainError("write_denied", 403, "Write access denied.");
+      },
+    }),
+  } as unknown as Parameters<typeof createBackups>[0]);
+  const outcome = await backups
+    .restore(archive, { space: "plain", name: "one" }, { maxItems: 10, verifier: null })
+    .catch((error: unknown) => error);
+  expect(outcome).toBeInstanceOf(DomainError);
+  expect([...stored]).toEqual([]);
+});
+
+test("a manifest with a non-numeric size is refused", async () => {
+  await withServer({}, async (base) => {
+    const { writeArchive } = await import("../src/domain/archive");
+    const manifest = new TextEncoder().encode(
+      JSON.stringify({
+        kurobako: "backup",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        namespaces: [
+          {
+            space: "plain",
+            name: "one",
+            items: [
+              { id: "1", kind: "text", createdAt: "", expiresAt: null, size: "9", path: "a" },
+            ],
+          },
+        ],
+      }),
+    );
+    const archive = writeArchive("tar", [
+      {
+        path: "manifest.json",
+        size: manifest.byteLength,
+        modified: new Date(),
+        open: async () => new Blob([manifest]).stream(),
+      },
+    ]);
+    const body = new Uint8Array(await new Response(archive).arrayBuffer());
+    expect((await fetch(`${base}/one/import`, { method: "POST", body })).status).toBe(400);
+  });
 });

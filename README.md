@@ -75,7 +75,7 @@ beyond a platform's limits are refused at start.
 | `MAX_ITEMS` | `20` | per namespace; 1,000 at most |
 | `MAX_FILE_BYTES` | `100000000` | 100 MB at most on Cloudflare Free and Pro |
 | `MAX_TEXT_BYTES` | `1000000` | 100 MB at most on Cloudflare Free and Pro |
-| `INLINE_TEXT_BYTES` | `64000` | larger texts go to R2/S3; 2 MB at most on Cloudflare |
+| `INLINE_TEXT_BYTES` | `64000` | larger texts go to R2/S3; 300 kB at most on Cloudflare (stored escaped in a 2 MB row) |
 | `MAX_STORAGE_BYTES` | unset | per backend, including in-flight reservations; sends past it get `507` |
 | `SENDS_PER_MINUTE` | `300` | per address (an IPv6 /64 is one); on Cloudflare, also `UPLOAD_LIMITER` |
 | `MISSES_PER_MINUTE` | `300` | requests for things that are not there; on Cloudflare, also `MISS_LIMITER` |

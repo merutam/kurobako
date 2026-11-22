@@ -72,7 +72,8 @@ export class NamespaceObject extends DurableObject<Env> {
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
     server.send(snapshot);
-    await this.core.watchersChanged();
+    // The socket is accepted: a hub outage must not turn it into a 500 (as on Bun).
+    await this.reportWatchers();
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -81,7 +82,23 @@ export class NamespaceObject extends DurableObject<Env> {
     try {
       socket.close(code === 1005 || code === 1006 ? 1000 : code, reason);
     } catch {}
-    await this.core.watchersChanged(socket);
+    await this.reportWatchers(socket);
+  }
+
+  /** A socket that fails gets no close event: count it out here. */
+  async webSocketError(socket: WebSocket): Promise<void> {
+    try {
+      socket.close(1011, "WebSocket error");
+    } catch {}
+    await this.reportWatchers(socket);
+  }
+
+  private async reportWatchers(closing?: WebSocket): Promise<void> {
+    try {
+      await this.core.watchersChanged(closing);
+    } catch (error) {
+      logError("Live update failed", error);
+    }
   }
 }
 
