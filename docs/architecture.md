@@ -20,7 +20,7 @@ browser presentation. HTTP translates typed domain errors to status codes.
 The Cloudflare adapter explicitly serializes these errors as tagged values;
 custom JavaScript Error properties are not the RPC contract.
 
-The namespace feature lives in `web/client/features/namespace`. Its composer
+The namespace feature lives in `src/web/client/features/namespace`. Its composer
 preview owns its object URLs; its live controller uses the pure, typed queue
 reducer. Shared formatting opts into JavaScript type checking; migration of
 other browser controllers to checked TypeScript remains incremental.

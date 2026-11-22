@@ -29,7 +29,7 @@ const attachment = (filename: string) => {
 };
 
 /** One range only (RFC 9110): several fall back to the whole object. */
-export const requestedRange = (
+const requestedRange = (
   header: string | undefined,
   size: number,
 ): ByteRange | "unsatisfiable" | null => {

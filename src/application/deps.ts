@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Declared here, not taken from api/'s Api, so services never depend on the HTTP layer.
+// Declared here, not taken from http/'s types, so application code never depends on the HTTP layer.
 import type { AppConfig } from "../config";
 import type { HubApi } from "../domain/hub";
 import type { NamespaceRef } from "../domain/model";

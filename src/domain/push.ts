@@ -131,7 +131,7 @@ const hkdf = async (salt: Bytes, ikm: Bytes, info: Bytes, length: number) =>
 const RECORD_SIZE = 4096;
 
 /** `salt` and `serverKeys` are for tests; real messages get fresh ones. */
-export const encryptMessage = async (
+const encryptMessage = async (
   target: PushTarget,
   plaintext: Uint8Array,
   salt: Bytes = crypto.getRandomValues(new Uint8Array(16)),
@@ -191,11 +191,7 @@ export const encryptMessage = async (
 };
 
 /** Under the 24 hours RFC 8292 allows. */
-export const vapidAuthorization = async (
-  endpoint: string,
-  config: PushConfig,
-  now = Date.now(),
-) => {
+const vapidAuthorization = async (endpoint: string, config: PushConfig, now = Date.now()) => {
   const json = (value: unknown) => toBase64Url(encoder.encode(JSON.stringify(value)));
   const unsigned = `${json({ typ: "JWT", alg: "ES256" })}.${json({
     aud: new URL(endpoint).origin,

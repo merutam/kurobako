@@ -37,7 +37,7 @@ import { createComposerPreview } from "./preview.js";
 
 /*
  * What the composer holds decides the send: one text is a text item, files
- * are an item each, anything else one bundle (see shared/bundle.js).
+ * are an item each, anything else one bundle (see protocol/bundle.js).
  */
 export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const sendForm = element("#send-form");

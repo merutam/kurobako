@@ -62,12 +62,12 @@ export const jsonError = (
   error: string,
 ) => c.json({ error }, status);
 
-export const TOO_MANY_SENDS = "Too many sends from this address. Try again in a minute.";
+const TOO_MANY_SENDS = "Too many sends from this address. Try again in a minute.";
 
-export const WRITE_KEY_HEADER = "write-key";
+const WRITE_KEY_HEADER = "write-key";
 
 /** Namespaces keep only the hash of their write key. */
-export const sha256Hex = async (text: string) =>
+const sha256Hex = async (text: string) =>
   [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");

@@ -76,7 +76,7 @@ export const LIVE = {
   hiddenCloseSeconds: 60,
 } as const;
 
-/** On Cloudflare these become the Durable Object's RPC methods (runtime/cloudflare/objects.ts). */
+/** On Cloudflare these become the Durable Object's RPC methods (infrastructure/cloudflare/objects.ts). */
 export const NAMESPACE_METHODS = [
   "list",
   "listState",

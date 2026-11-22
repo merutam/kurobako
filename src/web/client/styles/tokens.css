@@ -42,6 +42,7 @@
   --text-list: 14px;
   --text-small: 13px;
   --text-h2: 22px;
+  --text-h3: 16px;
   --text-h1: clamp(32px, 6vw, 48px);
 
   /* Shapes and sizes */

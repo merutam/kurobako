@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// So core/ never knows whether it runs on Cloudflare or Bun (see src/infrastructure/).
+// So domain/ never knows whether it runs on Cloudflare or Bun (see src/infrastructure/).
 
 export type SqlValue = string | number | null;
 

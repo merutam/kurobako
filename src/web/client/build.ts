@@ -32,7 +32,7 @@ const contentHash = (body: Uint8Array | string) =>
   createHash("sha256").update(body).digest("hex").slice(0, 12);
 
 /** What a page's module and the chunks it imports may weigh, minified, before lazy imports. */
-export const PAGE_JS_BUDGET = 100_000;
+const PAGE_JS_BUDGET = 100_000;
 
 /** Bytes each page downloads before anything lazy: its module and chunks, and the styles. */
 export const pageSizes = ({ manifest, files }: Bundle) => {

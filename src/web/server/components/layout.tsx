@@ -13,7 +13,7 @@ export type SiteView = {
 };
 
 /** Script data is raw HTML text: an unescaped < could close the script tag. */
-export const safeJson = (value: unknown) => JSON.stringify(value).replaceAll("<", "\\u003c");
+const safeJson = (value: unknown) => JSON.stringify(value).replaceAll("<", "\\u003c");
 
 const assetUrl = (site: SiteView, file: string) => `${site.basePath}${ASSETS_PATH}/${file}`;
 

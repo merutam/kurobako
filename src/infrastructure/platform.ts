@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Everything outside runtime/ is shared and must not depend on either platform.
+// Everything outside infrastructure/ is shared and must not depend on either platform.
 import type { Context } from "hono";
 import type { BlobStore } from "../domain/host";
 import type { HubApi } from "../domain/hub";

@@ -6,7 +6,6 @@ import { imageAddress, SVG_TYPE } from "./addresses.js";
 
 export {
   compactText,
-  dateFormatter,
   formatAge,
   formatBytes,
   formatDuration,
@@ -84,7 +83,7 @@ export const storage = {
 /** Embedded in each page, so it needs no request. */
 export const readConfig = () => JSON.parse(element("#config").textContent);
 
-export class RequestError extends Error {
+class RequestError extends Error {
   constructor(message, status, retryAfter = null) {
     super(message);
     this.status = status;

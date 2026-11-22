@@ -44,7 +44,7 @@ export const highlightedCode = (text, title, mark = () => {}) => {
 };
 
 /** Including the empty line after a final newline. */
-export const lineNumbers = (text) => {
+const lineNumbers = (text) => {
   let count = 1;
   for (const character of text) if (character === "\n") count += 1;
   return Array.from({ length: count }, (_, index) => index + 1).join("\n");

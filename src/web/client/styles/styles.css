@@ -14,7 +14,7 @@
 }
 
 /* A namespace page known, before its first paint, to be a reader's (see
-   access.js): no send forms to show and then hide. namespaces/access.js takes over. */
+   access.js): no send forms to show and then hide. features/namespace/access.js takes over. */
 :root[data-read-link] :is(#send-section, #restore-form) {
   display: none;
 }
@@ -168,7 +168,7 @@ h2 {
 }
 h3 {
   margin-bottom: var(--space-2);
-  font-size: 16px;
+  font-size: var(--text-h3);
   line-height: 1.4;
 }
 /* Markdown's marks, in the accent: decoration, so not read out. */
@@ -227,18 +227,8 @@ p {
 .empty::before {
   content: "* " / "";
 }
-.error-text {
-  color: var(--err);
-}
 
 /* --- Layout --------------------------------------------------------------- */
-
-/* Content side by side when there is room; it stacks on its own. */
-.columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--gap-section) var(--space-6);
-}
 
 /* Sections stand apart from one another. */
 .page-section {
@@ -421,9 +411,9 @@ button.destructive:hover {
   border-color: var(--err);
   color: var(--err);
 }
-/* A confirmation's button for what cannot be undone (lib/dialog.js). */
-button.danger,
-button.danger:hover {
+/* The primary action, when it cannot be undone: a confirmation's (lib/dialog.js). */
+button.primary.destructive,
+button.primary.destructive:hover {
   border-color: var(--err);
   background: var(--err);
   color: var(--on-accent);
@@ -1234,7 +1224,7 @@ button.media-preview:hover img {
 
 /* Renaming an item in place, where its name was. */
 .rename-input {
-  min-height: 36px;
+  min-height: var(--hit);
   margin: var(--space-1) 0;
   padding: 4px var(--space-2);
   border-color: var(--accent);
@@ -1492,7 +1482,7 @@ button.media-preview:hover img {
 .prose > h4 {
   margin: var(--space-5) 0 var(--space-2);
   color: var(--fg);
-  font-size: 15px;
+  font-size: var(--text-body);
   line-height: 1.4;
 }
 .prose h4::before {
@@ -1897,7 +1887,7 @@ summary::before {
   font-size: 20px;
 }
 .markdown-body :is(h3, h4, h5, h6) {
-  font-size: 16px;
+  font-size: var(--text-h3);
 }
 .markdown-body h3::before {
   content: "### " / "";
@@ -1981,10 +1971,7 @@ summary::before {
   color: var(--accent);
 }
 
-/* A picked file's [remove], and the list's [clear]: compact, red on hover. */
-.file-list .row-action {
-  min-height: 32px;
-}
+/* A picked file's [remove], and the list's [clear]: red on hover. */
 .file-list .row-action:hover {
   color: var(--err);
 }
@@ -2075,7 +2062,7 @@ fieldset.choices {
   white-space: pre;
 }
 
-/* The share page (src/pages/share.tsx): what was shared, and where it goes. */
+/* The share page (src/web/server/share.tsx): what was shared, and where it goes. */
 .shared-text {
   max-height: 14rem;
   margin: 0;

@@ -55,7 +55,7 @@ const UNBOUNDED_LIMITS: PlatformLimits = {
 /** Hopeless to guess even without the login rate limit. */
 export const ADMIN_KEY_MIN_LENGTH = 32;
 /** Shorter: it is typed on phones, and failed logins are rate limited anyway. */
-export const ACCESS_KEY_MIN_LENGTH = 16;
+const ACCESS_KEY_MIN_LENGTH = 16;
 
 type Vars = Record<string, unknown>;
 

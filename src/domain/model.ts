@@ -108,7 +108,7 @@ export const NAMESPACE_PATTERN = new RegExp(
   `^[a-z0-9](?:[a-z0-9_-]{0,${NAMESPACE_MAX_LENGTH - 2}}[a-z0-9])?$`,
 );
 /** Derived in the browser from the secret name, which never reaches the server. */
-export const SEALED_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+const SEALED_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 export const SEALED_NAME_MAX_LENGTH = 256;
 
 export const plainName = (raw: string): string | null => {

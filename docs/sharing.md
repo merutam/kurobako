@@ -183,3 +183,19 @@ source items. Encrypted backup import into a namespace
 with an active view currently returns 409: it cannot invent envelopes for
 imported item keys. A client-side import that reseals view entries is needed
 before those imports can join an active encrypted view.
+
+## Public listing (on hold)
+
+`/p`, a page, and `/p/ls?after=<cursor>`, its JSON, may list shared views
+their creators chose to publish, without exposing the source namespaces.
+`p` becomes a reserved name. The view model is above.
+
+- **Opt-in:** publication is separate from creating a view. Removing one
+  from `/p` does not invalidate a link someone already saved.
+- **Plain or encrypted:** publish the view link, not the namespace's write
+  address or its encryption key.
+- **Order and paging:** most recently active first; the cursor is
+  `(updatedAt, id)` of the last one shown, stable while namespaces change
+  between pages.
+- **Moderation:** the admin can take a namespace off the list; an instance
+  may cap how many are listed.

@@ -8,7 +8,7 @@ import { type NamespaceRef, objectName, SHARE_TOKEN_BYTES } from "./model";
 import { slotOf, slotPrefix } from "./routing";
 
 /** Never tied to a namespace or a visitor, so the stats stay public. */
-export const ACTIVITY_EVENTS = ["sentText", "sentFile", "sentEncrypted", "openedOnce"] as const;
+const ACTIVITY_EVENTS = ["sentText", "sentFile", "sentEncrypted", "openedOnce"] as const;
 export type ActivityEvent = (typeof ACTIVITY_EVENTS)[number];
 type ActivityCounts = Record<ActivityEvent, number>;
 

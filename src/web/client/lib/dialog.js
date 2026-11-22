@@ -24,7 +24,7 @@ export const confirmAction = ({
     const cancelButton = h("button", { type: "submit", value: "cancel" }, cancel);
     const confirmButton = h(
       "button",
-      { type: "submit", value: "confirm", class: destructive ? "danger" : "primary" },
+      { type: "submit", value: "confirm", class: destructive ? "primary destructive" : "primary" },
       confirm,
     );
     const dialog = h(

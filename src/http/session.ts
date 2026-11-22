@@ -10,7 +10,7 @@ import { clientKey } from "../domain/visits";
 import { type Api, type AppContext, jsonError, readLimited } from "./context";
 
 /** Equal-length digests, so timing reveals nothing. */
-export const sameSecret = (a: string, b: string) =>
+const sameSecret = (a: string, b: string) =>
   timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 
 export const hasBearer = (c: Context, key: string) => {
@@ -36,12 +36,9 @@ export const signedSessions = (key: string, purpose: string) => {
 };
 
 /** Anything larger is not a login: refused before parsing. */
-export const MAX_LOGIN_BYTES = 4_096;
+const MAX_LOGIN_BYTES = 4_096;
 
-export const parseLogin = (
-  bytes: Uint8Array | null,
-  form: boolean,
-): { key?: unknown; next?: unknown } => {
+const parseLogin = (bytes: Uint8Array | null, form: boolean): { key?: unknown; next?: unknown } => {
   if (!bytes) return {};
   if (form) return Object.fromEntries(new URLSearchParams(new TextDecoder().decode(bytes)));
   try {

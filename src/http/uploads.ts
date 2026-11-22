@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// The HTTP side of sends and edits; storing is services/items.ts.
+// The HTTP side of sends and edits; storing is application/items.ts.
 
 import {
   createItems,
@@ -43,7 +43,7 @@ export const decodeFilename = (value: string | undefined): string | null => {
 };
 
 /** Short to type: `-H burn:1`. */
-export const burnRequested = (c: AppContext) =>
+const burnRequested = (c: AppContext) =>
   BURN_HEADER_VALUES.has((c.req.header("burn") ?? "").trim().toLowerCase());
 
 const requestedExpiry = (c: AppContext, itemTtlMs: number): number | null | Response => {
@@ -122,7 +122,7 @@ export const createUploads = (api: Api) => {
       verifier: await writeVerifier(c),
       view: token ? { token, ...(envelope ? { envelope } : {}) } : undefined,
       deduplicate: c.req.header("no-dedup") !== "1",
-      // So the sending device is not notified of its own send (core/push.ts).
+      // So the sending device is not notified of its own send (domain/push.ts).
       pushSkip: /^[A-Za-z0-9_-]{22}$/.test(skip) ? skip : null,
     };
   };

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-// Backups (the work is in services/backups.ts):
+// Backups (the work is in application/backups.ts):
 //
 //   GET  <ns>/zip, <ns>/tar   ?since=<date>, ?max=<bytes>&after=<cursor> for parts
 //   POST <ns>/import          one namespace's backup into this one (PUT too)

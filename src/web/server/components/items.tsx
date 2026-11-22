@@ -3,7 +3,6 @@
 
 import { raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { formatBytes } from "../../client/shared/format.js";
 import {
   describePlain,
   itemRow,
@@ -13,8 +12,6 @@ import {
 } from "../../client/shared/item-row.js";
 import { Choices } from "./choices";
 import { h } from "./html";
-
-export { formatBytes };
 
 export type ListedItem = {
   kind: "text" | "image" | "file" | "sealed";

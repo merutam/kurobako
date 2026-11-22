@@ -20,7 +20,7 @@ import {
 } from "./session";
 
 const SESSION_COOKIE = "kurobako_access";
-export const LOGIN_PATH = "/k/login";
+const LOGIN_PATH = "/k/login";
 const DAY_MS = 86_400_000;
 
 const accessSession = (api: Api, key: string) => {

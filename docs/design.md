@@ -34,7 +34,9 @@ what the code cannot say: how to decide when adding something.
 - **Words, not icons.** Buttons in sentence case (`Copy link`); bracketed
   actions, choices and tabs in lowercase, as commands. The few icons (theme,
   resize) are stroke SVGs hidden from screen readers; never emoji.
-- **Instant:** no animation, transition, spinner or skeleton.
+- **Instant:** no animation, transition, spinner or skeleton. The one motion
+  is the Top button's scroll back up, and it is instant under
+  `prefers-reduced-motion`.
 - **A missing page** (a gone share link) says so under its heading, not only in
   a passing status line.
 
@@ -50,4 +52,6 @@ what the code cannot say: how to decide when adding something.
 ## Avoid
 
 Shadows, gradients, blur; a second typeface; a second accent; phosphor green,
-scanlines, typed-out text or other terminal cosplay.
+scanlines, typed-out text or other terminal cosplay. This is for the default
+design: the presets on `/k/theme` (phosphor green among them) only change the
+tokens a visitor chooses for their own device.

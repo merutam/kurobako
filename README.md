@@ -125,7 +125,7 @@ bun install
 bun run dev          # wrangler dev; Worker settings from wrangler.jsonc/.dev.vars
 bun run start        # the Bun server
 bun run test
-bun run typecheck
+bun run typecheck    # generates src/worker-configuration.d.ts first (bun run types)
 bun run lint
 ```
 

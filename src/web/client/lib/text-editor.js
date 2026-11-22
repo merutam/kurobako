@@ -65,11 +65,6 @@ export const fillLanguages = (select, selected) => {
   for (const type of ["focus", "pointerdown"]) select.addEventListener(type, load, { once: true });
 };
 
-export const withExtension = (title, extension) => {
-  const base = title.replace(/\.[A-Za-z0-9_+-]+$/, "");
-  return extension ? `${base}.${extension}` : base;
-};
-
 const addResizeHandle = (editor) => {
   const handle = h(
     "button",

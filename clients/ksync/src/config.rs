@@ -73,7 +73,7 @@ impl Default for SyncConfig {
     }
 }
 
-/// The home page's alphabet for random names (src/client/pages/home.js): no
+/// The home page's alphabet for random names (src/web/client/pages/home.js): no
 /// capitals, and none of l, o, 0 and 1 to mistake for one another. 32 letters
 /// divide 256, so a byte picks one without bias.
 const RANDOM_ALPHABET: &[u8; 32] = b"abcdefghijkmnpqrstuvwxyz23456789";

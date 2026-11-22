@@ -71,7 +71,7 @@ const unreachable = () =>
     { status: 502 },
   );
 
-export const mergeStats = (all: Record<string, unknown>[]) => {
+const mergeStats = (all: Record<string, unknown>[]) => {
   const merged: Record<string, unknown> = {};
   const countries = new Map<string, number>();
   let top = 0;
