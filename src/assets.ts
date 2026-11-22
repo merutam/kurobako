@@ -3,7 +3,7 @@
 
 // Bundles are named by their contents, so they are cached for good.
 import packageJson from "../package.json";
-import type { SiteView } from "./pages/components/layout";
+import type { SiteView } from "./web/server/components/layout";
 
 export const ASSETS_PATH = "/k/assets";
 export const MANIFEST_FILE = "manifest.json";

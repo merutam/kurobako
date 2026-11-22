@@ -1,0 +1,2122 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Kurobako contributors
+ */
+/* The site's styles, after tokens.css in the file the build makes of both.
+   Interaction shows by color and brackets; themes may round corners. */
+
+/* --- Base ----------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+/* A namespace page known, before its first paint, to be a reader's (see
+   access.js): no send forms to show and then hide. namespaces/access.js takes over. */
+:root[data-read-link] :is(#send-section, #restore-form) {
+  display: none;
+}
+
+/* Hidden means hidden, whatever display a component gives itself. */
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: the attribute must win over every component's display. */
+  display: none !important;
+}
+main[data-loading] > :not(.site-header, #page-loading, noscript) {
+  display: none;
+}
+/* Without scripts nothing decrypts: the noscript notice says what to use instead. */
+@media (scripting: none) {
+  #page-loading {
+    display: none;
+  }
+}
+.noscript {
+  padding: var(--space-2) var(--gap);
+  border: 1px solid var(--border);
+}
+/* Keep the footer below the viewport until the first complete render. */
+main[data-loading] {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+}
+/* No spinner: lines of output, one under the other, in the middle:
+   "* Decrypting…", or an error with what to do next (see unlocking.js). */
+.page-loading {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: 0 var(--page-gutter);
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-align: center;
+}
+.page-loading > * {
+  margin: 0;
+}
+.page-loading > :first-child::before {
+  content: "* " / "";
+}
+
+body {
+  margin: 0;
+  /* The page reaches the screen's edges (viewport-fit=cover): its content
+     keeps clear of a notch or rounded corner, in landscape too. */
+  padding-right: env(safe-area-inset-right);
+  padding-left: env(safe-area-inset-left);
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--text-body) / 1.65 var(--font);
+  font-variant-ligatures: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+main {
+  max-width: calc(var(--col) + 2 * var(--page-gutter));
+  margin: 0 auto;
+  padding: 0 var(--page-gutter);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+a:hover {
+  color: var(--accent-hover);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Hidden from sight, still there for keyboards and screen readers. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The theme button draws the choice's icon: auto, sun or moon. */
+.theme-toggle > svg {
+  display: none;
+}
+.theme-toggle[data-theme-choice="auto"] > svg:nth-of-type(1),
+.theme-toggle[data-theme-choice="light"] > svg:nth-of-type(2),
+.theme-toggle[data-theme-choice="dark"] > svg:nth-of-type(3) {
+  display: block;
+}
+/* A link to another site, marked as such: an arrow after its words. */
+.external-link::after {
+  content: " ↗" / "";
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font);
+  font-size: 1em;
+}
+/* Inline code: a chip, no border. */
+:not(pre) > code {
+  padding: 1px 6px;
+  background: var(--chip);
+  color: var(--fg);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* --- Type ----------------------------------------------------------------- */
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  color: var(--fg);
+  font-weight: 700;
+}
+h1 {
+  margin-bottom: var(--space-3);
+  font-size: var(--text-h1);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+h2 {
+  margin-bottom: var(--gap);
+  font-size: var(--text-h2);
+  line-height: 1.3;
+}
+h3 {
+  margin-bottom: var(--space-2);
+  font-size: 16px;
+  line-height: 1.4;
+}
+/* Markdown's marks, in the accent: decoration, so not read out. */
+h1::before {
+  content: "# " / "";
+  color: var(--accent);
+}
+h2::before {
+  content: "## " / "";
+  color: var(--accent);
+}
+.prose h3::before {
+  content: "### " / "";
+  color: var(--accent);
+}
+h2 small {
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: 400;
+}
+p {
+  margin: 0 0 var(--space-3);
+}
+.intro {
+  max-width: var(--prose-width);
+  margin-bottom: var(--space-6);
+  color: var(--dim);
+}
+/* Small print under a field or a heading. */
+.hint {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+/* The text's size, under it: red once past the limit. */
+.hint.over {
+  color: var(--err);
+}
+/* A name's strength, as a state: weak, fair or strong. */
+.hint[data-level]::before {
+  content: "* strength: " / "";
+  color: var(--muted);
+}
+.hint[data-level="weak"] {
+  color: var(--err);
+}
+.hint[data-level="fair"] {
+  color: var(--accent);
+}
+.hint[data-level="strong"] {
+  color: var(--ok);
+}
+.empty {
+  color: var(--muted);
+}
+.empty::before {
+  content: "* " / "";
+}
+.error-text {
+  color: var(--err);
+}
+
+/* --- Layout --------------------------------------------------------------- */
+
+/* Content side by side when there is room; it stacks on its own. */
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--gap-section) var(--space-6);
+}
+
+/* Sections stand apart from one another. */
+.page-section {
+  margin-top: var(--gap-section);
+}
+
+/* A row of controls that wraps on narrow screens. */
+.actions,
+.toolbar,
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.actions {
+  margin: 0;
+}
+.actions > .primary {
+  margin-left: auto;
+}
+/* The home form's buttons sit together at the end: Random name, then Open. */
+:where(#namespace-form) .actions {
+  justify-content: flex-end;
+}
+:where(#namespace-form) .actions > .primary {
+  margin-left: 0;
+}
+
+/* --- Header and footer ---------------------------------------------------- */
+
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-5) 0;
+  margin-bottom: var(--space-6);
+}
+.site-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.site-name a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--hit);
+  color: var(--fg);
+  text-decoration: none;
+}
+.site-name a:hover {
+  color: var(--accent);
+}
+/* K3 follows the text color; its marked edge follows the theme's accent. */
+.site-logo {
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+.theme-toggle {
+  font-size: var(--text-small);
+}
+/* As wide for "auto" and "dark" as for "light": the button keeps its size. */
+#theme-name {
+  display: inline-block;
+  width: 5ch;
+  text-align: left;
+}
+
+.site-footer {
+  /* The column's width, inside the page's gutter on narrower screens. */
+  width: min(var(--col), 100% - 2 * var(--page-gutter));
+  margin: var(--gap-section) auto 0;
+  padding: var(--space-5) 0 var(--space-7);
+  border-top: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-align: center;
+}
+.site-footer p {
+  margin: 0 0 var(--space-2);
+}
+#scroll-top {
+  position: fixed;
+  right: calc(var(--space-3) + env(safe-area-inset-right));
+  bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+  z-index: 2;
+  background: var(--bg);
+}
+
+/* The files about to be sent: name and size, the total last. */
+.file-list {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  font-size: var(--text-small);
+}
+.file-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 6px var(--space-3);
+  border-bottom: 1px dashed var(--rule);
+}
+.file-list .file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-list .file-size {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--dim);
+}
+.file-list .too-large,
+.file-list .too-large .file-size {
+  color: var(--err);
+}
+.file-list .file-total {
+  border-bottom: 0;
+  color: var(--muted);
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
+/* Secondary by default: a frame and the text. */
+button,
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--hit);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-list);
+  line-height: 1.3;
+  text-decoration: none;
+  cursor: pointer;
+}
+button:hover,
+a.button:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+button:disabled,
+button:disabled:hover {
+  border-style: dashed;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+/* One per screen, for the main action. */
+button.primary,
+a.button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+button.primary:hover,
+a.button.primary:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+button.destructive:hover {
+  border-color: var(--err);
+  color: var(--err);
+}
+/* A confirmation's button for what cannot be undone (lib/dialog.js). */
+button.danger,
+button.danger:hover {
+  border-color: var(--err);
+  background: var(--err);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+/* --- Forms ---------------------------------------------------------------- */
+
+fieldset {
+  /* A fieldset grows to its content's widest line by default: here it
+     narrows like any box, and its content does instead. */
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+/* Labels read like a list's marks, "* name": a ">" would look like it opens. */
+legend,
+label {
+  display: block;
+  margin-bottom: var(--space-2);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+legend::before,
+label:not(.checkbox-label)::before {
+  content: "* " / "";
+}
+form + form {
+  margin-top: var(--space-6);
+}
+
+label.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--hit);
+  margin: var(--space-2) 0 0;
+  color: var(--fg);
+  font-size: var(--text-list);
+  cursor: pointer;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+/* In a toolbar, the toolbar sets its place: centered with what is beside it. */
+.editor-toolbar label.checkbox-label {
+  margin: 0;
+}
+.checkbox-label input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+/* Text fields: the same box wherever they are. */
+textarea,
+select,
+input[type="text"],
+input[type="password"],
+input[type="search"],
+.rename-input,
+.copy-link input {
+  width: 100%;
+  min-height: var(--hit);
+  padding: 10px var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+}
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+textarea {
+  min-height: 10rem;
+  resize: vertical;
+}
+select {
+  width: auto;
+  max-width: 100%;
+  padding: 0 var(--space-3);
+  font-size: var(--text-list);
+  cursor: pointer;
+}
+:is(textarea, select, input[type="text"], input[type="password"], input[type="search"]):focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* A field with a prefix glued to its left: /e#, or the search's $ grep. */
+.namespace-input {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.namespace-input:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.namespace-input input[type="text"],
+.namespace-input input[type="text"]:focus,
+.namespace-input input[type="search"],
+.namespace-input input[type="search"]:focus {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+}
+.namespace-input span {
+  flex: none;
+  white-space: nowrap;
+}
+.namespace-prefix {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  background: var(--chip);
+  color: var(--muted);
+}
+.e2ee-control {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-left: 1px solid var(--border);
+}
+.e2ee-control input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.e2ee-control button,
+.e2ee-control button:hover {
+  min-height: var(--hit);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--text-small);
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* The page's dialogs: the encryption notes, and confirmations (lib/dialog.js). */
+.dialog {
+  width: min(36rem, calc(100% - 2 * var(--page-gutter)));
+  max-height: calc(100dvh - 2 * var(--page-gutter));
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+}
+.dialog::backdrop {
+  background: rgb(0 0 0 / 60%);
+}
+.dialog h2 {
+  margin-top: 0;
+}
+.dialog p {
+  color: var(--dim);
+}
+/* The item's own words, apart from the fixed message: literal text, as names show. */
+.dialog .dialog-subject {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  padding: var(--space-1) var(--space-2);
+  background: var(--chip);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 0;
+}
+
+/* The browser's own file input, shown as a drop zone (see file-field.tsx).
+   Required, so it is :valid once something is picked. */
+.file-drop {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: var(--space-5) var(--space-4);
+  border: 1px dashed var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-list);
+  cursor: pointer;
+}
+.file-drop:hover {
+  border-color: var(--accent);
+}
+.file-drop:valid {
+  border-style: solid;
+  color: var(--fg);
+}
+.file-drop:disabled {
+  border-style: dashed;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.file-drop::file-selector-button {
+  min-height: var(--hit);
+  margin-right: var(--space-3);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.file-drop:hover::file-selector-button {
+  border-color: var(--accent);
+}
+
+/* A section's heading with its controls on the right. */
+.section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--gap);
+}
+.section-heading h2 {
+  margin: 0;
+}
+.section-heading .actions {
+  justify-content: flex-end;
+}
+
+/* --- Status messages ------------------------------------------------------ */
+
+.status:empty {
+  display: none;
+}
+/* The page's status floats over it, at the top, out of the flow: showing
+   and leaving (see status.js) moves nothing on the page. It reads like a
+   line of output: "* ok: copied". */
+.status {
+  position: fixed;
+  top: var(--space-3);
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: min(40rem, calc(100% - 2 * var(--page-gutter)));
+  margin: 0;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: var(--text-list);
+}
+.status::before {
+  content: "* " / "";
+  flex: none;
+  color: var(--muted);
+}
+.status[data-kind="success"] {
+  border-color: var(--ok);
+}
+.status[data-kind="success"] > span::before {
+  content: "ok: ";
+  color: var(--ok);
+}
+.status.error {
+  border-color: var(--err);
+}
+.status.error > span::before {
+  content: "error: ";
+  color: var(--err);
+}
+.status > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.status-dismiss,
+.status-dismiss:hover {
+  flex: none;
+  width: var(--hit);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+}
+.status-dismiss:hover {
+  color: var(--fg);
+}
+/* A form's own status stays by its fields, in the flow. */
+fieldset .status {
+  position: static;
+  width: auto;
+  margin: var(--space-3) 0 0;
+  transform: none;
+}
+
+/* --- Contents: code and images --------------------------------------------- */
+
+/* A text shown whole, or a block of code. */
+.item pre,
+.shared-item pre,
+.prose pre {
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: var(--text-list);
+  line-height: 1.6;
+}
+.item pre,
+.shared-item pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Each number belongs to a logical line; long lines scroll instead of wrap. */
+.numbered-text {
+  display: flex;
+  max-height: 24rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.numbered-text pre {
+  flex: none;
+  min-height: 100%;
+  max-height: none;
+  margin: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.numbered-text .line-numbers {
+  position: sticky;
+  left: 0;
+  min-width: calc(3ch + 2 * var(--space-3));
+  padding: var(--space-3);
+  border-right: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
+.numbered-text pre:last-child {
+  flex: 1 0 auto;
+  padding-left: var(--space-3);
+}
+/* Highlighting stays within the palette: the accent for keywords, the
+   state colors only for strings and removals. */
+.hljs {
+  color: var(--fg);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--muted);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link {
+  color: var(--accent);
+}
+/* An address in the editor's colored copy: Ctrl or Cmd and a click open it. */
+.text-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.hljs-string,
+.hljs-addition {
+  color: var(--ok);
+}
+.hljs-title,
+.hljs-name,
+.hljs-type,
+.hljs-attribute,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-number,
+.hljs-regexp,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-class,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.hljs-built_in,
+.hljs-meta {
+  color: var(--dim);
+}
+.hljs-deletion {
+  color: var(--err);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
+}
+.item video,
+.shared-item video {
+  display: block;
+  max-width: 100%;
+  max-height: 30rem;
+  background: #000;
+}
+.item audio,
+.shared-item audio {
+  display: block;
+  width: min(100%, 36rem);
+}
+.item img,
+.shared-item img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+}
+
+/* An image preview is a real button, while still looking only like its image. */
+button.media-preview,
+button.media-preview:hover {
+  display: block;
+  max-width: 100%;
+  min-height: 0;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+/* --- Media feed ----------------------------------------------------------- */
+
+/* A scrollable page of native images and videos. */
+main.media-feed-open > :not(.site-header, #media-feed) {
+  display: none;
+}
+.media-feed-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0 var(--space-5);
+}
+.media-feed-heading h1 {
+  margin: 0;
+}
+.media-feed-item {
+  margin: 0 0 var(--space-6);
+}
+.media-feed-slot {
+  display: flex;
+  min-height: 12rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: #000;
+  color: #fff;
+}
+.media-feed-slot :where(img, video) {
+  display: block;
+  max-width: 100%;
+  max-height: 95dvh;
+  height: auto;
+}
+/* An audio file: its cover, when it has one, over the browser's player. */
+.audio-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  width: min(100%, 36rem);
+}
+.audio-player audio {
+  display: block;
+  width: 100%;
+}
+.audio-cover {
+  display: block;
+  width: min(100%, 20rem);
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+.media-feed-slot .audio-player {
+  margin: var(--space-4);
+}
+/* In a tile, the cover fills it and the player sits at its foot. */
+.media-feed-list[data-view="grid"] .media-feed-slot .audio-player {
+  position: relative;
+  justify-content: flex-end;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+.media-feed-list[data-view="grid"] .audio-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.media-feed-list[data-view="grid"] .audio-player audio {
+  position: relative;
+}
+/* The details list stays compact: the player alone. */
+.media-feed-list[data-view="details"] .audio-cover {
+  display: none;
+}
+.media-feed-item figcaption {
+  padding: var(--space-2) 0;
+  overflow-wrap: anywhere;
+  color: var(--dim);
+  font-size: var(--text-small);
+}
+.media-feed-meta {
+  display: none;
+}
+/* Square tiles, as many as fit: the same in every width and before anything
+   loads. Pictures fill their tile; the list view shows them whole. */
+.media-feed-list[data-view="grid"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(11rem, 40%), 1fr));
+  gap: var(--space-2);
+}
+.media-feed-list[data-view="grid"] .media-feed-item {
+  min-width: 0;
+  margin: 0;
+}
+.media-feed-list[data-view="grid"] .media-feed-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-feed-list[data-view="grid"] .media-feed-slot {
+  aspect-ratio: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+  color: var(--muted);
+}
+.media-feed-list[data-view="grid"] .media-feed-slot :where(img, video) {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+}
+.media-feed-list[data-view="details"] {
+  border: 1px solid var(--border);
+}
+.media-feed-list[data-view="details"] .media-feed-slot :where(img, video) {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+.media-feed-list[data-view="details"] .media-feed-item {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px dashed var(--rule);
+}
+.media-feed-list[data-view="details"] .media-feed-item:last-child {
+  border-bottom: 0;
+}
+.media-feed-list[data-view="details"] .media-feed-slot {
+  width: 6rem;
+  height: 6rem;
+  min-height: 0;
+}
+.media-feed-list[data-view="details"] .media-feed-slot video {
+  pointer-events: none;
+}
+.media-feed-list[data-view="details"] .media-feed-item:has(audio) {
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+}
+.media-feed-list[data-view="details"] .media-feed-item:has(audio) .media-feed-slot {
+  width: 100%;
+  height: auto;
+  border: 0;
+  background: none;
+}
+.media-feed-list[data-view="details"] figcaption {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.media-feed-list[data-view="details"] .media-feed-title {
+  color: var(--fg);
+  font-weight: 700;
+}
+.media-feed-list[data-view="details"] .media-feed-meta {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+/* --- Item list ------------------------------------------------------------ */
+
+/* A box of rows, as `ls` prints them: position, what it is, name, size and
+   age, actions in brackets. A row's contents open under it. On narrow
+   screens the actions go to a second line. */
+.items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  font-size: var(--text-list);
+}
+.items:empty {
+  display: none;
+}
+.item {
+  border-bottom: 1px dashed var(--rule);
+}
+.item:last-child {
+  border-bottom: 0;
+}
+.item-row {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  min-height: var(--hit);
+  padding: 0 var(--space-2) 0 var(--space-3);
+}
+.item-position {
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-align: right;
+}
+.item-toggle,
+.rename-input {
+  grid-column: 2;
+}
+/* The name opens the item: it looks like the link it acts as. */
+.item-toggle,
+button.item-toggle:hover {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: var(--hit);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font-size: inherit;
+  text-align: left;
+}
+.item-kind {
+  flex: none;
+  width: 6ch;
+  color: var(--dim);
+}
+.item.burn .item-kind {
+  color: var(--err);
+}
+.item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.item-toggle .item-title {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+button.item-toggle:hover .item-title {
+  color: var(--accent-hover);
+}
+.item.burn span.item-title {
+  color: var(--muted);
+}
+/* Open: the name turns to plain text, as the current page does in the nav. */
+.item.open > .item-row .item-title {
+  color: var(--fg);
+  text-decoration: none;
+}
+.item-facts {
+  color: var(--dim);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+.item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+/* An action is a word in brackets: "[copy]". */
+.row-action,
+.row-action:hover {
+  gap: 0;
+  min-height: var(--hit);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--text-small);
+  text-decoration: none;
+}
+a.row-action {
+  display: inline-flex;
+  align-items: center;
+}
+.row-action::before {
+  content: "[" / "";
+  color: var(--muted);
+}
+.row-action::after {
+  content: "]" / "";
+  color: var(--muted);
+}
+.row-action:hover {
+  color: var(--accent-hover);
+}
+.row-action.destructive:hover {
+  color: var(--err);
+}
+.row-action.burn-action {
+  color: var(--err);
+}
+.item-body {
+  padding: 0 var(--space-3) var(--space-4) calc(2ch + 2 * var(--space-3));
+}
+.item-meta {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+.item .numbered-text {
+  margin: var(--space-1) 0 0;
+}
+.item img {
+  max-height: 30rem;
+  margin: var(--space-1) 0 0;
+}
+button.media-preview img {
+  margin: 0;
+}
+button.media-preview:hover img {
+  border-color: var(--accent);
+}
+.burn-note {
+  color: var(--err);
+}
+@media (max-width: 640px) {
+  .item-row {
+    grid-template-columns: 2ch minmax(0, 1fr) auto;
+    padding-right: var(--space-1);
+  }
+  .item-toggle,
+  .rename-input {
+    grid-column: 2 / -1;
+  }
+  .item-facts,
+  .item-actions {
+    grid-column: 2 / -1;
+  }
+  .item-actions {
+    justify-content: flex-start;
+    margin: calc(-1 * var(--space-2)) 0 0 calc(-1 * var(--space-1));
+  }
+  .item-body {
+    padding-left: var(--space-3);
+  }
+}
+
+/* Renaming an item in place, where its name was. */
+.rename-input {
+  min-height: 36px;
+  margin: var(--space-1) 0;
+  padding: 4px var(--space-2);
+  border-color: var(--accent);
+}
+
+/* The text being copied without the Clipboard API (see copyText), out of sight. */
+.clipboard-fallback {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+}
+
+.live-status {
+  color: var(--ok);
+}
+.live-status.offline {
+  color: var(--err);
+}
+
+/* --- Editors -------------------------------------------------------------- */
+
+.theme-preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-5);
+}
+
+.editor-toolbar,
+.form-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.editor-toolbar select {
+  min-width: 0;
+  flex: 0 1 auto;
+  max-width: 16rem;
+}
+.editor-toolbar .hint,
+.form-footer .hint {
+  margin: 0;
+}
+.form-footer {
+  justify-content: flex-end;
+}
+.form-footer > :first-child:not(:last-child) {
+  margin-right: auto;
+}
+.text-editor {
+  position: relative;
+  height: min(45dvh, 30rem);
+  min-height: 18rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  resize: vertical;
+  /* `--line-number-width` is set here in ch: measure it in the gutter's font. */
+  font-family: var(--font);
+  font-size: var(--text-list);
+  --gutter-size: calc(var(--line-number-width, 3ch) + 2 * var(--space-2) + 1px);
+}
+.text-editor > textarea,
+.text-editor > pre.text-editor-highlight {
+  position: absolute;
+  inset: 0 0 0 var(--gutter-size);
+  width: calc(100% - var(--gutter-size));
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  padding: 6px var(--space-2);
+  overflow: auto;
+  border: 0;
+  font-family: var(--font);
+  font-size: var(--text-list);
+  line-height: 1.6;
+  overflow-wrap: normal;
+  tab-size: 2;
+  white-space: pre;
+}
+.text-editor > textarea:focus {
+  outline: 0;
+}
+.text-editor:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.text-editor > pre.text-editor-lines {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--gutter-size);
+  margin: 0;
+  padding: 6px var(--space-2);
+  overflow: hidden;
+  border: 0;
+  border-right: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: var(--text-list);
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+  text-align: right;
+  user-select: none;
+}
+.text-editor > pre.text-editor-highlight {
+  background: var(--panel);
+  overflow: hidden;
+  pointer-events: none;
+}
+.text-editor-highlight code,
+.text-editor-lines > span,
+.text-editor-line {
+  display: block;
+}
+.text-editor-line-text {
+  visibility: hidden;
+  text-align: left;
+}
+.text-editor-highlight code {
+  padding: 0;
+  background: none;
+  font: inherit;
+  white-space: inherit;
+}
+.text-editor > textarea {
+  z-index: 1;
+  resize: none;
+  background: transparent;
+  caret-color: var(--accent);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.text-editor > :is(textarea, pre.text-editor-highlight, pre.text-editor-lines) {
+  /* The wrapper clips these adjoining editor layers to one shared radius. */
+  border-radius: 0;
+}
+.text-editor > textarea::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: transparent;
+}
+.text-editor-selection {
+  position: absolute;
+  inset: 0 0 0 var(--gutter-size);
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--font);
+  font-size: var(--text-list);
+}
+.text-editor-selected-empty-line {
+  position: absolute;
+  width: 1ch;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+/* The caret's line and column, below the text with the form's details. */
+.text-editor-position {
+  /* Short (see createTextEditor), so always whole: the picker gives way. */
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* While a phone's keyboard composes a word, the textarea shows its own
+   letters (see createTextEditor). */
+.text-editor.composing > textarea {
+  color: var(--fg);
+  -webkit-text-fill-color: currentcolor;
+}
+.text-editor.composing > pre.text-editor-highlight {
+  visibility: hidden;
+}
+
+.text-resize-handle {
+  display: none;
+}
+@media (max-width: 799px) {
+  .text-editor {
+    height: 16rem;
+    min-height: 12rem;
+    resize: none;
+  }
+  .text-editor > :is(textarea, pre.text-editor-highlight, pre.text-editor-lines) {
+    padding-bottom: var(--hit);
+  }
+  .text-resize-handle,
+  .text-resize-handle:hover {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    display: inline-flex;
+    width: var(--hit);
+    height: var(--hit);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: ns-resize;
+    touch-action: none;
+    user-select: none;
+  }
+  .text-resize-handle:active {
+    color: var(--fg);
+  }
+}
+
+/* --- Open on another device ----------------------------------------------- */
+
+.qr-code {
+  display: block;
+  width: 160px;
+  height: 160px;
+  border: 1px solid var(--border);
+  /* QR codes must stay dark-on-light to scan, even in dark mode. */
+  background: #ffffff;
+  image-rendering: pixelated;
+}
+.copy-link {
+  display: flex;
+  gap: var(--space-2);
+  max-width: 40rem;
+}
+/* Looks like a field, not a link: clicking copies instead of navigating. */
+.copy-link input {
+  flex: 1;
+  min-width: 0;
+  color: var(--dim);
+  font-size: var(--text-small);
+  cursor: copy;
+}
+
+/* --- Long-form pages (the protocol): readable line length ------------------- */
+
+.prose > p,
+.prose > ul,
+.prose > ol {
+  max-width: var(--prose-width);
+}
+.prose > p {
+  margin-bottom: var(--gap);
+}
+.prose > h2 {
+  margin-top: var(--gap-section);
+}
+.prose > h3 {
+  margin-top: var(--space-6);
+}
+/* A part's sections have their own parts (the protocol's Keys, Sealing…). */
+.prose > h4 {
+  margin: var(--space-5) 0 var(--space-2);
+  color: var(--fg);
+  font-size: 15px;
+  line-height: 1.4;
+}
+.prose h4::before {
+  content: "#### " / "";
+  color: var(--accent);
+}
+/* The parts of a long page, linked at its top. */
+.prose > .page-parts {
+  margin: 0 0 var(--gap);
+  font-weight: 700;
+}
+.prose ul,
+.prose ol {
+  padding-left: 3ch;
+}
+.prose li {
+  margin-bottom: var(--space-2);
+}
+.prose li::marker {
+  color: var(--muted);
+}
+.prose pre {
+  margin: 0 0 var(--gap);
+}
+.prose pre code {
+  padding: 0;
+  background: none;
+}
+
+/* Each third-party notice stays distinct, and its full legal text is there
+   without making the page long until someone asks to read it. */
+.license-notice {
+  max-width: var(--col);
+  margin: var(--space-6) 0;
+  padding-top: var(--gap);
+  border-top: 1px dashed var(--rule);
+}
+.license-notice h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+.license-notice h3 small {
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: 400;
+}
+/* Native details, in a box: the summary is the line that opens it. Kept
+   weak (:where), so a component's own details style wins whatever the order. */
+details {
+  border: 1px solid var(--border);
+}
+summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--hit);
+  padding: 0 var(--space-3);
+  color: var(--fg);
+  cursor: pointer;
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+summary::before {
+  content: "▸" / "";
+  color: var(--accent);
+}
+:where(details[open]) > summary::before {
+  content: "▾" / "";
+}
+:where(details[open]) > summary {
+  border-bottom: 1px dashed var(--rule);
+}
+:where(details) > :where(:not(summary)) {
+  margin: var(--space-3);
+  color: var(--dim);
+}
+.license-notice details {
+  overflow: hidden;
+}
+.license-notice pre {
+  margin: 0;
+  max-height: 28rem;
+  border: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+
+/* --- Tables --------------------------------------------------------------- */
+
+/* Wide tables scroll inside their box: the page never does. */
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+.data-table {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-collapse: collapse;
+  font-size: var(--text-list);
+}
+.table-scroll > .data-table {
+  min-width: 100%;
+  border: 0;
+}
+.data-table th,
+.data-table td {
+  padding: 10px var(--space-3);
+  border-bottom: 1px dashed var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+.data-table tr:last-child > :is(th, td) {
+  border-bottom: 0;
+}
+.data-table thead th {
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: 400;
+}
+.data-table tbody th {
+  color: var(--dim);
+  font-weight: 400;
+}
+.data-table td code {
+  overflow-wrap: anywhere;
+}
+.data-table td:nth-child(-n + 2) {
+  white-space: nowrap;
+}
+/* A table inside a step of a list, on text pages. */
+.prose .table-scroll {
+  margin-bottom: var(--gap);
+}
+.prose li > .data-table,
+.prose li > .table-scroll {
+  margin-top: var(--space-2);
+}
+/* On text pages only the first column (a command or a route) stays on one
+   line, and the second keeps room to read: a table too wide for both
+   scrolls in its box rather than squeeze them. Short code in a description
+   (-d, 412) stays whole: a hyphen is no place to break. */
+.prose .data-table td:nth-child(2) {
+  min-width: 18rem;
+  white-space: normal;
+}
+/* :where() scopes without weight, so later `code` rules keep their order. */
+:where(.prose) .data-table td:nth-child(2) code {
+  white-space: nowrap;
+}
+.data-table td small {
+  display: block;
+  color: var(--muted);
+}
+/* Method above, path below on one line; long paths end in "…" (full path on hover). */
+.data-table td.route code {
+  display: block;
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.data-table td.agent {
+  min-width: 20rem;
+  color: var(--dim);
+}
+.data-table td.agent span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* --- Admin dashboard and logins ------------------------------------------- */
+
+.login-form {
+  max-width: 32rem;
+}
+.login-form .actions {
+  margin-top: var(--space-4);
+}
+.toolbar {
+  margin: 0 0 var(--space-5);
+}
+.toolbar label {
+  margin: 0;
+}
+.toolbar input[type="search"] {
+  flex: 1;
+  min-width: 12rem;
+  width: auto;
+}
+.toolbar.namespace-input input[type="search"] {
+  min-width: 0;
+}
+#dashboard > section + section {
+  margin-top: var(--gap-section);
+}
+.stats-table {
+  width: 100%;
+}
+.stats-table tbody th {
+  width: 50%;
+}
+/* Pages in squares: « 1–20 of 64 ». */
+.pagination {
+  margin: var(--space-3) 0 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+.pagination button {
+  width: var(--hit);
+  padding: 0;
+}
+.pagination:empty {
+  display: none;
+}
+
+/* --- Shared item page ----------------------------------------------------- */
+
+.shared-item .numbered-text {
+  max-height: 32rem;
+}
+
+/* --- Stacks --------------------------------------------------------------- */
+
+/* A section's blocks, one under the other with the same rhythm everywhere:
+   a small gap between text and rows of buttons, a larger one before a form,
+   a table or a box. The heading keeps its own spacing. Last in this file, so
+   it wins over the blocks' own margins. */
+.stack > :not(h1, h2) {
+  margin-bottom: 0;
+}
+.stack > * + * {
+  margin-top: var(--space-3);
+}
+.stack > * + :is(form, fieldset, .table-scroll, .data-table, .copy-link, .items) {
+  margin-top: var(--gap);
+}
+.stack > :is(h1, h2, .section-heading) + * {
+  margin-top: 0;
+}
+/* A QR code and the link it encodes belong together. */
+.stack > .qr-code + .copy-link {
+  margin-top: var(--space-2);
+}
+
+/* --- Settings ------------------------------------------------------------- */
+
+.expiry-setting {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.expiry-setting label {
+  margin: 0;
+  white-space: nowrap;
+}
+#expires-in {
+  width: fit-content;
+  max-width: 100%;
+}
+.setting-check:has(input:disabled) {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+#stats-section {
+  margin-top: var(--gap-section);
+}
+
+/* Markdown source wraps visually; the textarea still stores its original newlines. */
+.text-editor.markdown > :is(textarea, pre.text-editor-highlight),
+.text-editor.markdown .text-editor-highlight code,
+.text-editor.markdown .text-editor-line-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* `--text-width` is the textarea's, less its scrollbar (see createTextEditor):
+   the colored copy and the gutter's hidden copies wrap where it does. */
+.text-editor.markdown .text-editor-highlight code {
+  width: var(--text-width);
+}
+.text-editor.markdown > pre.text-editor-lines {
+  overflow: visible clip;
+}
+.text-editor.markdown .text-editor-line {
+  display: grid;
+  grid-template-columns: 100% var(--text-width);
+  /* The copy starts where the textarea's text does, past its left padding. */
+  column-gap: calc(2 * var(--space-2) + 1px);
+}
+
+/* --- Tabs, the composer and bundles ------------------------------------------ */
+
+/* Tabs: muted words over a line; the chosen one in the text's color, its
+   line in the accent (docs/design.md). */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.tabs [role="tab"],
+.tabs [role="tab"]:hover,
+.tab-add,
+.tab-add:hover {
+  min-height: var(--hit);
+  margin-bottom: -1px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-list);
+}
+.tabs [role="tab"]:hover,
+.tab-add:hover {
+  color: var(--fg);
+}
+.tabs [role="tab"][aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--fg);
+}
+.text-tabs {
+  display: contents;
+}
+.tab-add {
+  color: var(--accent);
+}
+/* The files tab ends the row, apart from the texts. */
+#files-tab {
+  margin-left: auto;
+}
+/* A text tab with its close button, and its name being edited in place. */
+.text-tab {
+  display: inline-flex;
+  align-items: stretch;
+}
+.tab-close,
+.tab-close:hover {
+  min-height: var(--hit);
+  margin-bottom: -1px;
+  padding: 0 var(--space-2) 0 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+}
+.tab-close:hover {
+  color: var(--err);
+}
+.text-tab:has([aria-selected="true"]) .tab-close {
+  border-bottom-color: var(--accent);
+}
+.tabs input.tab-rename,
+.tabs input.tab-rename:focus {
+  width: auto;
+  min-height: 0;
+  align-self: center;
+  margin: 0 var(--space-2);
+  padding: 4px var(--space-2);
+  border-color: var(--accent);
+  font-size: var(--text-list);
+}
+#send-form .form-footer {
+  margin-top: var(--space-4);
+}
+#send-summary:empty {
+  display: none;
+}
+
+/* Markdown, rendered: the page's own type, a document's rhythm. */
+.markdown-body {
+  max-width: var(--prose-width);
+  overflow-wrap: anywhere;
+}
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body :is(h1, h2, h3, h4, h5, h6) {
+  margin: var(--space-5) 0 var(--space-2);
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+.markdown-body h1 {
+  font-size: 26px;
+}
+.markdown-body h2 {
+  font-size: 20px;
+}
+.markdown-body :is(h3, h4, h5, h6) {
+  font-size: 16px;
+}
+.markdown-body h3::before {
+  content: "### " / "";
+  color: var(--accent);
+}
+.markdown-body :is(p, ul, ol, blockquote, pre, .table-scroll) {
+  margin: 0 0 var(--space-3);
+}
+.markdown-body :is(ul, ol) {
+  padding-left: 3ch;
+}
+.markdown-body li::marker {
+  color: var(--muted);
+}
+.markdown-body li.task {
+  list-style: none;
+}
+.markdown-body li.task input {
+  margin: 0 1ch 0 -3ch;
+}
+.markdown-body blockquote {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border);
+  color: var(--dim);
+}
+.markdown-body hr {
+  margin: var(--space-5) 0;
+  border: 0;
+  border-top: 1px dashed var(--border);
+}
+/* biome-ignore lint/style/noDescendingSpecificity: a document's images, unrelated to the media preview's. */
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: var(--space-2) 0;
+  border: 1px solid var(--border);
+}
+.markdown-body pre {
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: var(--text-list);
+  white-space: pre;
+}
+/* biome-ignore lint/style/noDescendingSpecificity: a document's code, unrelated to the editor's. */
+.markdown-body pre code {
+  padding: 0;
+  background: none;
+}
+.markdown-body del {
+  color: var(--muted);
+}
+.markdown-missing {
+  color: var(--muted);
+}
+.markdown-body [data-align="center"] {
+  text-align: center;
+}
+.markdown-body [data-align="right"] {
+  text-align: right;
+}
+.markdown-preview {
+  min-height: 18rem;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* A bundle in a list or on its own page: its tabs, then the tab's text. */
+.bundle .tabs {
+  margin-top: var(--space-1);
+}
+.bundle-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0;
+}
+.bundle-files a.file-name {
+  color: var(--accent);
+}
+
+/* A picked file's [remove], and the list's [clear]: compact, red on hover. */
+.file-list .row-action {
+  min-height: 32px;
+}
+.file-list .row-action:hover {
+  color: var(--err);
+}
+
+#settings-state {
+  color: var(--fg);
+}
+#settings-state:not(:empty)::before {
+  content: "\00a0·\00a0";
+  color: var(--muted);
+}
+/* A popover, centered like the other dialogs; only open may it set display. */
+.settings-popup {
+  width: min(24rem, calc(100% - 2 * var(--page-gutter)));
+}
+.settings-popup:popover-open {
+  display: grid;
+  gap: var(--space-3);
+}
+.settings-popup .dialog-actions {
+  margin: 0;
+}
+.settings-popup label.checkbox-label {
+  margin: 0;
+}
+
+/* A choice among a few options (components/choices.tsx): "open: one
+   [several] [all]". The chosen one reads as plain text, as the current
+   page does in a navigation; the others are bracketed actions. */
+fieldset.choices {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-1);
+}
+.choices-label {
+  margin-right: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+.choices .row-action[aria-pressed="true"] {
+  color: var(--fg);
+  cursor: default;
+}
+.choices .row-action[aria-pressed="true"]::before,
+.choices .row-action[aria-pressed="true"]::after {
+  content: none;
+}
+.media-feed-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-5);
+}
+
+/* On a phone, a row's five actions fit on one line with less room between. */
+@media (max-width: 640px) {
+  .item-actions .row-action {
+    padding: 0 1px;
+  }
+}
+
+/* A picked file's folder in a bundle, shown so a text knows how to refer to it. */
+.file-folder {
+  color: var(--muted);
+}
+
+/* A picked file's name copies its path: it reads as the name, not a button. */
+.file-list button.file-name,
+.file-list button.file-name:hover {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font-size: inherit;
+  text-align: left;
+  cursor: copy;
+}
+.file-list button.file-name:hover {
+  color: var(--accent);
+}
+
+/* A namespace's mode and links, " · " between the parts there are. */
+.namespace-intro #mode-label:not(:empty) + #page-links:not(:empty)::before {
+  content: " · " / "";
+  /* Its spaces too: at the start of a flex item, they would collapse. */
+  white-space: pre;
+}
+
+/* The share page (src/pages/share.tsx): what was shared, and where it goes. */
+.shared-text {
+  max-height: 14rem;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.recent-list button.recent-open {
+  flex: 1;
+  justify-content: flex-start;
+  min-height: var(--hit);
+  padding: 0;
+  border: 0;
+  font-size: inherit;
+  text-align: left;
+}
+.recent-list button.recent-open:hover {
+  color: var(--accent);
+}
+
+/* Beside the namespace's links: its notifications on this device (lib/push.js). */
+/* The whole width, so the toggle sits at the right, apart from the links. */
+.namespace-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  max-width: none;
+}
+.namespace-intro #notify-toggle {
+  margin-left: auto;
+}
+
+.logo-top {
+  fill: color-mix(in srgb, currentColor 14%, var(--bg));
+}
+.logo-front {
+  fill: var(--bg);
+}
+.logo-side {
+  fill: color-mix(in srgb, currentColor 7%, var(--bg));
+}

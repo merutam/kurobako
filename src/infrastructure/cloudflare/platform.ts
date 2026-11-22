@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Kurobako contributors
+
+// Built once per isolate, from the Worker's bindings.
+import { unwrapDomainFailure } from "../../domain/errors";
+import { logError } from "../../domain/log";
+import { objectName } from "../../domain/model";
+import { NAMESPACE_METHODS, type NamespaceApi } from "../../domain/namespace";
+import type { Platform } from "../platform";
+import { hubOf, VISIT_HEADER } from "./objects";
+import { r2Store } from "./r2";
+
+const LOGS_URL = "https://dash.cloudflare.com/?to=/:account/workers/observability";
+
+const text = (value: unknown): string | null => (typeof value === "string" && value ? value : null);
+
+export const createCloudflarePlatform = (env: Env): Platform => {
+  const namespaceOf = (ref: Parameters<Platform["namespace"]>[0]) =>
+    env.NAMESPACES.getByName(objectName(ref));
+  /** The limiter can only be asked by counting one more, so its answer is kept per isolate. */
+  const missBlocked = new Map<string, number>();
+
+  return {
+    namespace: (ref) => {
+      const stub = namespaceOf(ref);
+      return Object.fromEntries(
+        NAMESPACE_METHODS.map((method) => [
+          method,
+          async (...args: unknown[]) =>
+            unwrapDomainFailure(
+              await (stub[method] as (...args: unknown[]) => Promise<unknown>)(...args),
+            ),
+        ]),
+      ) as unknown as NamespaceApi;
+    },
+    hub: () => hubOf(env),
+    blobs: r2Store(env.BUCKET),
+    live(c, ref, visit) {
+      const url = new URL(c.req.url);
+      url.searchParams.set("space", ref.space);
+      url.searchParams.set("name", ref.name);
+      const upgrade = new Request(url, c.req.raw);
+      upgrade.headers.set(VISIT_HEADER, JSON.stringify(visit));
+      return namespaceOf(ref).fetch(upgrade);
+    },
+    allowSend: async (_c, key) => (await env.UPLOAD_LIMITER.limit({ key })).success,
+    recordMiss: async (_c, key) => {
+      if ((await env.MISS_LIMITER.limit({ key })).success) return;
+      const now = Date.now();
+      if (missBlocked.size > 10_000) {
+        for (const [stale, until] of missBlocked) if (until <= now) missBlocked.delete(stale);
+      }
+      missBlocked.set(key, now + 60_000);
+    },
+    missesExceeded: (_c, key) => (missBlocked.get(key) ?? 0) > Date.now(),
+    later: (c, work) =>
+      c.executionCtx.waitUntil(
+        work.catch((error: unknown) => logError("Background work failed", error)),
+      ),
+    client(c) {
+      // Headers are the fallback: tests send them.
+      const cf = (c.req.raw as { cf?: Record<string, unknown> }).cf ?? {};
+      return {
+        ip: c.req.header("cf-connecting-ip") || "unknown",
+        country: text(cf.country) ?? text(c.req.header("cf-ipcountry")),
+        region: text(cf.region) ?? text(c.req.header("cf-region")),
+        city: text(cf.city) ?? text(c.req.header("cf-ipcity")),
+        // Cloudflare's own, which a client cannot fake; the header only without request.cf (tests).
+        asn:
+          typeof cf.asn === "number"
+            ? cf.asn
+            : Object.keys(cf).length
+              ? null
+              : Number(c.req.header("cf-asn")) || null,
+      };
+    },
+    origin: (c) => new URL(c.req.url).origin,
+    deployment: () => ({
+      versionId: env.VERSION.id || null,
+      deployedAt: env.VERSION.timestamp || null,
+    }),
+    logsUrl: LOGS_URL,
+    logsHint: null,
+  };
+};

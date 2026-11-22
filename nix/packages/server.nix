@@ -33,7 +33,7 @@ stdenvNoCC.mkDerivation {
     # Settings come from the environment alone, as in the image: Bun
     # would otherwise read a .env in whatever directory it runs from.
     makeWrapper ${lib.getExe bun} $out/bin/kurobako \
-      --add-flags "--no-env-file $out/lib/kurobako/src/runtime/bun/server.ts" \
+      --add-flags "--no-env-file $out/lib/kurobako/src/infrastructure/bun/server.ts" \
       --set-default HOST 127.0.0.1 \
       --set-default PORT 3000 \
       --run 'export DATA_DIR="''${DATA_DIR:-''${XDG_DATA_HOME:-$HOME/.local/share}/kurobako}"'

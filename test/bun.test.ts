@@ -37,25 +37,15 @@ import {
   textFileBase,
 } from "../public/k.mjs";
 import { SECURITY_HEADERS } from "../src/app";
+import type { Manifest } from "../src/application/backups";
 import { FIXED_FILES, ICON_FILES, STYLES, TOKENS } from "../src/assets";
-import { bundle } from "../src/client/build";
-import { formatBytes as pageFormatBytes } from "../src/client/lib/common.js";
-import { coverFromTag } from "../src/client/lib/cover.js";
-import {
-  BUNDLE_MIME,
-  isBundle,
-  readBundle,
-  uniqueNames,
-  writeBundle,
-} from "../src/client/shared/bundle.js";
-import { sealedFileLimit } from "../src/client/shared/limits.js";
 import { type AppConfig, loadConfig } from "../src/config";
-import { archiveSize, entrySize, readArchive, writeArchive } from "../src/core/archive";
-import type { BlobStore } from "../src/core/host";
-import { detectMedia, safeFileName, safeMediaName } from "../src/core/media";
-import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/core/model";
-import { isAutomatedNetwork, networkKey } from "../src/core/networks";
-import { fromBase64Url, skipIdOf, toBase64Url, vapidKeyProblem } from "../src/core/push";
+import { archiveSize, entrySize, readArchive, writeArchive } from "../src/domain/archive";
+import type { BlobStore } from "../src/domain/host";
+import { detectMedia, safeFileName, safeMediaName } from "../src/domain/media";
+import { defaultTextName, TEXT_PREVIEW_CHARS } from "../src/domain/model";
+import { isAutomatedNetwork, networkKey } from "../src/domain/networks";
+import { fromBase64Url, skipIdOf, toBase64Url, vapidKeyProblem } from "../src/domain/push";
 import {
   PROTOCOL_VERSION,
   routeOf,
@@ -64,11 +54,21 @@ import {
   slotOwners,
   slotPrefix,
   tokenSlot,
-} from "../src/core/routing";
-import { clientKey } from "../src/core/visits";
-import { startRouter } from "../src/runtime/bun/router";
-import { startServer } from "../src/runtime/bun/server";
-import type { Manifest } from "../src/services/backups";
+} from "../src/domain/routing";
+import { clientKey } from "../src/domain/visits";
+import { startRouter } from "../src/infrastructure/bun/router";
+import { startServer } from "../src/infrastructure/bun/server";
+import {
+  BUNDLE_MIME,
+  isBundle,
+  readBundle,
+  uniqueNames,
+  writeBundle,
+} from "../src/protocol/bundle.js";
+import { bundle } from "../src/web/client/build";
+import { formatBytes as pageFormatBytes } from "../src/web/client/lib/common.js";
+import { coverFromTag } from "../src/web/client/lib/cover.js";
+import { sealedFileLimit } from "../src/web/client/shared/limits.js";
 import { TEST_ADMIN_KEY } from "./admin-key";
 import { type Harness, sharedTests } from "./shared";
 import { defined, type FileItem, type Item, type LiveMessage, type SharedItem } from "./support";
@@ -1366,7 +1366,7 @@ describe("rules kept in two places", () => {
 
   test("bundles each page's code with every chunk it imports", async () => {
     const { manifest, files } = await bundle();
-    const client = join(import.meta.dir, "..", "src", "client");
+    const client = join(import.meta.dir, "..", "src", "web", "client");
     const scripts = (folder: string) =>
       readdirSync(join(client, folder))
         .filter((name) => name.endsWith(".js"))
@@ -1430,7 +1430,7 @@ describe("rules kept in two places", () => {
       ...names(await read("src/config.ts"), /(?:integer|flag)\(\s*vars,\s*"([A-Z0-9_]+)"/g),
       ...names(await read("src/config.ts"), /vars\.([A-Z0-9_]+)/g),
       ...names(
-        await read("src/runtime/bun/server.ts"),
+        await read("src/infrastructure/bun/server.ts"),
         /(?:env\.|positiveInteger\(|required\()"?([A-Z0-9_]+)/g,
       ),
     ];
@@ -1453,7 +1453,7 @@ describe("rules kept in two places", () => {
 
   test("the protocol page's test vectors: computed here, and opened by k.mjs", async () => {
     const page = await Bun.file(
-      join(import.meta.dir, "..", "src", "pages", "documents", "protocol.html"),
+      join(import.meta.dir, "..", "src", "web", "server", "documents", "protocol.html"),
     ).text();
     const vector = (name: string) => {
       const value = new RegExp(`data-vector="${name}">([^<]*)<`).exec(page)?.[1];

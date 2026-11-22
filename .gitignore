@@ -9,3 +9,8 @@ coverage/
 /result*
 # Built by ops/build.ts
 /dist/
+
+/experiments/solid-namespace/.dist/
+
+/test-results/
+/playwright-report/

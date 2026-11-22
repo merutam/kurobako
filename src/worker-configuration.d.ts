@@ -17,12 +17,12 @@ interface __BaseEnv_Env {
 	ADMIN_SESSION_HOURS: "12";
 	SENDS_PER_MINUTE: "30";
 	MISSES_PER_MINUTE: "30";
-	NAMESPACES: DurableObjectNamespace<import("./runtime/cloudflare/worker").NamespaceObject>;
-	HUB: DurableObjectNamespace<import("./runtime/cloudflare/worker").HubObject>;
+	NAMESPACES: DurableObjectNamespace<import("./infrastructure/cloudflare/worker").NamespaceObject>;
+	HUB: DurableObjectNamespace<import("./infrastructure/cloudflare/worker").HubObject>;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
-		mainModule: typeof import("./runtime/cloudflare/worker");
+		mainModule: typeof import("./infrastructure/cloudflare/worker");
 		durableNamespaces: "NamespaceObject" | "HubObject";
 	}
 	interface Env extends __BaseEnv_Env {}

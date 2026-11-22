@@ -8,15 +8,15 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
-    // The browser code the server renders with too (src/client/shared/).
+    // The browser code the server renders with too (src/web/client/shared/).
     "allowJs": true,
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
     "noEmit": true,
     "skipLibCheck": true
   },
-  // Everything but Bun's own code (src/runtime/bun, the client's build), which
+  // Everything but Bun's own code (src/infrastructure/bun, the client's build), which
   // tsconfig.bun.json checks.
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["src/runtime/bun", "src/client/build.ts"]
+  "exclude": ["src/infrastructure/bun", "src/web/client/build.ts"]
 }

@@ -5,7 +5,7 @@ accent color. It follows the small web approach, comfortable contrast,
 restrained type, and predictable layout.
 
 The values (colors, sizes, spacing, radius) live in
-[`src/client/styles/tokens.css`](../src/client/styles/tokens.css); this file is
+[`src/web/client/styles/tokens.css`](../src/web/client/styles/tokens.css); this file is
 what the code cannot say: how to decide when adding something.
 
 ## Before adding an element

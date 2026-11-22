@@ -6,10 +6,10 @@
 
 import type { expect as vitestExpect } from "vitest";
 import { newViewId, openSealedSpace, openSharedItem, openViewEntry } from "../public/k.mjs";
-import { BUNDLE_MIME, readBundle, writeBundle } from "../src/client/shared/bundle.js";
-import { describePlain, rowHash, rowState } from "../src/client/shared/item-row.js";
 import type { AppConfig } from "../src/config";
-import type { AccessLogEntry } from "../src/core/visits";
+import type { AccessLogEntry } from "../src/domain/visits";
+import { BUNDLE_MIME, readBundle, writeBundle } from "../src/protocol/bundle.js";
+import { describePlain, rowHash, rowState } from "../src/web/client/shared/item-row.js";
 import { defined, type FileItem, type Item, type SharedItem } from "./support";
 
 export type Harness = {
@@ -53,6 +53,19 @@ export const sharedTests = (harness: Harness) => {
       .replaceAll("/", "_")
       .replace(/=+$/, "");
   const freshSealedSpace = () => openSealedSpace(`test ${crypto.randomUUID()}`);
+
+  test("limited-read texts cannot acquire a public name through rename", async () => {
+    const ns = fresh();
+    const sent = await sendText(ns, "hidden", { Reads: "2" });
+    expect(sent.status).toBe(201);
+    const reply = await call(`/${ns}/1/n`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "public",
+    });
+    expect(reply.status).toBe(400);
+    expect(await json(`/${ns}/ls`)).not.toContainEqual(expect.objectContaining({ name: "public" }));
+  });
 
   describe("retired namespace locks", () => {
     test("refuses locks in both spaces", async () => {
@@ -1890,14 +1903,15 @@ export const sharedTests = (harness: Harness) => {
       );
     });
 
-    test("controls are words: the only icons are the theme button's", async () => {
+    test("controls are words: decorative marks are hidden from assistive technology", async () => {
       const ns = fresh();
       await sendText(ns, "no icons");
       for (const path of ["/", `/${ns}`, `/${ns}/log`, "/k/protocol", "/k/licenses", "/k/share"]) {
         const html = await (await call(path)).text();
         expect(html, path).not.toContain("data-icon");
-        // The theme button's three (auto, light, dark), and nothing else.
-        expect(html.match(/<svg/g), path).toHaveLength(3);
+        // Three theme states and the decorative site mark.
+        expect(html.match(/<svg/g), path).toHaveLength(4);
+        expect(html.match(/<svg[^>]*aria-hidden="true"/g), path).toHaveLength(4);
       }
     });
 

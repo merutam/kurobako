@@ -5,6 +5,14 @@
     "allowJs": true
   },
   // The shared code, the Bun server and its tests; Cloudflare-only code is left out.
-  "include": ["src/**/*.ts", "src/**/*.tsx", "test/bun.test.ts", "ops/*.ts"],
-  "exclude": ["src/runtime/cloudflare", "src/worker-configuration.d.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/bun.test.ts",
+    "test/regressions.test.ts",
+    "ops/*.ts",
+    "playwright.config.ts",
+    "test/browser/server.ts"
+  ],
+  "exclude": ["src/infrastructure/cloudflare", "src/worker-configuration.d.ts"]
 }

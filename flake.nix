@@ -58,7 +58,7 @@
             pkgs.imagemagick
           ];
           shellHook = ''
-            echo "Kurobako: bun install, then bun run dev (Worker) or bun run start (server)."
+            echo "Kurobako: bun install, then bun run dev (Worker), bun run start (server), or bun run pilot:start (temporary Solid demo)."
           '';
         };
       });

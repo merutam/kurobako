@@ -6,8 +6,10 @@ import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const { version } = (await Bun.file(join(root, "package.json")).json()) as { version: string };
-const file = Bun.file(join(root, "public", "k.mjs"));
+const file = Bun.file(join(root, "src", "sdk", "k.mjs"));
 const source = await file.text();
 const pattern = /^export const VERSION = "[^"]*";$/m;
 if (!pattern.test(source)) throw new Error("public/k.mjs has no VERSION line.");
 await Bun.write(file, source.replace(pattern, `export const VERSION = "${version}";`));
+
+await Bun.write(join(root, "public", "k.mjs"), await file.bytes());

@@ -17,4 +17,4 @@ the repository's top-level [`LICENSE`](../LICENSE). Development-only tools are
 not part of this production notice.
 
 The same notices are published on every instance at `/k/licenses`. The
-vendored browser files in `src/client/vendor/` keep their own license headers.
+vendored browser files in `src/web/client/vendor/` keep their own license headers.

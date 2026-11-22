@@ -1,0 +1,70 @@
+// @ts-check
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Kurobako contributors
+
+// Nothing here touches a page, so the server renders with the same functions.
+
+export const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "short",
+  timeStyle: "short",
+});
+const relativeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
+export const numberFormatter = new Intl.NumberFormat();
+
+/** Decimal, like the limits they show. */
+/** @param {number} bytes */
+export const formatBytes = (bytes) => {
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ["kB", "MB", "GB"];
+  let value = bytes / 1000;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${Number(value.toFixed(value < 10 ? 1 : 0))} ${units[unit]}`;
+};
+
+/** @param {number} seconds */
+export const formatDuration = (seconds) => {
+  /** @type {[Intl.RelativeTimeFormatUnit, number][]} */
+  const units = [
+    ["day", 86_400],
+    ["hour", 3_600],
+    ["minute", 60],
+    ["second", 1],
+  ];
+  const [unit, size] = units.find(([, size]) => seconds >= size) ?? ["second", 1];
+  const value = Math.round(seconds / size);
+  return `${value} ${unit}${value === 1 ? "" : "s"}`;
+};
+
+/** @param {string} date */
+export const formatAge = (date) => {
+  const minutes = Math.floor((Date.now() - Date.parse(date)) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h`;
+  return `${Math.floor(minutes / (24 * 60))} d`;
+};
+
+/** @param {string} expiresAt */
+export const formatExpiry = (expiresAt) => {
+  const remainingMs = Date.parse(expiresAt) - Date.now();
+  if (remainingMs <= 0) return "expired";
+  /** @type {[Intl.RelativeTimeFormatUnit, number][]} */
+  const units = [
+    ["day", 86_400_000],
+    ["hour", 3_600_000],
+  ];
+  const match = units.find(([, size]) => remainingMs >= size);
+  if (match)
+    return `expires ${relativeFormatter.format(Math.floor(remainingMs / match[1]), match[0])}`;
+  return `expires ${relativeFormatter.format(Math.ceil(remainingMs / 60_000), "minute")}`;
+};
+
+/** @param {string} text */
+export const compactText = (text) => text.replace(/\s+/g, " ").trim() || "(blank)";
+
+/** A preview would be a read. */
+export const HIDDEN_TITLE = "Hidden until opened";

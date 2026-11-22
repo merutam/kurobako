@@ -76,7 +76,7 @@ beyond a platform's limits are refused at start.
 | `MAX_FILE_BYTES` | `100000000` | 100 MB at most on Cloudflare Free and Pro |
 | `MAX_TEXT_BYTES` | `1000000` | 100 MB at most on Cloudflare Free and Pro |
 | `INLINE_TEXT_BYTES` | `64000` | larger texts go to R2/S3; 2 MB at most on Cloudflare |
-| `MAX_STORAGE_BYTES` | unset | all items together; sends past it get `507` |
+| `MAX_STORAGE_BYTES` | unset | per backend, including in-flight reservations; sends past it get `507` |
 | `SENDS_PER_MINUTE` | `300` | per address (an IPv6 /64 is one); on Cloudflare, also `UPLOAD_LIMITER` |
 | `MISSES_PER_MINUTE` | `300` | requests for things that are not there; on Cloudflare, also `MISS_LIMITER` |
 | `AUTOMATED_NETWORKS` | `limit` | hosting, VPN and Tor networks: `allow`, `limit` (count per network block) or `block` sends |
@@ -122,12 +122,21 @@ up in parts.
 
 ```sh
 bun install
-bun run dev          # wrangler dev
+bun run dev          # wrangler dev; Worker settings from wrangler.jsonc/.dev.vars
 bun run start        # the Bun server
 bun run test
 bun run typecheck
 bun run lint
 ```
+
+Architecture, failure semantics and the isolated Solid SSR experiment are
+described in [docs/architecture.md](docs/architecture.md).
+
+The Worker dev command ignores the self-hosted `.env`; put local Worker
+secrets and overrides in `.dev.vars`. With the default Worker configuration,
+the frontend opens at `http://localhost:8787/`, encrypted namespaces at `/e`,
+and the admin page at `/k/a` when `ADMIN_KEY` is set in `.dev.vars`.
+`BASE_PATH` in `.dev.vars` intentionally moves these pages under that prefix.
 
 ## License
 

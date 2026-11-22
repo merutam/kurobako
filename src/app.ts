@@ -18,23 +18,24 @@
 //
 // Encrypted namespaces live at /e/<id>. <item> is a position (1 is the newest), an ID or a name.
 import { Hono } from "hono";
-import { accessGuard, accessRoutes } from "./api/access";
-import { adminGuard, adminRoutes } from "./api/admin";
-import { archiveRoutes } from "./api/archives";
-import { createContents } from "./api/contents";
-import { type AppEnv, createContext, jsonError } from "./api/context";
-import { itemRoutes } from "./api/items";
-import { missLimit } from "./api/misses";
-import { namespaceRoutes } from "./api/namespaces";
-import { shareRoutes } from "./api/shares";
-import { siteRoutes } from "./api/site";
-import { createUploads } from "./api/uploads";
-import { viewRoutes } from "./api/views";
 import type { WebAssets } from "./assets";
 import type { AppConfig } from "./config";
-import { logError } from "./core/log";
-import { ADMIN_PATH, sitePath } from "./core/routing";
-import type { Platform } from "./runtime/platform";
+import { DomainError } from "./domain/errors";
+import { logError } from "./domain/log";
+import { ADMIN_PATH, sitePath } from "./domain/routing";
+import { accessGuard, accessRoutes } from "./http/access";
+import { adminGuard, adminRoutes } from "./http/admin";
+import { archiveRoutes } from "./http/archives";
+import { createContents } from "./http/contents";
+import { type AppEnv, createContext, jsonError } from "./http/context";
+import { itemRoutes } from "./http/items";
+import { missLimit } from "./http/misses";
+import { namespaceRoutes } from "./http/namespaces";
+import { shareRoutes } from "./http/shares";
+import { siteRoutes } from "./http/site";
+import { createUploads } from "./http/uploads";
+import { viewRoutes } from "./http/views";
+import type { Platform } from "./infrastructure/platform";
 
 export type { AppEnv };
 
@@ -90,22 +91,7 @@ export const createApp = (config: AppConfig, assets: WebAssets, platform: Platfo
 
   app.notFound((c) => jsonError(c, 404, "Not found."));
   app.onError((error, c) => {
-    if (error.message === "Write access denied.") return jsonError(c, 403, error.message);
-    if (error.message === "View changed." || error.message === "Too many views.") {
-      return jsonError(c, 409, error.message);
-    }
-    if (
-      error.message ===
-      "Import into an encrypted namespace with an active view needs view envelopes."
-    ) {
-      return jsonError(c, 409, error.message);
-    }
-    if (
-      error.message === "Invalid view ID." ||
-      error.message === "Missing or invalid view envelope."
-    ) {
-      return jsonError(c, 400, error.message);
-    }
+    if (error instanceof DomainError) return jsonError(c, error.status, error.message);
     logError("Request failed", error, { method: c.req.method, path: c.req.path });
     return jsonError(c, 500, "Internal error.");
   });

@@ -86,7 +86,7 @@ stateless router in front sends each namespace, with its share links and live
 connections, to the server that owns it:
 
 ```sh
-SERVERS=http://10.0.0.1:3000,http://10.0.0.2:3000 bun src/runtime/bun/router.ts
+SERVERS=http://10.0.0.1:3000,http://10.0.0.2:3000 bun src/infrastructure/bun/router.ts
 ```
 
 - The servers run with `CLIENT_IP_HEADER=x-forwarded-for` and listen only where
@@ -96,5 +96,11 @@ SERVERS=http://10.0.0.1:3000,http://10.0.0.2:3000 bun src/runtime/bun/router.ts
 - A server added later takes about 1/n of the namespaces; their SQLite files
   must move with them.
 - Each server limits sends on its own; admin logins go to the first.
+- Set the same `INTERNAL_STATS_KEY` on the router and every backend when
+  using a private instance. It permits only aggregate statistics, independently
+  of `ACCESS_KEY` and `ADMIN_KEY`. The router authenticates the visitor before
+  fetching private aggregates. `BASE_PATH` applies to these requests too.
+- `MAX_STORAGE_BYTES` is a budget per backend, including in-flight reservations;
+  it is not a cluster-wide cap.
 - `/k/a` shows one server at a time (`/k/a?server=2`); one login works on every
   server sharing `ADMIN_KEY`. `/stats.json` adds up every server's.

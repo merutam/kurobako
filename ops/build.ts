@@ -17,8 +17,8 @@ import {
   STATIC_PAGES,
   siteViewOf,
 } from "../src/assets";
-import { bundle } from "../src/client/build";
-import { STATIC_PAGE_RENDERERS } from "../src/pages/documents";
+import { bundle } from "../src/web/client/build";
+import { STATIC_PAGE_RENDERERS } from "../src/web/server/documents";
 
 const root = join(import.meta.dir, "..");
 const publicDir = join(root, "public");
@@ -31,6 +31,14 @@ const write = async (path: string, body: Uint8Array | string) => {
   await Bun.write(path, body);
   written.add(path);
 };
+
+// public/ is watched by Wrangler. Rewriting an identical SDK would trigger
+// this build again indefinitely and keep requests waiting through reloads.
+const sdk = await Bun.file(join(root, "src/sdk/k.mjs")).text();
+const distributedSdk = Bun.file(join(publicDir, "k.mjs"));
+if (!(await distributedSdk.exists()) || (await distributedSdk.text()) !== sdk) {
+  await Bun.write(distributedSdk, sdk);
+}
 
 const { manifest, files } = await bundle();
 for (const [name, file] of files) await write(join(assetsDir, name), file.body);

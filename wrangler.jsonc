@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "kurobako",
-  "main": "src/runtime/cloudflare/worker.ts",
+  "main": "src/infrastructure/cloudflare/worker.ts",
   // The account that owns the R2 bucket below.
   "account_id": "e78e21c9934eecfbbd91fced877e9153",
   "compatibility_date": "2026-10-03",
@@ -58,7 +58,7 @@
 
   "version_metadata": { "binding": "VERSION" },
 
-  // Sends, and requests that find nothing (src/api/misses.ts), per client.
+  // Sends, and requests that find nothing (src/http/misses.ts), per client.
   // Counted per Cloudflare location and approximate by design: they slow
   // scripts down, they are not accounting.
   "ratelimits": [

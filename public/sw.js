@@ -264,7 +264,7 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// --- Push notifications (src/core/push.ts) ---------------------------------
+// --- Push notifications (src/domain/push.ts) ---------------------------------
 
 const PUSH_CACHE = "kurobako-push";
 

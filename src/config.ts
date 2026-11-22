@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-import { type PushConfig, vapidKeyProblem } from "./core/push";
+import { type PushConfig, vapidKeyProblem } from "./domain/push";
 
 export type AppConfig = {
   /** A path such as "/k" shares the domain with another site. */
   basePath: string;
+  internalStatsKey: string | null;
   maxFileBytes: number;
   maxTextBytes: number;
   /** Larger texts go to the blob store. */
@@ -175,6 +176,8 @@ export const loadConfig = (env: object, limits: PlatformLimits = UNBOUNDED_LIMIT
   );
   return {
     basePath: basePath(vars),
+    internalStatsKey:
+      typeof vars.INTERNAL_STATS_KEY === "string" ? vars.INTERNAL_STATS_KEY.trim() || null : null,
     maxFileBytes: integer(
       vars,
       "MAX_FILE_BYTES",
