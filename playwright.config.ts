@@ -9,7 +9,7 @@ export default defineConfig({
   },
   webServer: {
     command: "bun --no-env-file test/browser/server.ts",
-    url: "http://127.0.0.1:33111/pilot/example",
+    url: "http://127.0.0.1:33110/k/protocol",
     reuseExistingServer: false,
   },
 });

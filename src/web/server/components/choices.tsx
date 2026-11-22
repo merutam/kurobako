@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Kurobako contributors
 
-/** Plain text for the current choice, brackets for the others (docs/design.md). */
+/** Plain text for the current choice, brackets for the others (docs/development.md, "Design"). */
 export const Choices = ({
   id,
   label,

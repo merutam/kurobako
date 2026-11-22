@@ -1777,7 +1777,7 @@ summary::before {
 /* --- Tabs, the composer and bundles ------------------------------------------ */
 
 /* Tabs: muted words over a line; the chosen one in the text's color, its
-   line in the accent (docs/design.md). */
+   line in the accent (docs/development.md, "Design"). */
 .tabs {
   display: flex;
   flex-wrap: wrap;

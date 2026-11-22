@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 // Drawn here, so pages need no icon font. Controls are known by their words
-// (docs/design.md); icons are hidden from screen readers.
+// (docs/development.md, "Design"); icons are hidden from screen readers.
 
 import { h } from "./dom.js";
 

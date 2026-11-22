@@ -10,7 +10,6 @@
       "!dist",
       "!test-results",
       "!playwright-report",
-      "!experiments/solid-namespace/.dist",
       "!result",
       "!src/web/client/vendor",
       "!src/worker-configuration.d.ts"

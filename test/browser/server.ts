@@ -27,11 +27,7 @@ const running = await startServer({
   hostname: "127.0.0.1",
   logRequests: false,
 });
-const pilotPath = join(import.meta.dir, "../../experiments/solid-namespace/server.ts");
-const { startPilot } = await import(pilotPath);
-const pilot = await startPilot({ upstream: running.server.url.origin, port: 33111 });
 process.on("SIGTERM", async () => {
-  await pilot.stop(true);
   await running.stop();
   rmSync(dataDir, { recursive: true, force: true });
   process.exit(0);

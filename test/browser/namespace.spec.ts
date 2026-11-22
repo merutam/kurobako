@@ -1,29 +1,6 @@
 import { expect, test } from "@playwright/test";
 
 const production = "http://127.0.0.1:33110";
-const pilot = "http://127.0.0.1:33111";
-
-test("Solid hydrates under CSP and sends text without navigating", async ({ page, request }) => {
-  const ns = `pilot${Date.now()}`;
-  const source = "<script>window.injection = true</script>";
-  await request.post(`${production}/${ns}/new`, {
-    headers: { "Content-Type": "text/plain" },
-    data: source,
-  });
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
-  });
-  await page.goto(`${pilot}/pilot/${ns}`);
-  await expect(page.locator("li")).toHaveCount(1);
-  await page.locator("textarea").fill("sent through Solid");
-  await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.locator("li")).toHaveCount(2);
-  expect(page.url()).toBe(`${pilot}/pilot/${ns}`);
-  expect(await page.evaluate(() => "injection" in window)).toBe(false);
-  expect(errors).toEqual([]);
-});
 
 test("production SSR respects CSP and live updates do not consume limited reads", async ({
   page,
