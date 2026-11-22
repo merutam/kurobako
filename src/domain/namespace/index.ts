@@ -22,6 +22,7 @@ import { slotOf, slotPrefix } from "../routing";
 import type { AccessEvent, AccessLogEntry } from "../visits";
 import { ACCESS_LOG_SCHEMA, AccessLog } from "./access-log";
 import { Journal } from "./journal";
+import { liveChange } from "./live";
 import {
   type ItemRef,
   newItem,
@@ -32,6 +33,7 @@ import {
   replacedItem,
   type SaveInput,
 } from "./queue";
+import { mergeRestored } from "./restore";
 import { PushSubscriptions, pushMessageOf } from "./subscriptions";
 import { VIEW_SCHEMA, type ViewEntry, Views } from "./views";
 
@@ -268,30 +270,20 @@ export class NamespaceCore {
     const ref = this.ref();
     if (!ref) return;
     const items = this.queue.all();
-    const current = items.map(summaryItem);
-    const encoded = JSON.stringify(current);
     const previous = this.sql.exec<{ value: string }>(
       "SELECT value FROM meta WHERE key = 'live_snapshot'",
     )[0]?.value;
-    if (previous !== encoded) {
-      const before = (previous ? JSON.parse(previous) : []) as ReturnType<typeof summaryItem>[];
-      const old = new Map(before.map((item) => [item.id, JSON.stringify(item)]));
-      const next = new Set(current.map((item) => item.id));
-      const removed = before.filter((item) => !next.has(item.id)).map((item) => item.id);
-      if (removed.length) this.forgetItems(ref, removed);
+    const change = liveChange(previous, items);
+    if (change) {
+      const { snapshot, ...delta } = change;
+      if (delta.removed.length) this.forgetItems(ref, delta.removed);
       const revision = this.revision() + 1;
       this.sql.exec(
         "INSERT OR REPLACE INTO meta (key, value) VALUES ('live_revision', ?), ('live_snapshot', ?)",
         String(revision),
-        encoded,
+        snapshot,
       );
-      const message = JSON.stringify({
-        type: "change",
-        revision,
-        upserts: current.filter((item) => old.get(item.id) !== JSON.stringify(item)),
-        removed,
-        order: current.map((item) => item.id),
-      });
+      const message = JSON.stringify({ type: "change", revision, ...delta });
       for (const socket of this.host.sockets()) {
         try {
           socket.send(message);
@@ -725,51 +717,13 @@ export class NamespaceCore {
           : (expiresAt ?? latest);
       const existing = this.queue.find(id);
       if (existing) {
-        const currentChange = Date.parse(existing.updatedAt ?? existing.createdAt);
-        const incomingChange = updatedAt ? Date.parse(updatedAt) : Number.NEGATIVE_INFINITY;
-        // A sealed body has no digest: changing only its metadata could pair a new
-        // revision with the old ciphertext.
-        const sameContents =
-          existing.kind === input.kind &&
-          existing.size === input.size &&
-          existing.kind !== "sealed" &&
-          Boolean(existing.sha256 && input.sha256 && existing.sha256 === input.sha256);
-        if (sameContents && incomingChange > currentChange) {
-          const change: Rename | null =
-            input.kind === "text"
-              ? { name: name ?? "" }
-              : input.kind === "image" || input.kind === "file"
-                ? { name: input.filename }
-                : null;
-          if (change) {
-            const renamed = renamedItem(existing, change);
-            if (!("error" in renamed)) {
-              this.queue.update({ ...renamed, updatedAt });
-              restored += 1;
-            }
-          }
-        } else if (incomingChange > currentChange) {
-          const editable =
-            (existing.kind === "text" && input.kind === "text") ||
-            (existing.kind === "sealed" && input.kind === "sealed");
-          if (editable && updatedAt) {
-            const replaced = replacedItem(existing, input, updatedAt);
-            if (!("error" in replaced)) {
-              const restoredItem =
-                replaced.kind === "text" && name !== undefined ? { ...replaced, name } : replaced;
-              this.queue.update(restoredItem);
-              if (
-                hasObject(existing) &&
-                (!hasObject(restoredItem) || restoredItem.object !== existing.object)
-              ) {
-                replacedFiles.push(existing);
-              }
-              restored += 1;
-              continue;
-            }
-          }
+        const merged = mergeRestored(existing, { input, updatedAt, name });
+        if (merged) {
+          this.queue.update(merged.item);
+          if (merged.replaced) replacedFiles.push(merged.replaced);
+          restored += 1;
         }
-        if ("object" in input) skipped.push(input.object);
+        if (!merged?.usesUpload && "object" in input) skipped.push(input.object);
         continue;
       }
       const known = input.sha256

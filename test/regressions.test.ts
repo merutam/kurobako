@@ -632,3 +632,57 @@ test("new items never take an ID a frozen view still lists", async () => {
     db.close();
   }
 });
+
+test("restoring merges by change date: names, texts, and never older changes", async () => {
+  const { mergeRestored } = await import("../src/domain/namespace/restore");
+  const at = (minutes: number) => new Date(Date.UTC(2026, 0, 1, 0, minutes)).toISOString();
+  const file = {
+    id: "abcdef",
+    kind: "file" as const,
+    mime: "application/octet-stream",
+    filename: "old.bin",
+    object: "objects/here",
+    size: 3,
+    sha256: "same",
+    createdAt: at(0),
+    expiresAt: null,
+  };
+  const upload = {
+    kind: "file" as const,
+    mime: "application/octet-stream",
+    filename: "new.bin",
+    object: "objects/upload",
+    size: 3,
+    sha256: "same",
+  };
+  // Same contents, newer: the name is taken, the upload is not kept.
+  const renamed = mergeRestored(file, { input: upload, updatedAt: at(5) });
+  expect(renamed?.item).toMatchObject({ filename: "new.bin", object: "objects/here" });
+  expect(renamed?.usesUpload).toBe(false);
+  // Older or unchanged: nothing.
+  expect(mergeRestored({ ...file, updatedAt: at(9) }, { input: upload, updatedAt: at(5) })).toBe(
+    null,
+  );
+  expect(mergeRestored(file, { input: upload })).toBe(null);
+  // A different file is not an edit.
+  expect(mergeRestored(file, { input: { ...upload, sha256: "other" }, updatedAt: at(5) })).toBe(
+    null,
+  );
+  // A newer text replaces the contents.
+  const text = {
+    id: "abcdef",
+    kind: "text" as const,
+    mime: "text/plain; charset=utf-8" as const,
+    text: "before",
+    size: 6,
+    createdAt: at(0),
+    expiresAt: null,
+  };
+  const edited = mergeRestored(text, {
+    input: { kind: "text", text: "after", size: 5 },
+    updatedAt: at(5),
+    name: "notes.md",
+  });
+  expect(edited?.item).toMatchObject({ text: "after", name: "notes.md", updatedAt: at(5) });
+  expect(edited?.usesUpload).toBe(true);
+});
