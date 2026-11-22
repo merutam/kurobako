@@ -16,7 +16,7 @@ import { CLOUDFLARE_LIMITS } from "../src/infrastructure/cloudflare/limits";
 import { HUB_NAME } from "../src/infrastructure/cloudflare/objects";
 import worker from "../src/infrastructure/cloudflare/worker";
 import { TEST_ADMIN_KEY } from "./admin-key";
-import { sharedTests } from "./shared";
+import { sharedTests } from "./shared/index";
 import { defined, type FileItem, type Item, type LiveMessage } from "./support";
 
 const ORIGIN = "https://kurobako.test";

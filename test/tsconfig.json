@@ -5,12 +5,12 @@
     "allowImportingTsExtensions": true,
     "allowJs": true
   },
-  // The Worker tests; bun.test.ts is checked with tsconfig.bun.json.
+  // The Worker tests; bun/ is checked with tsconfig.bun.json.
   "include": ["./**/*.ts", "../src/**/*.ts", "../src/**/*.tsx", "../vitest.config.ts"],
   "exclude": [
     "../src/infrastructure/bun",
     "../src/web/client/build.ts",
-    "./bun.test.ts",
+    "./bun",
     "./regressions.test.ts",
     "./browser"
   ]

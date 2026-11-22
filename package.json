@@ -8,7 +8,7 @@
     "deploy": "wrangler deploy",
     "start": "bun src/infrastructure/bun/server.ts",
     "build": "bun --no-env-file ops/build.ts",
-    "test": "bun run build && vitest run && bun test test/bun.test.ts test/regressions.test.ts",
+    "test": "bun run build && vitest run && bun test test/bun test/regressions.test.ts",
     "types": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-configuration.d.ts",
     "typecheck": "bun run types && tsc --noEmit && tsc --noEmit -p test && tsc --noEmit -p tsconfig.bun.json && tsc --noEmit -p experiments/solid-namespace && tsc --noEmit -p test/browser",
     "lint": "biome check .",
