@@ -25,6 +25,8 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
   const summary = element("#send-summary");
   let mode = null;
   let config = null;
+  /** This device's push ID, from the page (lib/push.js). */
+  let pushSkip = null;
   /** Keeps what a text held and was called, to save only what changed. */
   let editing = null;
 
@@ -53,7 +55,7 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     status,
     mode: () => mode,
     config: () => config,
-    settings: settings.values,
+    settings: () => ({ ...settings.values(), pushSkip }),
     fileLimit,
   });
   const pageTools = createPageTools({
@@ -263,6 +265,9 @@ export const createForms = ({ status, writeHeaders, refreshUnlessLive }) => {
     },
     setConfig(value) {
       config = value;
+    },
+    setPushSkip(value) {
+      pushSkip = value;
     },
     showPage() {
       pageTools.showPage();

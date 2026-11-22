@@ -43,16 +43,18 @@ const skipIdOf = async (endpoint) =>
     ),
   );
 
-let skipId = null;
+/*
+ * Each returns this device's skip ID (null without a subscription): sent as
+ * Push-Skip, so the device is not told of its own sends. Nothing is kept here.
+ */
 
-/** So this device is not told of its own sends. */
-export const pushSkipHeaders = () => (skipId ? { "Push-Skip": skipId } : {});
-
+/** `on`: this namespace is followed on this device. */
 export const following = async (key) => {
   const current = await subscription().catch(() => null);
-  skipId = current ? await skipIdOf(current.endpoint) : null;
-  if (!current || Notification.permission !== "granted") return false;
-  return Boolean(await (await caches.open(PUSH_CACHE)).match(recordAddress(key)));
+  const skipId = current ? await skipIdOf(current.endpoint) : null;
+  if (!current || Notification.permission !== "granted") return { on: false, skipId };
+  const on = Boolean(await (await caches.open(PUSH_CACHE)).match(recordAddress(key)));
+  return { on, skipId };
 };
 
 export const follow = async ({ key, basePath, url, title, publicKey }) => {
@@ -80,7 +82,7 @@ export const follow = async ({ key, basePath, url, title, publicKey }) => {
     body: JSON.stringify(current.toJSON()),
   });
   await (await caches.open(PUSH_CACHE)).put(recordAddress(key), Response.json({ url, title }));
-  skipId = await skipIdOf(current.endpoint);
+  return skipIdOf(current.endpoint);
 };
 
 /** Following nothing, the subscription goes too. */
@@ -95,8 +97,10 @@ export const unfollow = async ({ key, basePath }) => {
   }
   const cache = await caches.open(PUSH_CACHE);
   await cache.delete(recordAddress(key));
-  if (current && !(await cache.keys()).length) {
+  if (!current) return null;
+  if (!(await cache.keys()).length) {
     await current.unsubscribe();
-    skipId = null;
+    return null;
   }
+  return skipIdOf(current.endpoint);
 };

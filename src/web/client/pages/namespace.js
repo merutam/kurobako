@@ -123,14 +123,15 @@ try {
       title: mode.label ? "Encrypted namespace" : mode.title,
       publicKey: config.push.publicKey,
     };
-    show(await following(mode.pushKey).catch(() => false));
+    const followed = await following(mode.pushKey).catch(() => ({ on: false, skipId: null }));
+    forms.setPushSkip(followed.skipId);
+    show(followed.on);
     toggle.hidden = false;
     toggle.addEventListener("click", async () => {
       const on = toggle.getAttribute("aria-pressed") !== "true";
       toggle.disabled = true;
       try {
-        if (on) await follow(target);
-        else await unfollow(target);
+        forms.setPushSkip(on ? await follow(target) : await unfollow(target));
         show(on);
         status.success(on ? "This device is notified of new items here." : "Notifications off.");
       } catch (error) {

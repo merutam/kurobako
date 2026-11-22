@@ -12,15 +12,17 @@ import {
 } from "../../../../sdk/k.mjs";
 import { request, SITE } from "../../lib/common.js";
 import { describeOpened, describePlain, limitedItem, sealedStream } from "../../lib/items.js";
-import { pushSkipHeaders } from "../../lib/push.js";
 
 const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
-/** `deduplicate: false` keeps a copy even if the same contents are there (a clone). */
-const sendHeaders = ({ burn, expiresIn, deduplicate = true }) => ({
+/**
+ * `deduplicate: false` keeps a copy even if the same contents are there (a
+ * clone); `pushSkip`, this device's push ID, so it is not told of its own send.
+ */
+const sendHeaders = ({ burn, expiresIn, deduplicate = true, pushSkip = null }) => ({
   ...burnHeaders(burn),
   ...(expiresIn ? { "Expires-In": expiresIn } : {}),
   ...(deduplicate ? {} : { "No-Dedup": "1" }),
-  ...pushSkipHeaders(),
+  ...(pushSkip ? { "Push-Skip": pushSkip } : {}),
 });
 const versionOf = (item) => item.updatedAt ?? item.createdAt;
 
