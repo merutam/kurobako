@@ -17,7 +17,13 @@ import {
   type StoredItem,
   summaryItem,
 } from "../model";
-import { PUSH_SCHEMA, parseTarget, sendPush } from "../push";
+import {
+  PUSH_SCHEMA,
+  type PushMessage,
+  type PushResult,
+  type PushTarget,
+  parseTarget,
+} from "../push";
 import { slotOf, slotPrefix } from "../routing";
 import type { AccessEvent, AccessLogEntry } from "../visits";
 import { ACCESS_LOG_SCHEMA, AccessLog } from "./access-log";
@@ -122,6 +128,8 @@ export interface NamespaceHost {
   hub(): HubApi;
   /** Push messages must not hold up the answer. */
   later(work: Promise<unknown>): void;
+  /** Sends one device its push message (infrastructure/push.ts). */
+  sendPush(target: PushTarget, message: PushMessage): Promise<PushResult>;
 }
 
 /** It exists from its first item and deletes all its storage once empty for a while. */
@@ -659,14 +667,13 @@ export class NamespaceCore {
 
   /** The sending device is skipped. */
   private notify(ref: NamespaceRef, item: StoredItem, skip: string | null): void {
-    const push = this.config.push;
-    if (!push) return;
+    if (!this.config.push) return;
     const targets = this.subscriptions.targets(skip);
     if (!targets.length) return;
     const message = pushMessageOf(ref, item);
     for (const target of targets) {
       this.host.later(
-        sendPush(target, message, push).then((result) => {
+        this.host.sendPush(target, message).then((result) => {
           // The browser dropped it: nothing will arrive there again. Not once the
           // namespace is gone: its storage would be created again.
           if (result === "gone" && this.exists()) this.subscriptions.remove(target.endpoint);

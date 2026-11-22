@@ -10,6 +10,7 @@ import { logError } from "../../domain/log";
 import { objectName } from "../../domain/model";
 import { LIVE, NAMESPACE_METHODS, NamespaceCore } from "../../domain/namespace";
 import type { AccessEvent } from "../../domain/visits";
+import { pushSender } from "../push";
 import { CLOUDFLARE_LIMITS } from "./limits";
 import { r2Store } from "./r2";
 
@@ -33,7 +34,8 @@ export class NamespaceObject extends DurableObject<Env> {
     // Answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(LIVE.ping, LIVE.pong));
     const sql = sqlOf(ctx.storage);
-    this.core = new NamespaceCore(loadConfig(env, CLOUDFLARE_LIMITS), {
+    const config = loadConfig(env, CLOUDFLARE_LIMITS);
+    this.core = new NamespaceCore(config, {
       hasStorage: () =>
         sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").length > 0,
       sql: () => sql,
@@ -44,6 +46,7 @@ export class NamespaceObject extends DurableObject<Env> {
       hub: () => hubOf(env),
       later: (work) =>
         ctx.waitUntil(work.catch((error) => logError("Background work failed", error))),
+      sendPush: pushSender(config.push),
     });
   }
 

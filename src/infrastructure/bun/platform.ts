@@ -16,6 +16,7 @@ import { type NamespaceRef, objectName, type SpaceKind } from "../../domain/mode
 import { LIVE, NamespaceCore } from "../../domain/namespace";
 import { firstValue } from "../../domain/visits";
 import type { Client, Platform } from "../platform";
+import { pushSender } from "../push";
 import { createAlarmIndex } from "./alarm-index";
 import { Alarm, openDatabase, sqlOf } from "./sqlite";
 
@@ -73,6 +74,7 @@ export const createBunPlatform = (options: BunOptions) => {
     closeDatabase(): void;
   };
   const namespaces = new Map<string, Entry>();
+  const sendPush = pushSender(config.push);
   const openDatabases = new Map<string, { close: () => void; lastUsed: number }>();
 
   const namespaceOf = (ref: NamespaceRef): Entry => {
@@ -123,6 +125,7 @@ export const createBunPlatform = (options: BunOptions) => {
       later: (work) => {
         work.catch((error: unknown) => logError("Background work failed", error));
       },
+      sendPush,
     });
     const entry = { core, sockets, alarm, hasStorage, closeDatabase };
     namespaces.set(key, entry);

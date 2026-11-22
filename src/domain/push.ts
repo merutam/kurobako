@@ -229,15 +229,19 @@ const signVapid = async (audience: string, config: PushConfig, now: number) => {
   return `vapid t=${unsigned}.${toBase64Url(signature)}, k=${config.publicKey}`;
 };
 
-const PUSH_TIMEOUT_MS = 10_000;
+export type PushResult = "sent" | "gone" | "failed";
 
-/** "gone": the browser dropped the subscription, so it can be forgotten. */
-export const sendPush = async (
+/**
+ * The push service's request for one device, encrypted and signed; sending
+ * it is the platform's (see infrastructure/push.ts).
+ */
+export const pushRequest = async (
   target: PushTarget,
   message: PushMessage,
   config: PushConfig,
-): Promise<"sent" | "gone" | "failed"> => {
-  const response = await fetch(target.endpoint, {
+) => ({
+  url: target.endpoint,
+  init: {
     method: "POST",
     headers: {
       Authorization: await vapidAuthorization(target.endpoint, config),
@@ -249,10 +253,9 @@ export const sendPush = async (
       Urgency: "high",
     },
     body: await encryptMessage(target, encoder.encode(JSON.stringify(message))),
-    // A stalled push service must not hold background work open indefinitely.
-    signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
-  });
-  await response.body?.cancel();
-  if (response.status === 404 || response.status === 410) return "gone";
-  return response.ok ? "sent" : "failed";
-};
+  } satisfies RequestInit,
+});
+
+/** "gone": the browser dropped the subscription, so it can be forgotten. */
+export const pushResultOf = (status: number): PushResult =>
+  status === 404 || status === 410 ? "gone" : status >= 200 && status < 300 ? "sent" : "failed";

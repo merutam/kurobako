@@ -225,6 +225,7 @@ test("a restarted namespace reconciles a reservation after a committed write los
     later: (work: Promise<unknown>) => {
       void work;
     },
+    sendPush: async () => "sent" as const,
   };
   const report = hub.reportNamespace.bind(hub);
   try {
@@ -363,6 +364,7 @@ const coreHarness = async (settings: Parameters<typeof loadConfig>[0] = {}) => {
     later: (work: Promise<unknown>) => {
       void work.catch(() => {});
     },
+    sendPush: async () => "sent" as const,
   };
   return {
     core: new NamespaceCore(config, host),
