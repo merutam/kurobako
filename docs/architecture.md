@@ -20,10 +20,22 @@ browser presentation. HTTP translates typed domain errors to status codes.
 The Cloudflare adapter explicitly serializes these errors as tagged values;
 custom JavaScript Error properties are not the RPC contract.
 
-The namespace feature lives in `src/web/client/features/namespace`. Its composer
-preview owns its object URLs; its live controller uses the pure, typed queue
+The namespace feature lives in `src/web/client/features/namespace`. `forms.js`
+wires the composer and owns sending and editing over `composer-text.js` (tabs,
+editor, Markdown preview), `composer-files.js`, `sending.js` (including the
+send-limit wait), `bundle-compose.js` (no DOM) and `send-settings.js`;
+`page-tools.js` holds backup, restore and the page link. `item-list.js` renders
+and adopts rows over `item-actions.js`, `item-rename.js` and `expansion.js`.
+`modes.js` documents the `Mode` contract the three modes share. The composer
+preview owns its object URLs; the live controller uses the pure, typed queue
 reducer. Shared formatting opts into JavaScript type checking; migration of
 other browser controllers to checked TypeScript remains incremental.
+
+`NamespaceCore` (`src/domain/namespace/index.ts`) keeps a namespace's rules and
+storage; its parts with their own state or no state at all live beside it:
+`queue.ts`, `views.ts`, `access-log.ts`, `subscriptions.ts` (push),
+`journal.ts` (unreported reservations, pending object deletes), `restore.ts`
+(merge rules) and `live.ts` (deltas for viewers).
 
 `public/k.mjs` is a checked-in distributable copied from `src/sdk/k.mjs` by
 `bun run build`. Change the SDK source, then build. `ops/version.ts` updates
@@ -107,6 +119,11 @@ SSR build. Client bundle sizes printed by Vite include the framework and the
 prototype but are not a production performance comparison.
 
 ## Verification
+
+Tests: `test/shared/` runs against both the Worker and Bun; `test/bun/` is the
+Bun server end to end (each file with its own server, from `harness.ts`);
+`test/regressions.test.ts` holds focused regressions; `test/browser/` is
+Playwright.
 
 `bun run test` builds assets and runs Workers and Bun integration tests,
 including failure, quota, router and protocol regressions. `bun run typecheck`
