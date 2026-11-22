@@ -7,11 +7,10 @@ import {
   openSharedItem,
   openViewEntry,
   secretNameProblem,
-  textDownloadName,
 } from "../../../sdk/k.mjs";
 import { createItemList } from "../features/namespace/item-list.js";
 import { element, readConfig, request, SITE, setupNamespaceField } from "../lib/common.js";
-import { describeOpened, describePlain, limitedItem } from "../lib/items.js";
+import { describeOpened, describePlain, limitedItem, sealedStream } from "../lib/items.js";
 import { createStatus } from "../lib/status.js";
 import { failUnlocking, finishUnlocking } from "../lib/unlocking.js";
 
@@ -82,15 +81,12 @@ const mode = {
   streamOf: async (item) => {
     const entry = entryFor(item);
     const { info, bodyKey } = await describeEntry(entry);
-    return {
+    return sealedStream({
       url: `${window.location.origin}${entry.url}/c`,
       key: await bodyKey(),
-      sealedSize: item.size,
-      size: info.size,
-      mime: info.mime || "application/octet-stream",
-      filename:
-        info.kind === "text" ? textDownloadName(info.title, item.id) : info.filename || "file",
-    };
+      item,
+      details: info,
+    });
   },
 };
 

@@ -15,6 +15,7 @@ import {
   downloadBlob,
   highlightedText,
   limitedItem,
+  sealedStream,
   streamAddress,
   videoPlayer,
 } from "../lib/items.js";
@@ -225,14 +226,14 @@ async function showItem(item) {
       // In parts, rather than whole on opening the page.
       const address =
         item.kind === "sealed" && info.kind === "file" && !info.isImage && !info.isBundle
-          ? await streamAddress({
-              url: `${window.location.origin}${here}/c`,
-              key: await info.bodyKey(),
-              sealedSize: item.size,
-              size: info.size,
-              mime: info.mime || "application/octet-stream",
-              filename: info.filename || "file",
-            })
+          ? await streamAddress(
+              sealedStream({
+                url: `${window.location.origin}${here}/c`,
+                key: await info.bodyKey(),
+                item,
+                details: info,
+              }),
+            )
           : null;
       if (address) {
         body.replaceChildren(

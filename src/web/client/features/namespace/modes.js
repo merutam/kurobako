@@ -9,10 +9,9 @@ import {
   newViewId,
   openReadOnlySpace,
   openSealedSpace,
-  textDownloadName,
 } from "../../../../sdk/k.mjs";
 import { request, SITE } from "../../lib/common.js";
-import { describeOpened, describePlain, limitedItem } from "../../lib/items.js";
+import { describeOpened, describePlain, limitedItem, sealedStream } from "../../lib/items.js";
 import { pushSkipHeaders } from "../../lib/push.js";
 
 const burnHeaders = (burn) => (burn ? { Burn: "1" } : {});
@@ -259,17 +258,12 @@ export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
     streamOf: async (item) => {
       const opened = await openItem(item);
       if (!opened) throw new Error("This item could not be decrypted.");
-      return {
+      return sealedStream({
         url: `${window.location.origin}${basePath}/${encodeURIComponent(item.id)}`,
         key: await opened.bodyKey(),
-        sealedSize: item.size,
-        size: opened.metadata.size,
-        mime: opened.metadata.mime || "application/octet-stream",
-        filename:
-          opened.metadata.kind === "text"
-            ? textDownloadName(opened.metadata.title, item.id)
-            : opened.metadata.filename || "file",
-      };
+        item,
+        details: opened.metadata,
+      });
     },
     /** For the part of a share link the server never sees. */
     shareKey: async (item) => (await openItem(item))?.keyText ?? null,

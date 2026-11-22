@@ -116,3 +116,29 @@ test("a Markdown text previews, with a pasted file referenced", async ({ page })
   await expect(page.locator("#markdown-preview h1")).toHaveText("Title");
   expect(errors).toEqual([]);
 });
+
+test("an encrypted file is sent and saved through the Service Worker", async ({ page }) => {
+  const secret = `correct horse battery staple ${Date.now()}`;
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(`${production}/e#${encodeURIComponent(secret)}`);
+  await expect(page.locator("#send-button")).toBeEnabled({ timeout: 15_000 });
+  await page.locator("#files-tab").click();
+  const contents = "secret file contents ".repeat(5000);
+  await page.locator("#file").setInputFiles({
+    name: "secret.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from(contents),
+  });
+  await page.locator("#send-button").click();
+  await expect(items(page)).toHaveCount(1);
+  await expect(page.locator(".item-title")).toHaveText("secret.txt");
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.locator('[data-action="download"]').click(),
+  ]);
+  expect(download.url()).toContain("/k/stream/");
+  const saved = await download.path();
+  expect(await (await import("node:fs/promises")).readFile(saved, "utf8")).toBe(contents);
+  expect(errors).toEqual([]);
+});

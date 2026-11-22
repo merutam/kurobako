@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { BUNDLE_MIME } from "../../../protocol/bundle.js";
+import { textDownloadName } from "../../../sdk/k.mjs";
 import { h } from "../shared/dom.js";
 import { describePlain, itemSummary, limitedItem } from "../shared/item-row.js";
 import { isShownImage, objectAddress } from "./addresses.js";
@@ -158,6 +159,21 @@ export const forgetStream = (address) => {
   streams.delete(token);
   navigator.serviceWorker?.controller?.postMessage({ type: "forget", token });
 };
+
+/**
+ * What the Service Worker needs to play or save an encrypted item in parts:
+ * where its ciphertext is, its body key, and what it is once decrypted
+ * (`details`: kind, size, mime, title, filename).
+ */
+export const sealedStream = ({ url, key, item, details }) => ({
+  url,
+  key,
+  sealedSize: item.size,
+  size: details.size,
+  mime: details.mime || "application/octet-stream",
+  filename:
+    details.kind === "text" ? textDownloadName(details.title, item.id) : details.filename || "file",
+});
 
 /** Null without a worker. */
 export const streamAddress = async (stream) => {
