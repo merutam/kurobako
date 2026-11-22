@@ -124,10 +124,25 @@ const KIND_NAMES = {
   file: "file",
 };
 
-/** Closed as made here; the browser opens the ones it should. */
+/**
+ * Closed as made here; the browser opens the ones it should. The server may
+ * make one `open` with its `content` already in the preview, so it reads
+ * without JavaScript (the shared item page).
+ */
 export const itemRow = (
   h,
-  { item, info, position, opened = false, canWrite, canCopyImages, downloadUrl, made },
+  {
+    item,
+    info,
+    position,
+    opened = false,
+    canWrite,
+    canCopyImages,
+    downloadUrl,
+    made,
+    open = false,
+    content = null,
+  },
 ) => {
   const unopenedBurn = limitedItem(item) && !opened;
   const expandable = !unopenedBurn;
@@ -206,7 +221,7 @@ export const itemRow = (
             type: "button",
             class: "item-toggle",
             "aria-controls": bodyId,
-            "aria-expanded": "false",
+            "aria-expanded": String(open),
           },
           heading,
         )
@@ -219,8 +234,8 @@ export const itemRow = (
     expandable &&
     h(
       "div",
-      { class: "item-body", id: bodyId, hidden: true },
-      h("div", { class: "item-preview" }),
+      { class: "item-body", id: bodyId, hidden: !open },
+      h("div", { class: "item-preview" }, content),
       h(
         "p",
         { class: "item-meta" },
@@ -242,7 +257,11 @@ export const itemRow = (
     );
   return h(
     "li",
-    { class: unopenedBurn ? "item burn" : "item", "data-id": item.id, "data-made": made },
+    {
+      class: unopenedBurn ? "item burn" : open && expandable ? "item open" : "item",
+      "data-id": item.id,
+      "data-made": made,
+    },
     row,
     body,
   );

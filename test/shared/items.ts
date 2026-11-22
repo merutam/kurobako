@@ -182,7 +182,8 @@ export const itemsTests = (harness: Harness, tools: Tools) => {
       expect(embeddedItem(page).text).toBe(tricky);
       expect(page).not.toContain("</script><b>");
       expect(page).toContain("&lt;/script&gt;&lt;b&gt;");
-      expect(page).toContain('data-ssr-rendered="true"');
+      // As one open row of a list, readable before any script.
+      expect(page).toContain('class="item open"');
     });
 
     test("renders a shared long text from blob storage in the first response", async () => {
@@ -191,7 +192,6 @@ export const itemsTests = (harness: Harness, tools: Tools) => {
       const item = await parse<Item>(sendText(ns, long));
       const page = await (await call(await share(`/${ns}`, item.id))).text();
       expect(page).toContain(`<pre>${long}</pre>`);
-      expect(page).toContain('data-ssr-rendered="true"');
     });
 
     test("serve images and files, and die with their item", async () => {

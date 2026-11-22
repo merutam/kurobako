@@ -72,6 +72,33 @@ export const viewRows = (entries: ReadonlyArray<{ url: string; item: ListedItem 
     false,
   );
 
+/**
+ * The shared item page's one row: named by its link's token, as the browser
+ * names it, and open with `content` so it reads without JavaScript.
+ */
+export const sharedItemRow = (
+  item: ListedItem & { id: string },
+  url: string,
+  content: HtmlEscapedString | null,
+) => {
+  const info = describePlain(item);
+  return raw(
+    itemRow(h, {
+      item,
+      info,
+      // One item: no position to show.
+      position: 0,
+      canWrite: false,
+      canCopyImages: true,
+      downloadUrl: `${url}/d`,
+      made: rowHash(rowState(item, info, false, false)),
+      open: true,
+      // item-row.js is plain JavaScript: its default (null) is all TypeScript infers.
+      content: content as unknown as null,
+    }),
+  );
+};
+
 /** The media feed's link opens at this item. */
 export const firstMediaId = (entries: ReadonlyArray<{ id: string; item: ListedItem }>) =>
   entries.find(({ item }) => {
@@ -86,6 +113,7 @@ export const ItemsSection = ({
   mediaId,
   live = false,
   known = true,
+  single = false,
 }: {
   rows: HtmlEscapedString | null;
   size: number;
@@ -93,11 +121,16 @@ export const ItemsSection = ({
   mediaId?: string;
   live?: boolean;
   known?: boolean;
+  /** One item (a shared item): no count, no choice of how many open. */
+  single?: boolean;
 }) => (
   <section id="items-section" class="page-section stack" aria-labelledby="queue-title">
     <div class="section-heading">
       <h2 id="queue-title">
-        Items <small id="item-count">{count}</small>{" "}
+        {single ? "Item" : "Items"}{" "}
+        <small id="item-count" hidden={single}>
+          {count}
+        </small>{" "}
         {live ? (
           <>
             <small id="live-status" class="live-status" />{" "}
@@ -105,7 +138,7 @@ export const ItemsSection = ({
           </>
         ) : null}
       </h2>
-      <span class="actions">
+      <span class="actions" hidden={single}>
         <a
           class="row-action"
           id="open-media"

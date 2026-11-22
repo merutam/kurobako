@@ -2,13 +2,27 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { readLimitedItem, type StoredItem, sharedItem } from "../../domain/model";
-import { describePlain, itemMeta, kindOf } from "../client/shared/item-row.js";
+import { describePlain, kindOf } from "../client/shared/item-row.js";
 import { h } from "./components/html";
-import { titleOf } from "./components/items";
+import { ItemsSection, sharedItemRow, titleOf } from "./components/items";
 import { Layout, type SiteView } from "./components/layout";
+import { MediaFeed } from "./components/media-feed";
 
 type PlainItem = Exclude<StoredItem, { kind: "sealed" }>;
 
+/** What the open row shows before any script: the text, or the medium itself. */
+const contentOf = (item: PlainItem, text: string | null, url: string) => {
+  if (readLimitedItem(item)) return null;
+  if (item.kind === "text") return text === null ? null : h("pre", {}, text);
+  const kind = kindOf(describePlain(item));
+  if (kind === "image") return h("img", { src: `${url}/c`, alt: titleOf(item) });
+  if (kind === "video")
+    return h("video", { src: `${url}/c`, controls: true, preload: "metadata", playsinline: true });
+  if (kind === "audio") return h("audio", { src: `${url}/c`, controls: true, preload: "metadata" });
+  return null;
+};
+
+/** As a shared view's list, with one row, open. */
 const SharedItemContent = ({
   item,
   text,
@@ -18,56 +32,33 @@ const SharedItemContent = ({
   text: string | null;
   url: string;
 }) => {
-  const limited = readLimitedItem(item);
-  const title = titleOf(item);
-  // As the browser sees it (item-data), so both write the same line.
+  // As the browser sees it (item-data), so both make the same row.
   const shared = sharedItem(item);
-  const kind = kindOf(describePlain(item));
-  const media = kind === "image" || kind === "video" || kind === "audio" ? kind : null;
+  const token = url.split("/").pop() ?? "";
   return (
     <>
-      <h1 id="item-title">{title}</h1>
+      <h1 id="item-title">Shared item</h1>
       <p class="intro">
-        <span id="item-meta">{itemMeta(h, shared, describePlain(shared))}</span>
-        {" · "}
         <a href={`${url}/ls`}>As JSON</a>
       </p>
       <p id="status" class="status" role="status" aria-live="polite" />
-      <section
-        id="item"
-        class="shared-item stack"
-        aria-labelledby="item-title"
-        data-ssr-rendered={item.kind === "text" && !limited && text === null ? undefined : "true"}
-      >
-        <div id="item-body">
-          {!limited && item.kind === "text" && text !== null ? <pre>{text}</pre> : null}
-          {!limited && media === "image" ? <img src={`${url}/c`} alt={title} /> : null}
-          {!limited && media === "video" ? (
-            // biome-ignore lint/a11y/useMediaCaption: Uploaded media has no accompanying caption track.
-            <video src={`${url}/c`} controls preload="metadata" playsInline />
-          ) : null}
-          {!limited && media === "audio" ? (
-            // biome-ignore lint/a11y/useMediaCaption: Uploaded audio has no accompanying transcript track.
-            <audio src={`${url}/c`} controls preload="metadata" />
-          ) : null}
-        </div>
-        <div id="item-actions" class="actions">
-          {/* Without JavaScript the item still opens: a form, so neither link
-              prefetching nor crawlers spend its reads. The script replaces it. */}
-          {limited ? (
-            <form id="open-limited-item" class="primary" method="get" action={`${url}/d`}>
-              <button type="submit" class="primary">
-                {item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once"}
-              </button>
-            </form>
-          ) : null}
-          {!limited ? (
-            <a class="button primary" href={`${url}/d`}>
-              Save
-            </a>
-          ) : null}
-        </div>
-      </section>
+      <MediaFeed />
+      <ItemsSection
+        rows={sharedItemRow({ ...shared, id: token }, url, contentOf(item, text, url))}
+        size={1}
+        count="1"
+        single
+      />
+      {readLimitedItem(item) ? (
+        // Opening spends a read: a form, so neither link prefetching nor crawlers do.
+        <noscript>
+          <form id="open-limited-item" method="get" action={`${url}/d`}>
+            <button type="submit" class="primary">
+              {item.readsLeft ? `Open (${item.readsLeft} left)` : "Open once"}
+            </button>
+          </form>
+        </noscript>
+      ) : null}
     </>
   );
 };
@@ -98,21 +89,19 @@ export const SharedItemPage = ({
       <>
         <h1 id="item-title">Shared item</h1>
         <p class="intro">
-          <span id="item-meta">
-            {item ? null : "This shared item is gone: deleted, expired or already read."}
-          </span>
           {item ? (
-            <>
-              {" · "}
-              <a href={`${url}/ls`}>As JSON</a>
-            </>
-          ) : null}
+            <a href={`${url}/ls`}>As JSON</a>
+          ) : (
+            "This shared item is gone: deleted, expired or already read."
+          )}
         </p>
         <p id="status" class="status" role="status" aria-live="polite" />
-        <section id="item" class="shared-item stack" aria-labelledby="item-title" hidden>
-          <div id="item-body" />
-          <p id="item-actions" class="actions" />
-        </section>
+        {item ? (
+          <>
+            <MediaFeed />
+            <ItemsSection rows={null} size={0} count="" known={false} single />
+          </>
+        ) : null}
       </>
     )}
   </Layout>

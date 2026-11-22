@@ -739,7 +739,6 @@ fieldset .status {
 
 /* A text shown whole, or a block of code. */
 .item pre,
-.shared-item pre,
 .prose pre {
   overflow: auto;
   margin: 0;
@@ -749,8 +748,7 @@ fieldset .status {
   font-size: var(--text-list);
   line-height: 1.6;
 }
-.item pre,
-.shared-item pre {
+.item pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -844,20 +842,17 @@ fieldset .status {
 .hljs-strong {
   font-weight: 700;
 }
-.item video,
-.shared-item video {
+.item video {
   display: block;
   max-width: 100%;
   max-height: 30rem;
   background: #000;
 }
-.item audio,
-.shared-item audio {
+.item audio {
   display: block;
   width: min(100%, 36rem);
 }
-.item img,
-.shared-item img {
+.item img {
   display: block;
   max-width: 100%;
   height: auto;
@@ -1708,12 +1703,6 @@ summary::before {
 }
 .pagination:empty {
   display: none;
-}
-
-/* --- Shared item page ----------------------------------------------------- */
-
-.shared-item .numbered-text {
-  max-height: 32rem;
 }
 
 /* --- Stacks --------------------------------------------------------------- */

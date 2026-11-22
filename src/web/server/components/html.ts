@@ -14,6 +14,9 @@ const ESCAPES: Record<string, string> = {
   '"': "&quot;",
   "'": "&#39;",
 };
+/** Elements with no end tag. */
+const VOID = new Set(["img", "input", "br", "hr", "source", "track", "wbr"]);
+
 const escapeText = (text: string) =>
   text.replace(/[&<>"']/g, (character) => ESCAPES[character] ?? "");
 
@@ -36,5 +39,5 @@ export const h = (
     if (value === false || value === null || value === undefined) continue;
     html += value === true ? ` ${name}` : ` ${name}="${escapeText(String(value))}"`;
   }
-  return raw(`${html}>${childHtml(children)}</${tag}>`);
+  return raw(VOID.has(tag) ? `${html}>` : `${html}>${childHtml(children)}</${tag}>`);
 };

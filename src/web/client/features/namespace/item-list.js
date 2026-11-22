@@ -19,7 +19,18 @@ import { createExpansion } from "./expansion.js";
 import { createItemActions } from "./item-actions.js";
 import { createRenamer } from "./item-rename.js";
 
-export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) => {
+/**
+ * `startOpen`: rows show open at first; `numbered: false` leaves out
+ * positions (both for a shared item's one row).
+ */
+export const createItemList = ({
+  status,
+  access,
+  refreshUnlessLive,
+  onEdit,
+  startOpen = false,
+  numbered = true,
+}) => {
   const itemsList = element("#items");
   const emptyMessage = element("#empty");
   const itemCount = element("#item-count");
@@ -150,6 +161,8 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
       const load = async () => {
         if (loaded || !previewable) return;
         loaded = true;
+        // A medium the server already put here (a shared item) is not fetched again.
+        if (preview.querySelector(":scope > :is(img, video, audio)")) return;
         try {
           await showPreview(preview, entry);
         } catch (error) {
@@ -241,7 +254,12 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     }
   };
 
+  const seen = new Set();
   const renderItems = async (items, { force = false } = {}) => {
+    if (startOpen) {
+      for (const { id } of items) if (!seen.has(id)) expansion.keepOpen(id);
+      for (const { id } of items) seen.add(id);
+    }
     serverItems = items;
     itemsShown = true;
     // Rebuilding would drop the name being edited.
@@ -265,7 +283,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     showMedia(entries);
 
     // So a busy queue neither reloads previews nor opens and closes them.
-    const positions = new Map(items.map((item, index) => [item.id, index + 1]));
+    const positions = new Map(items.map((item, index) => [item.id, numbered ? index + 1 : 0]));
     const next = new Map();
     for (const entry of entries) {
       const { id } = entry.item;
