@@ -26,7 +26,34 @@ const versionOf = (item) => item.updatedAt ?? item.createdAt;
 /*
  * A mode hides how items are stored. Loading a burn-after-reading item's
  * content deletes it on the server.
+ *
+ * Three exist: plainMode and sealedMode here, and a read-only one in
+ * pages/shared-view.js, which leaves out what writing needs (it is never
+ * asked, since its canWrite is false).
+ *
+ * @typedef {object} Mode
+ * @property {string} basePath  The namespace's address, for its routes.
+ * @property {string} title     Shown as the page's heading.
+ * @property {string} label     "" for plain, "Encrypted" otherwise.
+ * @property {string} shareUrl  The link that opens this page elsewhere.
+ * @property {string} pushKey   Which namespace a notification follows.
+ * @property {(item: object) => Promise<object>} describe  Title, kind and size, decrypted if needed.
+ * @property {(item: object) => Promise<string>} loadText
+ * @property {(item: object) => Promise<Blob>} loadBlob
+ * @property {(item: object) => Promise<object>} [streamOf]  Encrypted media, played in parts.
+ * @property {(item: object) => string} [mediaUrl]          Where a plain medium plays from.
+ * @property {(item: object) => string | null} [downloadUrl]
+ * @property {(maxFileBytes: number) => number} [fileLimit]
+ * @property {Function} [sendText]  Writing; absent from read-only modes.
+ * @property {Function} [sendFile]
+ * @property {Function} [editText]
+ * @property {Function} [editFile]
+ * @property {Function} [rename]
+ * @property {Function} [shareKey]
+ * @property {Function} [createView]
+ * @property {string} [writeKey]
  */
+/** @returns {Mode} */
 export const plainMode = (namespace, writeHeaders) => {
   const basePath = `${SITE}/${encodeURIComponent(namespace)}`;
   const rename = (item, name) =>
@@ -119,6 +146,7 @@ export const plainMode = (namespace, writeHeaders) => {
   };
 };
 
+/** @returns {Promise<Mode>} */
 export const sealedMode = async ({ secretName, readToken }, writeHeaders) => {
   const space = readToken ? await openReadOnlySpace(readToken) : await openSealedSpace(secretName);
   const basePath = `${SITE}/e/${space.id}`;

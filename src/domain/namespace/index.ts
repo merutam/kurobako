@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import type { AppConfig } from "../../config";
+import { toBase64Url } from "../encoding";
 import { DomainError } from "../errors";
 import type { BlobStore, LiveSocket, Remote, Sql } from "../host";
 import type { HubApi } from "../hub";
@@ -16,18 +17,11 @@ import {
   type StoredItem,
   summaryItem,
 } from "../model";
-import {
-  PUSH_PREVIEW_CHARS,
-  PUSH_SCHEMA,
-  type PushMessage,
-  type PushTarget,
-  parseTarget,
-  sendPush,
-  skipIdOf,
-} from "../push";
+import { PUSH_SCHEMA, parseTarget, sendPush } from "../push";
 import { slotOf, slotPrefix } from "../routing";
 import type { AccessEvent, AccessLogEntry } from "../visits";
 import { ACCESS_LOG_SCHEMA, AccessLog } from "./access-log";
+import { Journal } from "./journal";
 import {
   type ItemRef,
   newItem,
@@ -38,6 +32,7 @@ import {
   replacedItem,
   type SaveInput,
 } from "./queue";
+import { PushSubscriptions, pushMessageOf } from "./subscriptions";
 import { VIEW_SCHEMA, type ViewEntry, Views } from "./views";
 
 export type { ItemRef, Rename, SaveInput };
@@ -48,10 +43,23 @@ export type WriteCheck = "open" | "ok" | "missing" | "wrong";
 const sealedIdOfVerifier = (verifier: string): string | null => {
   if (!/^[a-f0-9]{64}$/.test(verifier)) return null;
   const first = verifier.slice(0, 32).match(/../g) ?? [];
-  return btoa(String.fromCharCode(...first.map((part) => Number.parseInt(part, 16))))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
+  return toBase64Url(new Uint8Array(first.map((part) => Number.parseInt(part, 16))));
+};
+
+/** Named, as a send's settings: every one has a default. */
+export type SaveOptions = {
+  burn?: boolean;
+  visit?: AccessEvent;
+  /** null: the instance default. */
+  expiresInSeconds?: number | null;
+  /** null: no limit. */
+  reads?: number | null;
+  verifier?: string | null;
+  /** The active view the sender saw (encrypted namespaces). */
+  view?: { token: string; envelope?: string };
+  deduplicate?: boolean;
+  /** The sending device, not told of its own send. */
+  pushSkip?: string | null;
 };
 
 export type Saved = { item: StoredItem; existing: boolean };
@@ -121,6 +129,11 @@ export class NamespaceCore {
   private readonly queue = new Queue(() => this.sql);
   private readonly log = new AccessLog(() => this.sql);
   private readonly views = new Views(() => this.sql);
+  private readonly subscriptions = new PushSubscriptions(() => this.sql);
+  /** Reservations the hub has not yet been told are committed. */
+  private readonly reservations = new Journal(() => this.sql, "quota:");
+  /** Objects whose rows are gone but whose delete has not yet succeeded. */
+  private readonly deletes = new Journal(() => this.sql, "delete:");
 
   /** Two changes can share a millisecond; versions must still differ. */
   private nextUpdate(item: StoredItem): string {
@@ -208,13 +221,12 @@ export class NamespaceCore {
   private async deleteFiles(items: StoredItem[]): Promise<void> {
     const keys = items.filter(hasObject).map((item) => item.object);
     if (!keys.length) return;
-    for (const key of keys)
-      this.sql.exec("INSERT OR IGNORE INTO meta (key, value) VALUES (?, '')", `delete:${key}`);
+    for (const key of keys) this.deletes.add(key);
     await this.flushDeletes(keys);
   }
 
   /** True when no journaled delete is left. Never throws: the alarm retries. */
-  private async flushDeletes(keys = this.pendingDeletes()): Promise<boolean> {
+  private async flushDeletes(keys = this.deletes.keys()): Promise<boolean> {
     if (!keys.length) return true;
     try {
       await this.host.blobs.delete(keys);
@@ -223,14 +235,8 @@ export class NamespaceCore {
       await this.host.setAlarm(Date.now() + 30_000);
       return false;
     }
-    for (const key of keys) this.sql.exec("DELETE FROM meta WHERE key = ?", `delete:${key}`);
+    for (const key of keys) this.deletes.remove(key);
     return true;
-  }
-
-  private pendingDeletes(): string[] {
-    return this.sql
-      .exec<{ key: string }>("SELECT key FROM meta WHERE key LIKE 'delete:%'")
-      .map(({ key }) => key.slice(7));
   }
 
   private async expire(): Promise<boolean> {
@@ -316,7 +322,7 @@ export class NamespaceCore {
       ? this.queue.nextExpiry()
       : Date.now() + this.config.emptyNamespaceTtlMs;
     // Failed object deletes are retried soon, whatever else is planned.
-    const retry = this.pendingDeletes().length ? Date.now() + 30_000 : null;
+    const retry = this.deletes.keys().length ? Date.now() + 30_000 : null;
     await this.host.setAlarm(
       retry !== null && (planned === null || retry < planned) ? retry : planned,
     );
@@ -330,7 +336,7 @@ export class NamespaceCore {
     if (this.config.maxStorageBytes === null) return work();
     const token = crypto.randomUUID();
     this.activeReservations.add(token);
-    this.sql.exec("INSERT INTO meta (key, value) VALUES (?, '')", `quota:${token}`);
+    this.reservations.add(token);
     try {
       // Persist a retry alarm before contacting the hub, including the case where
       // the reservation succeeds remotely but its reply is lost.
@@ -369,9 +375,8 @@ export class NamespaceCore {
     const ref = this.existing();
     if (!ref) return;
     const items = known ?? this.queue.all();
-    const completed = this.sql
-      .exec<{ key: string }>("SELECT key FROM meta WHERE key LIKE 'quota:%'")
-      .map(({ key }) => key.slice(6))
+    const completed = this.reservations
+      .keys()
       .filter((token) => !this.activeReservations.has(token));
     try {
       await this.host.hub().reportNamespace(
@@ -389,8 +394,7 @@ export class NamespaceCore {
       await this.host.setAlarm(Date.now() + 30_000);
       throw error;
     }
-    for (const token of completed)
-      this.sql.exec("DELETE FROM meta WHERE key = ?", `quota:${token}`);
+    for (const token of completed) this.reservations.remove(token);
   }
 
   async alarm(): Promise<void> {
@@ -437,7 +441,7 @@ export class NamespaceCore {
       this.activeReservations.size ||
       this.host.sockets().length ||
       this.queue.all().length ||
-      this.pendingDeletes().length
+      this.deletes.keys().length
     ) {
       await this.changed();
       return;
@@ -515,10 +519,7 @@ export class NamespaceCore {
     if (this.exists() && this.views.all().length >= 100)
       throw new DomainError("too_many_views", 409, "Too many views.");
     const bytes = crypto.getRandomValues(new Uint8Array(9));
-    const token = `${slotPrefix(slotOf(ref))}${btoa(String.fromCharCode(...bytes))
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replace(/=+$/, "")}`;
+    const token = `${slotPrefix(slotOf(ref))}${toBase64Url(bytes)}`;
     // Route registration precedes publication. A losing rotation removes it.
     await this.host.hub().registerView(ref, token);
     let published = false;
@@ -566,23 +567,25 @@ export class NamespaceCore {
    * Contents already here (same kind and SHA-256) are not stored twice: that
    * item moves to the top, and the caller deletes the file it uploaded.
    */
-  async save(...args: Parameters<NamespaceCore["saveUnbudgeted"]>): Promise<Saved> {
-    await this.assertWrite(args[0], args[6] ?? null);
-    this.remember(args[0]);
-    return this.withStorageBudget(args[1].size, () => this.saveUnbudgeted(...args));
+  async save(ref: NamespaceRef, input: SaveInput, options: SaveOptions = {}): Promise<Saved> {
+    await this.assertWrite(ref, options.verifier ?? null);
+    this.remember(ref);
+    return this.withStorageBudget(input.size, () => this.saveUnbudgeted(ref, input, options));
   }
 
   private async saveUnbudgeted(
     ref: NamespaceRef,
     input: SaveInput,
-    burn: boolean,
-    visit?: AccessEvent,
-    expiresInSeconds: number | null = null,
-    reads: number | null = null,
-    verifier: string | null = null,
-    view?: { token: string; envelope?: string },
-    deduplicate = true,
-    pushSkip: string | null = null,
+    {
+      burn = false,
+      visit,
+      expiresInSeconds = null,
+      reads = null,
+      verifier = null,
+      view,
+      deduplicate = true,
+      pushSkip = null,
+    }: SaveOptions,
   ): Promise<Saved> {
     await this.assertWrite(ref, verifier);
     this.remember(ref);
@@ -652,60 +655,29 @@ export class NamespaceCore {
     this.recordVisit(visit);
     const target = parseTarget(subscription);
     if ("error" in target) return target;
-    this.sql.exec(
-      "INSERT OR REPLACE INTO push_subscriptions (endpoint, p256dh, auth, skip_id, created_at) VALUES (?, ?, ?, ?, ?)",
-      target.endpoint,
-      target.p256dh,
-      target.auth,
-      await skipIdOf(target.endpoint),
-      Date.now(),
-    );
-    this.sql.exec(
-      `DELETE FROM push_subscriptions WHERE endpoint NOT IN
-        (SELECT endpoint FROM push_subscriptions ORDER BY created_at DESC LIMIT ?)`,
-      this.config.maxPushSubscriptions,
-    );
+    await this.subscriptions.add(target, this.config.maxPushSubscriptions);
     return { ok: true };
   }
 
   async unsubscribePush(endpoint: string): Promise<boolean> {
     if (!this.exists()) return false;
-    this.sql.exec("DELETE FROM push_subscriptions WHERE endpoint = ?", endpoint);
+    this.subscriptions.remove(endpoint);
     return true;
   }
 
-  /** Encrypted or read-once items show nothing; the sending device is skipped. */
+  /** The sending device is skipped. */
   private notify(ref: NamespaceRef, item: StoredItem, skip: string | null): void {
     const push = this.config.push;
     if (!push) return;
-    const targets = this.sql.exec<PushTarget & { skip_id: string }>(
-      "SELECT endpoint, p256dh, auth, skip_id FROM push_subscriptions",
-    );
+    const targets = this.subscriptions.targets(skip);
     if (!targets.length) return;
-    const start = "text" in item ? item.text : "preview" in item ? item.preview : undefined;
-    const preview =
-      readLimitedItem(item) || item.kind === "sealed"
-        ? undefined
-        : item.kind === "text"
-          ? start?.replace(/\s+/g, " ").trim().slice(0, PUSH_PREVIEW_CHARS)
-          : item.filename;
-    const message: PushMessage = {
-      space: ref.space,
-      name: ref.name,
-      id: item.id,
-      kind: item.kind === "sealed" ? "item" : item.kind,
-      ...(preview ? { preview } : {}),
-    };
-    for (const { skip_id, ...target } of targets) {
-      if (skip_id === skip) continue;
+    const message = pushMessageOf(ref, item);
+    for (const target of targets) {
       this.host.later(
         sendPush(target, message, push).then((result) => {
-          // The browser dropped it: nothing will arrive there again.
-          // Not through this.sql once the namespace is gone: its getter would
-          // recreate the storage that cleanup just deleted.
-          if (result === "gone" && this.exists()) {
-            this.sql.exec("DELETE FROM push_subscriptions WHERE endpoint = ?", target.endpoint);
-          }
+          // The browser dropped it: nothing will arrive there again. Not once the
+          // namespace is gone: its storage would be created again.
+          if (result === "gone" && this.exists()) this.subscriptions.remove(target.endpoint);
         }),
       );
     }

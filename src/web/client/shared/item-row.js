@@ -39,18 +39,35 @@ export const describePlain = (item) =>
         isBundle: item.mime === BUNDLE_MIME,
       };
 
-const kindLabel = (info) =>
-  info.kind === "text"
-    ? "Text"
-    : info.isImage
-      ? "Image"
-      : info.isVideo
-        ? "Video"
-        : info.isAudio
-          ? "Audio"
-          : info.isBundle
-            ? "Bundle"
-            : "File";
+/** What an item shows as, from describePlain's (or a sealed item's decrypted) info. */
+export const kindOf = (info) =>
+  info.kind === "unreadable"
+    ? "unreadable"
+    : info.kind === "text"
+      ? "text"
+      : info.isImage
+        ? "image"
+        : info.isVideo
+          ? "video"
+          : info.isAudio
+            ? "audio"
+            : info.isBundle
+              ? "bundle"
+              : "file";
+
+/** Shown in the media feed: images, videos and audio. */
+export const isMedia = (info) => Boolean(info.isImage || info.isVideo || info.isAudio);
+
+const KIND_LABELS = {
+  unreadable: "File",
+  text: "Text",
+  image: "Image",
+  video: "Video",
+  audio: "Audio",
+  bundle: "Bundle",
+  file: "File",
+};
+const kindLabel = (info) => KIND_LABELS[kindOf(info)];
 
 export const itemSummary = (item, info) =>
   `${kindLabel(info)} · ${formatBytes(info.size ?? item.size)} · ${dateFormatter.format(new Date(item.createdAt))}`;
@@ -114,21 +131,7 @@ export const itemRow = (
 ) => {
   const unopenedBurn = limitedItem(item) && !opened;
   const expandable = !unopenedBurn;
-  const kind = unopenedBurn
-    ? "burn"
-    : info.kind === "unreadable"
-      ? "unreadable"
-      : info.kind === "text"
-        ? "text"
-        : info.isImage
-          ? "image"
-          : info.isVideo
-            ? "video"
-            : info.isAudio
-              ? "audio"
-              : info.isBundle
-                ? "bundle"
-                : "file";
+  const kind = unopenedBurn ? "burn" : kindOf(info);
   const renamable = expandable && !opened && info.kind !== "unreadable" && canWrite;
   const heading = [
     h("span", { class: "item-kind" }, KIND_NAMES[kind]),

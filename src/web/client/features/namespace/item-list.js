@@ -29,7 +29,7 @@ import {
 } from "../../lib/items.js";
 import { createMediaFeed } from "../../lib/media-feed.js";
 import { h } from "../../shared/dom.js";
-import { itemRow, localizeDates, rowHash, rowState } from "../../shared/item-row.js";
+import { isMedia, itemRow, localizeDates, rowHash, rowState } from "../../shared/item-row.js";
 
 export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) => {
   const itemsList = element("#items");
@@ -465,9 +465,7 @@ export const createItemList = ({ status, access, refreshUnlessLive, onEdit }) =>
     ].sort((a, b) => b.item.createdAt.localeCompare(a.item.createdAt));
 
     const mediaEntries = entries.filter(
-      (entry) =>
-        (entry.info.isImage || entry.info.isVideo || entry.info.isAudio) &&
-        (!limitedItem(entry.item) || Boolean(entry.opened)),
+      (entry) => isMedia(entry.info) && (!limitedItem(entry.item) || Boolean(entry.opened)),
     );
     mediaFeed.update(mediaEntries);
     openMediaLink.hidden = mediaEntries.length === 0;

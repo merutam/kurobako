@@ -5,6 +5,8 @@
 // nothing, and signed with VAPID (RFC 8292). WebCrypto only, so it runs on
 // Bun and Workers alike.
 
+import { fromBase64Url, toBase64Url } from "./encoding";
+
 export type PushConfig = {
   /** A P-256 point, uncompressed, base64url (65 bytes). */
   publicKey: string;
@@ -46,16 +48,7 @@ const PUSH_HOSTS = [
 
 const encoder = new TextEncoder();
 
-export const toBase64Url = (bytes: Uint8Array) =>
-  btoa(String.fromCharCode(...bytes))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
-
-export const fromBase64Url = (text: string): Uint8Array<ArrayBuffer> => {
-  const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/"));
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-};
+export { fromBase64Url, toBase64Url };
 
 /** WebCrypto takes only plain ArrayBuffer-backed bytes. */
 type Bytes = Uint8Array<ArrayBuffer>;

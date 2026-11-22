@@ -73,18 +73,16 @@ export const createItems = ({ namespace, platform }: Pick<Deps, "namespace" | "p
   const discard = (object: string) => platform.blobs.delete([object]);
 
   const save = async (ref: NamespaceRef, input: SaveInput, options: SendOptions) =>
-    (await namespace(ref).save(
-      ref,
-      input,
-      options.burn,
-      options.visitor,
-      options.expiresInSeconds,
-      options.reads,
-      options.verifier,
-      options.view,
-      options.deduplicate,
-      options.pushSkip,
-    )) as Saved;
+    (await namespace(ref).save(ref, input, {
+      burn: options.burn,
+      visit: options.visitor,
+      expiresInSeconds: options.expiresInSeconds,
+      reads: options.reads,
+      verifier: options.verifier,
+      view: options.view,
+      deduplicate: options.deduplicate,
+      pushSkip: options.pushSkip,
+    })) as Saved;
 
   const saveObject = async (
     ref: NamespaceRef,

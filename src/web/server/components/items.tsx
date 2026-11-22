@@ -5,6 +5,7 @@ import { raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import {
   describePlain,
+  isMedia,
   itemRow,
   limitedItem,
   rowHash,
@@ -75,7 +76,7 @@ export const viewRows = (entries: ReadonlyArray<{ url: string; item: ListedItem 
 export const firstMediaId = (entries: ReadonlyArray<{ id: string; item: ListedItem }>) =>
   entries.find(({ item }) => {
     const info = describePlain(item);
-    return (info.isImage || info.isVideo || info.isAudio) && !limitedItem(item);
+    return isMedia(info) && !limitedItem(item);
   })?.id;
 
 export const ItemsSection = ({

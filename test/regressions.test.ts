@@ -236,7 +236,6 @@ test("a restarted namespace reconciles a reservation after a committed write los
     const saved = await original.save(
       { space: "plain", name: "one" },
       { kind: "text", text: "12345678", size: 8 },
-      false,
     );
     expect(saved.item.size).toBe(8);
     expect(alarm).not.toBeNull();
@@ -383,7 +382,7 @@ const write = { ref, verifier: null };
 test("a send that arrives while cleanup waits for the hub is not deleted", async () => {
   const { core, hub, state, close } = await coreHarness();
   try {
-    const first = await core.save(ref, { kind: "text", text: "first", size: 5 }, false);
+    const first = await core.save(ref, { kind: "text", text: "first", size: 5 });
     expect(await core.remove(first.item.id, undefined, write)).toBe(true);
     let release = () => {};
     const forget = hub.forgetNamespace.bind(hub);
@@ -395,7 +394,7 @@ test("a send that arrives while cleanup waits for the hub is not deleted", async
     };
     const cleanup = core.alarm();
     await Bun.sleep(0);
-    const saved = core.save(ref, { kind: "text", text: "second", size: 6 }, false);
+    const saved = core.save(ref, { kind: "text", text: "second", size: 6 });
     await Bun.sleep(0);
     release();
     await Promise.all([cleanup, saved]);
@@ -410,17 +409,13 @@ test("a failed object delete is journaled and retried by the alarm", async () =>
   const { core, blobs, state, close } = await coreHarness();
   try {
     await blobs.put("objects/a", new Blob(["file"]).stream(), 4, "application/octet-stream");
-    const saved = await core.save(
-      ref,
-      {
-        kind: "file",
-        mime: "application/octet-stream",
-        filename: "a",
-        object: "objects/a",
-        size: 4,
-      },
-      false,
-    );
+    const saved = await core.save(ref, {
+      kind: "file",
+      mime: "application/octet-stream",
+      filename: "a",
+      object: "objects/a",
+      size: 4,
+    });
     const remove = blobs.delete;
     blobs.delete = async () => {
       throw new Error("Storage temporarily down");
@@ -608,7 +603,7 @@ test("the hub's stored total follows reports, replacements and forgotten namespa
 test("a deleted item's share link and view membership never reach a later item", async () => {
   const { core, hub, close } = await coreHarness();
   try {
-    const first = await core.save(ref, { kind: "text", text: "secret", size: 6 }, false);
+    const first = await core.save(ref, { kind: "text", text: "secret", size: 6 });
     const token = await hub.createShare(ref, first.item.id, null);
     expect(await hub.resolveShare(token)).not.toBeNull();
     await core.remove(first.item.id, undefined, write);

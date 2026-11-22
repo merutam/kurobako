@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import { readLimitedItem, type StoredItem, sharedItem } from "../../domain/model";
-import { describePlain, itemMeta } from "../client/shared/item-row.js";
+import { describePlain, itemMeta, kindOf } from "../client/shared/item-row.js";
 import { h } from "./components/html";
 import { titleOf } from "./components/items";
 import { Layout, type SiteView } from "./components/layout";
@@ -22,14 +22,8 @@ const SharedItemContent = ({
   const title = titleOf(item);
   // As the browser sees it (item-data), so both write the same line.
   const shared = sharedItem(item);
-  const media =
-    item.kind === "image"
-      ? "image"
-      : item.mime.startsWith("video/")
-        ? "video"
-        : item.mime.startsWith("audio/")
-          ? "audio"
-          : null;
+  const kind = kindOf(describePlain(item));
+  const media = kind === "image" || kind === "video" || kind === "audio" ? kind : null;
   return (
     <>
       <h1 id="item-title">{title}</h1>

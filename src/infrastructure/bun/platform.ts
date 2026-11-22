@@ -15,7 +15,6 @@ import { logError } from "../../domain/log";
 import { type NamespaceRef, objectName, type SpaceKind } from "../../domain/model";
 import { LIVE, NamespaceCore } from "../../domain/namespace";
 import { firstValue } from "../../domain/visits";
-import { jsonError } from "../../http/context";
 import type { Client, Platform } from "../platform";
 import { createAlarmIndex } from "./alarm-index";
 import { Alarm, openDatabase, sqlOf } from "./sqlite";
@@ -189,12 +188,17 @@ export const createBunPlatform = (options: BunOptions) => {
     async live(c, ref, visit) {
       const { core } = namespaceOf(ref);
       if (!core.canWatch()) {
-        return jsonError(c, 503, "Too many live connections. Try again later.");
+        return Response.json(
+          { error: "Too many live connections. Try again later." },
+          { status: 503 },
+        );
       }
       const snapshot = await core.watch(visit);
       const upgraded = server(c).upgrade(c.req.raw, { data: { ref, snapshot } });
       // After an upgrade Bun ignores the response.
-      return upgraded ? new Response(null) : jsonError(c, 426, "Expected a WebSocket upgrade.");
+      return upgraded
+        ? new Response(null)
+        : Response.json({ error: "Expected a WebSocket upgrade." }, { status: 426 });
     },
     allowSend: async (_c, key) => allowSend(key),
     recordMiss: async (_c, key) => recordMiss(key),

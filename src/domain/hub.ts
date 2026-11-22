@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kurobako contributors
 
 import type { AppConfig } from "../config";
+import { toBase64Url } from "./encoding";
 import type { Remote, Sql, SqlValue } from "./host";
 import { logError } from "./log";
 import { type NamespaceRef, objectName, SHARE_TOKEN_BYTES } from "./model";
@@ -290,12 +291,7 @@ export class HubCore {
     if (existing) return { token: existing.token, created: false };
 
     const bytes = crypto.getRandomValues(new Uint8Array(SHARE_TOKEN_BYTES));
-    const token =
-      slotPrefix(slotOf(ref)) +
-      btoa(String.fromCharCode(...bytes))
-        .replaceAll("+", "-")
-        .replaceAll("/", "_")
-        .replace(/=+$/, "");
+    const token = slotPrefix(slotOf(ref)) + toBase64Url(bytes);
     this.sql.exec(
       "INSERT INTO item_shares (token, space, name, item_id, expires_at) VALUES (?, ?, ?, ?, ?)",
       token,
